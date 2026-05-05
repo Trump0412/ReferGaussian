@@ -10,7 +10,7 @@
 
 </div>
 
-**Authors:** Author 1, Author 2, Author 3, Author 4
+**Authors:** Bangpu Chen, Yaxuan Li, Shirui Peng, Xiangtian Si, Chu Liuxin, Xitong Cao, Hongbo Jin, Jiayu Ding (corresponding)
 
 ---
 
@@ -244,14 +244,13 @@ HyperGaussian/
 
 ## Citation
 
-Replace the placeholders below before final release:
+Replace the placeholder below before final release:
 - `XXXX.XXXXX` -> your final arXiv id
-- `Author 1 and Author 2 and ...` -> full author list
 
 ```bibtex
 @article{hypergaussian2026,
   title     = {HyperGaussian: Referring 4D Gaussian Splatting},
-  author    = {Author 1 and Author 2 and ...},
+  author    = {Bangpu Chen and Yaxuan Li and Shirui Peng and Xiangtian Si and Chu Liuxin and Xitong Cao and Hongbo Jin and Jiayu Ding},
   journal   = {arXiv preprint arXiv:XXXX.XXXXX},
   year      = {2026},
   url       = {https://arxiv.org/abs/XXXX.XXXXX}
