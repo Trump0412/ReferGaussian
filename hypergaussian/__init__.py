@@ -1,2 +1,0 @@
-"""HyperGaussian top-level package."""
-

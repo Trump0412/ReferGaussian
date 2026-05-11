@@ -23,7 +23,7 @@ _UPSTREAM_ROOT = _PROJECT_ROOT / "external" / "4DGaussians"
 
 def _load_camera_class():
     utils_path = _UPSTREAM_ROOT / "scene" / "utils.py"
-    spec = importlib.util.spec_from_file_location("hypergaussian_scene_utils", utils_path)
+    spec = importlib.util.spec_from_file_location("refergaussian_scene_utils", utils_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Unable to load Camera utilities from {utils_path}")
     module = importlib.util.module_from_spec(spec)
@@ -1110,7 +1110,7 @@ def render_hypernerf_query_video(
                 first_contact_frame = frame_index
 
             query_text = str(selection_payload.get("query", "query"))
-            headline = f"HyperGaussian query render: {query_text}"
+            headline = f"ReferGaussian query render: {query_text}"
             visible_count = int(sum(1 for record in frame_roles if record["active"] and record["displayable"]))
             status = f"frame {frame_index:04d}  time={float(time_value):.3f}  active={'yes' if query_active else 'no'}  entities={visible_count}"
             overlay_draw = ImageDraw.Draw(overlay, "RGBA")

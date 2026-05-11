@@ -8,7 +8,7 @@ for candidate in (PROJECT_ROOT, PROJECT_ROOT / "external" / "Grounded-SAM-2"):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
-from hypergaussian.semantics.grounded_sam2_backend import run_grounded_sam2_query
+from refergaussian.semantics.grounded_sam2_backend import run_grounded_sam2_query
 
 
 def main() -> None:

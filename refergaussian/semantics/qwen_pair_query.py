@@ -407,7 +407,7 @@ def refine_qwen_query_pairs(
         "reason": str(best.get("reason", "")),
         "query_slots": query_payload.get("query_slots", {}),
         "source_query_dir": str(query_dir),
-        "semantic_source": "hypergaussian_qwen_pair_verify",
+        "semantic_source": "refergaussian_qwen_pair_verify",
         "verification_summary": {
             "patient_identity": best.get("patient_identity", ""),
             "tool_identity": best.get("tool_identity", ""),

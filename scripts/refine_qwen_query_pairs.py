@@ -9,7 +9,7 @@ for candidate in (PROJECT_ROOT, EXTERNAL_ROOT):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
-from hypergaussian.semantics.qwen_pair_query import refine_qwen_query_pairs
+from refergaussian.semantics.qwen_pair_query import refine_qwen_query_pairs
 
 
 def main() -> None:

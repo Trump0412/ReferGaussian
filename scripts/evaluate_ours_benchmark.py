@@ -3,7 +3,7 @@
 evaluate_ours_benchmark.py
 
 评测脚本：读取 Ours_benchmark.json 作为 ground-truth，
-评测 HyperGaussian query pipeline 的输出结果。
+评测 ReferGaussian query pipeline 的输出结果。
 指标：Acc（时序准确率）、vIoU（视频 mask IoU）、tIoU（时序 IoU）。
 
 用法:
@@ -529,7 +529,7 @@ def evaluate_query(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Evaluate HyperGaussian outputs against Ours_benchmark.json"
+        description="Evaluate ReferGaussian outputs against Ours_benchmark.json"
     )
     parser.add_argument("--benchmark", required=True, help="Path to Ours_benchmark.json")
     parser.add_argument(

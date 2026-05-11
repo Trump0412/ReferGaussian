@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROFILE="${1:-${GS4D_ENV_PROFILE:-cuda121}}"
-CACHE_ROOT="${GS4D_CACHE_ROOT:-${HOME:-/tmp}/.cache/hypergaussian}"
+CACHE_ROOT="${GS4D_CACHE_ROOT:-${HOME:-/tmp}/.cache/refergaussian}"
 ENV_ROOT="${GS4D_ENV_ROOT:-${CACHE_ROOT}/conda-envs}"
 CONDA_PKGS_DIRS="${GS4D_CONDA_PKGS_DIRS:-${CACHE_ROOT}/conda-pkgs}"
 PIP_CACHE_DIR="${GS4D_PIP_CACHE_DIR:-${CACHE_ROOT}/pip}"

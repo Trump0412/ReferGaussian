@@ -43,7 +43,7 @@ WORLDTUBE_RUN="$(resolve_run_dir stellar_worldtube "${HYPERNERF_WORLDTUBE_NAMESP
 
 gs_python "${GS_ROOT}/scripts/build_benchmark_report.py" \
   --title "HyperNeRF ${GROUP}/${SCENE} ${RUN_SUFFIX}" \
-  --subtitle "${HYPERNERF_SHOWCASE_SUBTITLE:-Baseline vs HyperGaussian worldtube comparison.}" \
+  --subtitle "${HYPERNERF_SHOWCASE_SUBTITLE:-Baseline vs ReferGaussian worldtube comparison.}" \
   --entry "baseline=${BASELINE_RUN}" \
   --entry "stellar_worldtube=${WORLDTUBE_RUN}" \
   --output "${OUTPUT_ROOT}/${GROUP}_${SCENE}_${RUN_SUFFIX}_benchmark.md"

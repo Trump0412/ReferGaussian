@@ -9,7 +9,7 @@ for candidate in (PROJECT_ROOT, EXTERNAL_ROOT):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
-from hypergaussian.semantics.joint_embedding_cluster import build_joint_query_proposal_dir
+from refergaussian.semantics.joint_embedding_cluster import build_joint_query_proposal_dir
 
 
 def main() -> None:

@@ -239,7 +239,7 @@ def run_cmd(cmd: list[str], env: dict | None = None, cwd: Path | None = None,
 
 def gs_python(args: list[str], env: dict | None = None) -> None:
     """使用主conda环境运行python脚本。"""
-    gs_env = os.environ.get("GS4D_ENV_PATH", str(REPO_ROOT / ".cache" / "hypergaussian" / "conda-envs" / "gs4d-cuda121-py310"))
+    gs_env = os.environ.get("GS4D_ENV_PATH", str(REPO_ROOT / ".cache" / "refergaussian" / "conda-envs" / "gs4d-cuda121-py310"))
     cmd = [
         "conda", "run", "--no-capture-output", "-p", gs_env,
         "python", *args,

@@ -9,7 +9,7 @@ for candidate in (PROJECT_ROOT, EXTERNAL_ROOT):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
-from hypergaussian.semantics.query_proposal_bridge import build_query_proposal_dir
+from refergaussian.semantics.query_proposal_bridge import build_query_proposal_dir
 
 
 def main() -> None:

@@ -110,7 +110,7 @@ def build_contact_sheet(
     page = Image.new("RGB", (page_w, page_h), (245, 245, 245))
     draw = ImageDraw.Draw(page)
     font = ImageFont.load_default()
-    draw.text((gap, 16), f"HyperGaussian Entity Library Page {page_idx}", fill=(0, 0, 0), font=font)
+    draw.text((gap, 16), f"ReferGaussian Entity Library Page {page_idx}", fill=(0, 0, 0), font=font)
     for idx, thumb in enumerate(thumbs):
         row = idx // columns
         col = idx % columns

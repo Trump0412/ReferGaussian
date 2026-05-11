@@ -42,7 +42,7 @@ REPORT_DIR="${GS_ROOT}/reports/4dlangsplat_compare"
 mkdir -p "${REPORT_DIR}"
 REPORT_PATH="${REPORT_DIR}/${SCENE}_${RUN_SUFFIX}.md"
 cat > "${REPORT_PATH}" <<EOF
-# HyperGaussian vs 4DLangSplat Entry
+# ReferGaussian vs 4DLangSplat Entry
 
 - Scene: \`${SCENE}\`
 - HyperNeRF group: \`${GROUP}\`
@@ -54,7 +54,7 @@ cat > "${REPORT_PATH}" <<EOF
 
 Next steps:
 
-1. Map the scene's annotation queries to HyperGaussian query-guided planner inputs.
+1. Map the scene's annotation queries to ReferGaussian query-guided planner inputs.
 2. Run the query-guided worldtube pipeline on the annotation queries.
 3. Compare query grounding/render outputs against 4DLangSplat annotations.
 EOF

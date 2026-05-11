@@ -7,10 +7,10 @@
 | 层 | 作用 | 关键目录/文件 |
 | --- | --- | --- |
 | L0 Upstream base | 官方 `4DGaussians` 训练、渲染、数据协议 | `external/4DGaussians/` |
-| L1 Temporal warp | 时间重参数化与 warp 持久化 | `hypergaussian/temporal/` |
+| L1 Temporal warp | 时间重参数化与 warp 持久化 | `refergaussian/temporal/` |
 | L2 Spacetime primitive | temporal extent、tube、worldtube、support-aware optimization | `external/4DGaussians/scene/gaussian_model.py`、`external/4DGaussians/gaussian_renderer/__init__.py` |
-| L3 Entity bank | 从训练好的 Gaussian 导出时空实体与统计量 | `hypergaussian/entitybank/` |
-| L4 Semantics and query | slots/tracks/priors、native semantics、Qwen、GSAM2、query render | `hypergaussian/semantics/` |
+| L3 Entity bank | 从训练好的 Gaussian 导出时空实体与统计量 | `refergaussian/entitybank/` |
+| L4 Semantics and query | slots/tracks/priors、native semantics、Qwen、GSAM2、query render | `refergaussian/semantics/` |
 
 ## 2. 真正的基座在哪里
 
@@ -24,24 +24,24 @@
 - `external/4DGaussians/scene/gaussian_model.py`
 - `external/4DGaussians/gaussian_renderer/__init__.py`
 
-也就是说，HyperGaussian 不是另起炉灶写了一个完全新的 renderer，而是在现有 4DGS 主线中插入新的时间状态、worldtube 支撑和优化规则。
+也就是说，ReferGaussian 不是另起炉灶写了一个完全新的 renderer，而是在现有 4DGS 主线中插入新的时间状态、worldtube 支撑和优化规则。
 
-### 2.2 HyperGaussian 自己新增的基座
+### 2.2 ReferGaussian 自己新增的基座
 
-HyperGaussian 新增的“基础层”主要是三块：
+ReferGaussian 新增的“基础层”主要是三块：
 
-- `hypergaussian/temporal`
+- `refergaussian/temporal`
   - 时间 warp、warp 正则、warp 存取。
-- `hypergaussian/entitybank`
+- `refergaussian/entitybank`
   - 读取训练结果、采样时空轨迹、聚类成 entities。
-- `hypergaussian/semantics`
+- `refergaussian/semantics`
   - 在 entity 级别做语义、query、render、应用。
 
 ## 3. 当前架构最重要的修改点
 
 ### 3.1 Temporal warp
 
-`hypergaussian/temporal/modules.py` 提供：
+`refergaussian/temporal/modules.py` 提供：
 
 - `IdentityWarp`
 - `MonotonicMLPWarp`
@@ -87,7 +87,7 @@ HyperGaussian 新增的“基础层”主要是三块：
 - tube-aware split/clone
 - support-aware prune protect
 
-所以 HyperGaussian 的变化不仅是 render-time sample 数增加，而是训练规则也已经随 primitive 改变。
+所以 ReferGaussian 的变化不仅是 render-time sample 数增加，而是训练规则也已经随 primitive 改变。
 
 ## 4. Entity bank 是几何和语义之间的桥
 
@@ -143,7 +143,7 @@ HyperGaussian 新增的“基础层”主要是三块：
 
 它不负责：
 
-- 替代 HyperGaussian 的主训练过程。
+- 替代 ReferGaussian 的主训练过程。
 - 替代 entitybank。
 - 替代下游 query grounding。
 

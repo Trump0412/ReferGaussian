@@ -282,7 +282,7 @@ def evaluate_query(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate HyperGaussian query outputs on public 4DLangSplat-style protocols.")
+    parser = argparse.ArgumentParser(description="Evaluate ReferGaussian query outputs on public 4DLangSplat-style protocols.")
     parser.add_argument("--protocol-json", required=True)
     parser.add_argument("--annotation-dir", required=True)
     parser.add_argument("--dataset-dir", required=True)

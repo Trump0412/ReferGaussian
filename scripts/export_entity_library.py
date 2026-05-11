@@ -14,7 +14,7 @@ for candidate in (REPO_ROOT, EXTERNAL_ROOT):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
-from hypergaussian.semantics.query_render import render_hypernerf_query_video
+from refergaussian.semantics.query_render import render_hypernerf_query_video
 
 
 def _read_json(path: Path) -> dict[str, Any]:

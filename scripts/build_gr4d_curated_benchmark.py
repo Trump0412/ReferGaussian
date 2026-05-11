@@ -343,7 +343,7 @@ def _build_readme(output_root: Path, scene_payloads: list[dict]) -> None:
     lines = [
         "# GR4D Curated v1",
         "",
-        "This package now contains the final five-scene dataset requested for HyperGaussian.",
+        "This package now contains the final five-scene dataset requested for ReferGaussian.",
         f"It keeps `{family_counts.get('hypernerf', 0)}` HyperNeRF scenes and `{family_counts.get('neu3d', 0)}` Neu3D scenes.",
         "The scene list is fixed to:",
         "",

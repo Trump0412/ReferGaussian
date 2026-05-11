@@ -11,7 +11,7 @@ Examples:
 ## 2) Commit curated release files
 
 ```bash
-cd <AUTODL_ROOT>/HyperGaussian
+cd <AUTODL_ROOT>/ReferGaussian
 
 git add \
   LICENSE \
@@ -31,7 +31,7 @@ git add \
   scripts/render_stellar_tube.sh \
   scripts/run_query_guided_full.sh
 
-git commit -m "release: public HyperGaussian cleanup"
+git commit -m "release: public ReferGaussian cleanup"
 ```
 
 ## 3) Push main branch
@@ -68,4 +68,4 @@ In `docs/index.html`:
 - `https://arxiv.org/abs/<ARXIV-ID>`
 
 In `README.md`:
-- `https://huggingface.co/datasets/<ORG>/HyperGaussian-R4D-Bench-QA`
+- `https://huggingface.co/datasets/<ORG>/ReferGaussian-R4D-Bench-QA`

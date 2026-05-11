@@ -9,8 +9,8 @@ UPSTREAM_ROOT = os.path.join(REPO_ROOT, "external", "4DGaussians")
 sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, UPSTREAM_ROOT)
 
-from hypergaussian.temporal import build_temporal_warp, load_temporal_warp
-from hypergaussian.temporal.warp_viz import save_warp_artifacts
+from refergaussian.temporal import build_temporal_warp, load_temporal_warp
+from refergaussian.temporal.warp_viz import save_warp_artifacts
 
 
 def load_cfg_args(run_dir):

@@ -109,7 +109,7 @@ def regenerate_overlays(validation_path: Path, overwrite: bool = False) -> Path:
             label = f"entity #{int(entity_rows[0]['entity_id'])}" if entity_rows else "mask"
             _draw_label(draw, (max(0, left), max(0, top - 26)), label, color)
 
-        headline = f"HyperGaussian query render: {query_text}"
+        headline = f"ReferGaussian query render: {query_text}"
         visible_count = int(sum(1 for row in role_rows if row.get("active") and row.get("displayable")))
         status = (
             f"frame {frame_index:04d}  time={float(frame_row.get('time_value', 0.0)):.3f}"

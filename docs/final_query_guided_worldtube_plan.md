@@ -2,7 +2,7 @@
 
 ## Objective
 
-Move HyperGaussian from:
+Move ReferGaussian from:
 
 - global full-scene clustering
 

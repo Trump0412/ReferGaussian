@@ -2,7 +2,7 @@ import argparse
 import json
 from pathlib import Path
 
-from hypergaussian.semantics.qwen_query_planner import _extract_first_json
+from refergaussian.semantics.qwen_query_planner import _extract_first_json
 from select_qwen_query_entities import (
     _build_candidates,
     _compose_phrase_grounded_selection,

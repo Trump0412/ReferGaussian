@@ -1,4 +1,4 @@
-# HyperGaussian / HyperGaussian 方法说明
+# ReferGaussian / ReferGaussian 方法说明
 
 ## 1. 方法目标
 
@@ -11,7 +11,7 @@
 
 因此，整条方法主线可以写成：
 
-`视频序列 -> HyperGaussian 重建 -> entity bank -> semantic slots/tracks/priors -> query-conditioned grounding/rendering/editing`
+`视频序列 -> ReferGaussian 重建 -> entity bank -> semantic slots/tracks/priors -> query-conditioned grounding/rendering/editing`
 
 这里的 `training-free` 是指语义阶段不再对底层 scene representation 做场景特定的语义微调。底层几何表示依然通过 photometric reconstruction 训练得到，但语义 grounding、query selection 和应用阶段都在训练后的结构化实体之上完成。
 
@@ -19,7 +19,7 @@
 
  `4DGS` 里，时间更多像是 deformation 网络的输入条件；Gaussian 本体仍然更接近一个空间原语。
 
-HyperGaussian 的关键变化是：给每个 Gaussian 额外加入一组 temporal state，使它不再只是空间里的一个点状/椭球状 blob，而是一个局部的时空支撑单元。
+ReferGaussian 的关键变化是：给每个 Gaussian 额外加入一组 temporal state，使它不再只是空间里的一个点状/椭球状 blob，而是一个局部的时空支撑单元。
 
 对第 `i` 个 Gaussian，我们写成：
 
@@ -78,7 +78,7 @@ HyperGaussian 的关键变化是：给每个 Gaussian 额外加入一组 tempora
 
 ## 5. 两种实现形态：weak tube 与 worldtube
 
-HyperGaussian 在当前实现里有两种具体落地方式。
+ReferGaussian 在当前实现里有两种具体落地方式。
 
 ### 5.1 Weak tube
 
@@ -165,7 +165,7 @@ HyperGaussian 在当前实现里有两种具体落地方式。
 - 短时但关键的动态结构，不应该因为像素占比小就被过早剪掉。
 - split 出来的新 Gaussian，也不应该只是复制一个完全一样的时间状态，而应该沿当前 worldtube 继续细分。
 
-因此，HyperGaussian 的变化不仅在“怎么渲染”，也在“怎么训练”和“怎么维护表示结构”。
+因此，ReferGaussian 的变化不仅在“怎么渲染”，也在“怎么训练”和“怎么维护表示结构”。
 
 ## 8. 从 Gaussian 到 structured dynamic entities
 
@@ -249,7 +249,7 @@ HyperGaussian 在当前实现里有两种具体落地方式。
 这里最重要的不是“有一个 detector”，而是：
 
 - detector 只提供图像域证据；
-- 最终结果仍然回到 HyperGaussian 的时空实体空间里完成。
+- 最终结果仍然回到 ReferGaussian 的时空实体空间里完成。
 
 因此，query grounding 仍然保持跨时间、跨视角、可渲染的一致性。
 
@@ -268,7 +268,7 @@ HyperGaussian 在当前实现里有两种具体落地方式。
 
 ## 12. 方法和现有工作的差异
 
-如果用最简洁的方式概括，HyperGaussian 和现有几类方法的差异如下：
+如果用最简洁的方式概括，ReferGaussian 和现有几类方法的差异如下：
 
 - 相对 vanilla `4DGS`
   - 不是只把时间作为 deformation 条件，而是把时间写进 primitive 的支撑域。
@@ -282,7 +282,7 @@ HyperGaussian 在当前实现里有两种具体落地方式。
 如果直接写论文 `Method` 章节，建议组织成下面几节：
 
 1. `Method Overview`
-2. `HyperGaussian Representation with Explicit Temporal Support`
+2. `ReferGaussian Representation with Explicit Temporal Support`
 3. `Weak Tube and Worldtube Rendering`
 4. `Support-Aware Optimization`
 5. `Entity-Centric Training-Free Semantic Interface`

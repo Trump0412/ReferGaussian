@@ -9,7 +9,7 @@ for candidate in (REPO_ROOT, EXTERNAL_ROOT):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
-from hypergaussian.entitybank import export_entitybank
+from refergaussian.entitybank import export_entitybank
 
 
 def main() -> None:

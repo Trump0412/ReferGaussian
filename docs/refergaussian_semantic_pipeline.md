@@ -1,8 +1,8 @@
-# HyperGaussian Semantic Pipeline
+# ReferGaussian Semantic Pipeline
 
 ## Thesis
 
-HyperGaussian should not stop at "better reconstruction with a different temporal prior".
+ReferGaussian should not stop at "better reconstruction with a different temporal prior".
 
 Its contribution becomes coherent only if the same spacetime-native primitive also changes:
 
@@ -31,7 +31,7 @@ This line is deliberately different from several adjacent methods:
 - `SA4D`
   - semantics are important, but the primitive is not the same worldtube-style time-support object we are building here
 
-HyperGaussian should instead claim:
+ReferGaussian should instead claim:
 
 - time is part of the primitive support,
 - the support statistics drive grouping,
@@ -84,7 +84,7 @@ Each prior is derived from:
 - occupancy / visibility evidence
 - worldtube mode and role hints
 
-This is the point where HyperGaussian starts affecting semantics structurally rather than cosmetically.
+This is the point where ReferGaussian starts affecting semantics structurally rather than cosmetically.
 
 ### 4. Query-time segmentation bootstrap
 
@@ -131,7 +131,7 @@ This is exactly the mechanism needed for queries like `cut the lemon`, where the
 The clean storyline is:
 
 1. Vanilla 4DGS treats time as an input condition.
-2. HyperGaussian turns time into explicit local support in the primitive.
+2. ReferGaussian turns time into explicit local support in the primitive.
 3. This support changes grouping, because entities are defined by worldtube behavior rather than only 3D proximity.
 4. This grouped support changes semantics, because labels are assigned separately to static, dynamic, and interaction phases.
 5. This makes downstream dynamic semantic segmentation more grounded and more controllable.

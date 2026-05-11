@@ -15,11 +15,11 @@ for candidate in (PROJECT_ROOT, EXTERNAL_ROOT):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
-from hypergaussian.semantics.qwen_query_planner import QwenQueryPlanner, _resolve_qwen_model
-from hypergaussian.semantics.source_images import resolve_dataset_image_entries, resolve_dataset_time_values
+from refergaussian.semantics.qwen_query_planner import QwenQueryPlanner, _resolve_qwen_model
+from refergaussian.semantics.source_images import resolve_dataset_image_entries, resolve_dataset_time_values
 
 
-PROMPT_TEMPLATE = """You are selecting candidate aliases from a query-specific HyperGaussian 4D entity library.
+PROMPT_TEMPLATE = """You are selecting candidate aliases from a query-specific ReferGaussian 4D entity library.
 You will receive a natural-language query, a query plan, a small candidate set of reconstructed entities,
 and candidate entity-pair interaction windows. Decide which candidate aliases are the main query subjects and,
 if relevant, which candidate aliases are successor state objects. Do not choose numeric entity ids.

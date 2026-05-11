@@ -55,7 +55,7 @@ done
 
 REPORT_OUTPUT="${GS_ROOT}/reports/hypernerf_showcase/${GROUP}_${SCENE}_${RUN_SUFFIX}_benchmark.md"
 mkdir -p "$(dirname "${REPORT_OUTPUT}")"
-SUBTITLE="${HYPERNERF_SUITE_SUBTITLE:-Baseline vs HyperGaussian worldtube comparison for a local HyperNeRF scene.}"
+SUBTITLE="${HYPERNERF_SUITE_SUBTITLE:-Baseline vs ReferGaussian worldtube comparison for a local HyperNeRF scene.}"
 build_args=(
   --title "HyperNeRF ${GROUP}/${SCENE} ${RUN_SUFFIX}"
   --subtitle "${SUBTITLE}"

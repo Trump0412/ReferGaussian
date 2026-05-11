@@ -17,7 +17,7 @@ for _candidate in (_PROJECT_ROOT, _UPSTREAM_ROOT):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
-from hypergaussian.entitybank.tube_bank import load_gaussian_state
+from refergaussian.entitybank.tube_bank import load_gaussian_state
 from utils.sh_utils import SH2RGB
 
 
@@ -258,7 +258,7 @@ def _native_texts(
     frame_start = int(support_window.get("frame_start", 0))
     frame_end = int(support_window.get("frame_end", frame_start))
     global_desc = (
-        f"HyperGaussian entity {entity_id}: {color_words} {shape_words} "
+        f"ReferGaussian entity {entity_id}: {color_words} {shape_words} "
         f"{semantic_head} worldtube with {temporal_mode} behavior over frames {frame_start}-{frame_end}."
     )
     static_text = (
@@ -584,14 +584,14 @@ def export_native_semantic_assignments(
             entity_copy["static_text"] = assignment["native_text"]["static_text"]
             entity_copy["global_desc"] = assignment["native_text"]["global_desc"]
             entity_copy["dyn_desc"] = assignment["native_text"]["dynamic_desc"]
-            entity_copy["native_semantic_source"] = "hypergaussian_native"
+            entity_copy["native_semantic_source"] = "refergaussian_native"
         enriched_entities.append(entity_copy)
     _write_json(
         entitybank_dir / "entities_semantic_native.json",
         {
             **entities_payload,
             "entities": enriched_entities,
-            "semantic_source": "hypergaussian_native",
+            "semantic_source": "refergaussian_native",
         },
     )
     return output_path

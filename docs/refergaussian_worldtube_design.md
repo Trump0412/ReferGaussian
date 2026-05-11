@@ -1,8 +1,8 @@
-# HyperGaussian Worldtube Design
+# ReferGaussian Worldtube Design
 
 ## Goal
 
-Move HyperGaussian beyond:
+Move ReferGaussian beyond:
 
 - vanilla `4DGS`, where time is mainly a conditioning scalar for deformation
 - language or segmentation overlays on top of an unchanged Gaussian primitive
@@ -40,19 +40,19 @@ This is different from the earlier weak-tube branch:
 ### Against vanilla 4DGS
 
 - `4DGS` mainly treats time as an input to deformation.
-- `HyperGaussian worldtube` treats time as part of the primitive support itself.
+- `ReferGaussian worldtube` treats time as part of the primitive support itself.
 
 ### Against 4DLangSplat / SegmentThenSplat / SA4D
 
 - Those methods focus on language grounding, segmentation, or semantic supervision on top of a Gaussian representation.
 - They do not redefine the Gaussian primitive into a spacetime support volume.
-- HyperGaussian is geometry-first: semantics are attached after a stronger spacetime base exists.
+- ReferGaussian is geometry-first: semantics are attached after a stronger spacetime base exists.
 
 ### Against TRASE
 
 - `TRASE` is a strong entity/query backend for clustering, semantic indexing, and query-time mask rendering.
 - It is not a new spacetime primitive.
-- In HyperGaussian, TRASE is treated as a reusable semantic layer, not the geometric core.
+- In ReferGaussian, TRASE is treated as a reusable semantic layer, not the geometric core.
 
 ## Current implementation status
 
@@ -66,7 +66,7 @@ This is different from the earlier weak-tube branch:
 
 - The worldtube branch is implemented without changing the low-level CUDA rasterizer.
 - It is therefore still an approximation of a 4D Gaussian integral, not a full 4D covariance rasterizer.
-- Semantic transfer from TRASE to early HyperGaussian HyperNeRF smoke runs is still weak because the current 300-iteration tube checkpoint does not yet produce stable entity-aligned tracks.
+- Semantic transfer from TRASE to early ReferGaussian HyperNeRF smoke runs is still weak because the current 300-iteration tube checkpoint does not yet produce stable entity-aligned tracks.
 
 ## Next step
 

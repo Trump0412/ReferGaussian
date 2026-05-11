@@ -182,19 +182,19 @@ def build_report() -> str:
             "patient_conf": next((item.get("confidence") for item in bridge_selected.get("selected", []) if item.get("role") == "patient"), None),
             "tool_conf": next((item.get("confidence") for item in bridge_selected.get("selected", []) if item.get("role") == "tool"), None),
         },
-        "HyperGaussian-native-v1": load_query_summary(
+        "ReferGaussian-native-v1": load_query_summary(
             REPO_ROOT
-            / "runs/stellar_worldtube_cut_lemon1_smoke300_v6a/hypernerf/cut-lemon1/entitybank/native_queries/hypergaussian_native_cuts_the_lemon",
+            / "runs/stellar_worldtube_cut_lemon1_smoke300_v6a/hypernerf/cut-lemon1/entitybank/native_queries/refergaussian_native_cuts_the_lemon",
             REPO_ROOT
-            / "runs/stellar_worldtube_cut_lemon1_smoke300_v6a/hypernerf/cut-lemon1/entitybank/native_queries/hypergaussian_native_cuts_the_lemon/rendered/validation.json",
+            / "runs/stellar_worldtube_cut_lemon1_smoke300_v6a/hypernerf/cut-lemon1/entitybank/native_queries/refergaussian_native_cuts_the_lemon/rendered/validation.json",
             bridge_active,
             bridge_roles,
         ),
-        "HyperGaussian-native-v5": load_query_summary(
+        "ReferGaussian-native-v5": load_query_summary(
             REPO_ROOT
-            / "runs/stellar_worldtube_cut_lemon1_smoke300_v6a/hypernerf/cut-lemon1/entitybank/native_queries/hypergaussian_native_cuts_the_lemon_v5",
+            / "runs/stellar_worldtube_cut_lemon1_smoke300_v6a/hypernerf/cut-lemon1/entitybank/native_queries/refergaussian_native_cuts_the_lemon_v5",
             REPO_ROOT
-            / "runs/stellar_worldtube_cut_lemon1_smoke300_v6a/hypernerf/cut-lemon1/entitybank/native_queries/hypergaussian_native_cuts_the_lemon_v5/rendered/validation.json",
+            / "runs/stellar_worldtube_cut_lemon1_smoke300_v6a/hypernerf/cut-lemon1/entitybank/native_queries/refergaussian_native_cuts_the_lemon_v5/rendered/validation.json",
             bridge_active,
             bridge_roles,
         ),
@@ -295,7 +295,7 @@ def build_report() -> str:
         )
 
     query_table_rows = []
-    for label in ["TRASE-bridge", "HyperGaussian-native-v1", "HyperGaussian-native-v5"]:
+    for label in ["TRASE-bridge", "ReferGaussian-native-v1", "ReferGaussian-native-v5"]:
         row = query_rows[label]
         query_table_rows.append(
             [
@@ -430,13 +430,13 @@ def build_report() -> str:
         [
             "TRASE bridge / native query",
             "`trase_bridge`, `native_queries`",
-            "前者走外部强语义后端，后者走 HyperGaussian 自身语义打分",
+            "前者走外部强语义后端，后者走 ReferGaussian 自身语义打分",
             "当前 bridge 更稳，native 还在追",
         ],
     ]
 
     lines: list[str] = []
-    lines.append("# HyperGaussian 架构与 Pipeline 汇报稿")
+    lines.append("# ReferGaussian 架构与 Pipeline 汇报稿")
     lines.append("")
     lines.append("## Bootstrap 审计")
     lines.append("")
@@ -482,7 +482,7 @@ def build_report() -> str:
     lines.append("## 1. 一句话定位")
     lines.append("")
     lines.append(
-        "HyperGaussian 的目标不是只做“更好的时间编码”，而是把动态场景从 `time-conditioned 3D Gaussian` 推进到 `spacetime-native Gaussian primitive`："
+        "ReferGaussian 的目标不是只做“更好的时间编码”，而是把动态场景从 `time-conditioned 3D Gaussian` 推进到 `spacetime-native Gaussian primitive`："
     )
     lines.append("")
     lines.append("- 上游可以接 `COLMAP / dataset ply / DA3` 作为几何 bootstrap。")
@@ -528,22 +528,22 @@ def build_report() -> str:
     lines.append("   - `export_entitybank.py` 导出 `tube_bank.json`、`trajectory_samples.npz`、`cluster_stats.json`、`entities.json`。")
     lines.append("7. 动态语义 / 查询")
     lines.append("   - 可以继续导出 `semantic_slots / semantic_tracks / semantic_priors`。")
-    lines.append("   - 查询层既支持 `TRASE bridge`，也支持 `HyperGaussian native query`。")
+    lines.append("   - 查询层既支持 `TRASE bridge`，也支持 `ReferGaussian native query`。")
     lines.append("")
     lines.append("## 4. DA3 在系统里的角色")
     lines.append("")
-    lines.append("DA3 在 HyperGaussian 里是 `geometry bootstrap`，不是最终动态模型。")
+    lines.append("DA3 在 ReferGaussian 里是 `geometry bootstrap`，不是最终动态模型。")
     lines.append("")
     lines.append("实际接法如下：")
     lines.append("")
     lines.append("1. `scripts/run_da3_bootstrap.py` 直接调用 `DepthAnything3.from_pretrained(\"depth-anything/DA3NESTED-GIANT-LARGE-1.1\")`。")
     lines.append("2. 推理时导出 `npz-gs_ply`，得到 DA3 的高质量几何/高斯结果。")
     lines.append("3. `scripts/convert_da3_gs_ply_to_fused.py` 会读取 `gs_ply/*.ply`，优先按 opacity 做 top-k 采样，把 SH DC 转成 RGB，并写回 scene 目录下的 `fused.ply`。")
-    lines.append("4. 后续训练就继续走原来的 4DGS / HyperGaussian 训练入口，因此 DA3 只替换初始化，不替换后续 scene-specific 4D 优化。")
+    lines.append("4. 后续训练就继续走原来的 4DGS / ReferGaussian 训练入口，因此 DA3 只替换初始化，不替换后续 scene-specific 4D 优化。")
     lines.append("")
     lines.append("这套设计的意义是：")
     lines.append("")
-    lines.append("- 保留 HyperGaussian 对时空 primitive、densify/prune、entitybank 的控制权。")
+    lines.append("- 保留 ReferGaussian 对时空 primitive、densify/prune、entitybank 的控制权。")
     lines.append("- 把 DA3 的价值集中在“给一个更强的初始几何”，而不是让 feed-forward 模型替代整个动态优化主线。")
     lines.append("")
     lines.append("## Temporal Warp 是什么")
@@ -563,7 +563,7 @@ def build_report() -> str:
     lines.append("- `identity`：不做 warp，对应 baseline 4DGS。")
     lines.append("- `mlp`：单调 MLP warp，对应最早的 chronometric 版本。")
     lines.append("- `density`：把时间看成一维 density 的积分，对应 chronometric density 版本。")
-    lines.append("- `stellar`：`StellarMetricWarp`，是当前 HyperGaussian 常用的 context-aware warp。")
+    lines.append("- `stellar`：`StellarMetricWarp`，是当前 ReferGaussian 常用的 context-aware warp。")
     lines.append("")
     lines.append("当前 `stellar` warp 的关键点是：")
     lines.append("")
@@ -639,11 +639,11 @@ def build_report() -> str:
     lines.append("- 它定义了 tube 怎么分裂。")
     lines.append("- 它定义了哪些短时动态结构不该过早被剪掉。")
     lines.append("")
-    lines.append("## 6. HyperGaussian worldtube 与 vanilla 4DGS 的核心区别")
+    lines.append("## 6. ReferGaussian worldtube 与 vanilla 4DGS 的核心区别")
     lines.append("")
     lines.append(
         table(
-            ["维度", "vanilla 4DGS", "HyperGaussian worldtube"],
+            ["维度", "vanilla 4DGS", "ReferGaussian worldtube"],
             [
                 ["时间的角色", "时间主要是 deformation 的条件变量", "时间是 primitive 自身支撑域的一部分"],
                 ["Gaussian 的定义", "本质上仍是某个时刻被形变后的 3D Gaussian", "每个 Gaussian 是带局部时间支撑的 spacetime tube"],
@@ -669,7 +669,7 @@ def build_report() -> str:
     lines.append("")
     lines.append(f"- `mutant` 上，`stellar_core` 比 baseline 提升 `+{delta_mutant_core:.4f}` PSNR，`stellar_spacetime` 进一步达到 `+{delta_mutant_spacetime:.4f}` PSNR。")
     lines.append(f"- `standup` 上，`stellar_core` 是当前最稳的 full-run 版本，比 baseline 提升 `+{delta_standup_core:.4f}` PSNR。")
-    lines.append("- 这说明 HyperGaussian 的主线不是凭空跳到 worldtube，而是先完成 `time reparameterization -> local temporal state -> primitive-level temporal support` 的逐级推进。")
+    lines.append("- 这说明 ReferGaussian 的主线不是凭空跳到 worldtube，而是先完成 `time reparameterization -> local temporal state -> primitive-level temporal support` 的逐级推进。")
     lines.append("")
     lines.append("### 7.2 当前显式 tube/worldtube primitive 对比")
     lines.append("")
@@ -696,7 +696,7 @@ def build_report() -> str:
     lines.append("解读：")
     lines.append("")
     lines.append(f"- 在 `bouncingballs` 的 DA3-init smoke 上，弱 tube 配置比 `baseline 4DGS + DA3 init` 仍然提高了 `+{delta_da3_tube:.4f}` PSNR。")
-    lines.append("- 这说明 DA3 并没有替代 HyperGaussian；它只是把初始几何变强，而真正的提升仍来自后续时空 primitive 和优化。")
+    lines.append("- 这说明 DA3 并没有替代 ReferGaussian；它只是把初始几何变强，而真正的提升仍来自后续时空 primitive 和优化。")
     lines.append("")
     lines.append("### 7.4 cut-lemon1 查询结果对比")
     lines.append("")
@@ -709,9 +709,9 @@ def build_report() -> str:
     lines.append("解读：")
     lines.append("")
     lines.append("- `TRASE-bridge` 仍然是当前最稳定的查询后端，事件窗口稳定落在 `331-371`。")
-    lines.append("- `HyperGaussian-native-v1` 能大致覆盖事件，但时间窗口过宽，active IoU 只有 `0.4824`。")
-    lines.append("- `HyperGaussian-native-v5` 的窗口又收得过晚，active IoU 降到 `0.0000`。")
-    lines.append("- 因此，当前最佳实践仍然是：`几何用 HyperGaussian worldtube，语义查询先走 TRASE bridge`。")
+    lines.append("- `ReferGaussian-native-v1` 能大致覆盖事件，但时间窗口过宽，active IoU 只有 `0.4824`。")
+    lines.append("- `ReferGaussian-native-v5` 的窗口又收得过晚，active IoU 降到 `0.0000`。")
+    lines.append("- 因此，当前最佳实践仍然是：`几何用 ReferGaussian worldtube，语义查询先走 TRASE bridge`。")
     lines.append("")
     lines.append("## 语义架构")
     lines.append("")
@@ -734,8 +734,8 @@ def build_report() -> str:
     lines.append("")
     lines.append("## 8. 汇报时可以直接讲的结论")
     lines.append("")
-    lines.append("1. HyperGaussian 的核心不是“多一个 time MLP”，而是把时间写进 Gaussian primitive 本身。")
-    lines.append("2. DA3 在系统里只负责 bootstrap 几何，把弱点云初始化替换成更强的 `fused.ply`；真正的动态建模仍然由 HyperGaussian 完成。")
+    lines.append("1. ReferGaussian 的核心不是“多一个 time MLP”，而是把时间写进 Gaussian primitive 本身。")
+    lines.append("2. DA3 在系统里只负责 bootstrap 几何，把弱点云初始化替换成更强的 `fused.ply`；真正的动态建模仍然由 ReferGaussian 完成。")
     lines.append("3. `stellar_core` 证明 per-Gaussian temporal state 是有效的；`stellar_spacetime` 证明时间已经开始直接影响 primitive；`stellar_worldtube` 则把这个想法推进到显式局部时空积分。")
     lines.append("4. 当前最有代表性的显式时空 primitive 是 `stellar_worldtube_v6a`：它在 `mutant` 和 `cut-lemon1` 上已经明显优于同预算 baseline，在 `standup` 上也基本追平。")
     lines.append("5. 下游语义层目前仍建议使用 `TRASE bridge`，因为 native query 还没有稳定到能替代 bridge backend。")
@@ -776,7 +776,7 @@ def build_report() -> str:
     lines.append("- `scripts/train_stellar_worldtube.sh`")
     lines.append("- `external/4DGaussians/scene/gaussian_model.py`")
     lines.append("- `external/4DGaussians/gaussian_renderer/__init__.py`")
-    lines.append("- `hypergaussian/entitybank/tube_bank.py`")
+    lines.append("- `refergaussian/entitybank/tube_bank.py`")
     lines.append("- `scripts/export_entitybank.py`")
     lines.append("")
     lines.append("## 10. 本报告读取的数据源")
@@ -804,8 +804,8 @@ def build_report() -> str:
         REPO_ROOT / "runs/baseline_4dgs_da3_smoke/dnerf/bouncingballs",
         REPO_ROOT / "runs/stellar_tube_weak_da3_smoke/dnerf/bouncingballs",
         bridge_query_dir,
-        REPO_ROOT / "runs/stellar_worldtube_cut_lemon1_smoke300_v6a/hypernerf/cut-lemon1/entitybank/native_queries/hypergaussian_native_cuts_the_lemon",
-        REPO_ROOT / "runs/stellar_worldtube_cut_lemon1_smoke300_v6a/hypernerf/cut-lemon1/entitybank/native_queries/hypergaussian_native_cuts_the_lemon_v5",
+        REPO_ROOT / "runs/stellar_worldtube_cut_lemon1_smoke300_v6a/hypernerf/cut-lemon1/entitybank/native_queries/refergaussian_native_cuts_the_lemon",
+        REPO_ROOT / "runs/stellar_worldtube_cut_lemon1_smoke300_v6a/hypernerf/cut-lemon1/entitybank/native_queries/refergaussian_native_cuts_the_lemon_v5",
     ]
     for path in source_paths:
         lines.append(f"- `{repo_rel(path)}`")
@@ -818,7 +818,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--output",
-        default=str(REPO_ROOT / "reports/hypergaussian_architecture_pipeline_report.md"),
+        default=str(REPO_ROOT / "reports/refergaussian_architecture_pipeline_report.md"),
     )
     args = parser.parse_args()
 

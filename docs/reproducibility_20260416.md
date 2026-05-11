@@ -3,7 +3,7 @@
 ## Environment
 
 - Host: `myautodl`
-- Project root: `<AUTODL_ROOT>/HyperGaussian`
+- Project root: `<AUTODL_ROOT>/ReferGaussian`
 - Main env: `<AUTODL_ROOT>/.conda-envs/gs4d-cuda121-py310`
 - Reproduction artifacts: `reports/reproducibility_20260416`
 
@@ -11,14 +11,14 @@
 
 Evaluated run:
 
-`<AUTODL_ROOT>/HyperGaussian/runs/stellar_tube_bench12_best04034_lrlow_20260402_keyboard/hypernerf/keyboard`
+`<AUTODL_ROOT>/ReferGaussian/runs/stellar_tube_bench12_best04034_lrlow_20260402_keyboard/hypernerf/keyboard`
 
 Command:
 
 ```bash
 conda run -p <AUTODL_ROOT>/.conda-envs/gs4d-cuda121-py310 \
   python scripts/collect_metrics.py \
-  --run-dir <AUTODL_ROOT>/HyperGaussian/runs/stellar_tube_bench12_best04034_lrlow_20260402_keyboard/hypernerf/keyboard \
+  --run-dir <AUTODL_ROOT>/ReferGaussian/runs/stellar_tube_bench12_best04034_lrlow_20260402_keyboard/hypernerf/keyboard \
   --write-summary
 ```
 
@@ -69,10 +69,10 @@ Note: differences are due to protocol/mapping coverage and evaluation-scope diff
 ```bash
 conda run -p <AUTODL_ROOT>/.conda-envs/gs4d-cuda121-py310 \
   python scripts/evaluate_public_query_protocol.py \
-  --protocol-json <AUTODL_ROOT>/HyperGaussian/reports/4dlangsplat_compare/protocol_splits/americano.json \
-  --annotation-dir <AUTODL_ROOT>/HyperGaussian/data/benchmarks/4dlangsplat/HyperNeRF-Annotation/americano \
-  --dataset-dir <AUTODL_ROOT>/HyperGaussian/data/hypernerf/misc/americano \
-  --query-root <AUTODL_ROOT>/HyperGaussian/runs/stellar_tube_4dlangsplat_refresh_20260328_americano/hypernerf/americano/entitybank/query_guided \
+  --protocol-json <AUTODL_ROOT>/ReferGaussian/reports/4dlangsplat_compare/protocol_splits/americano.json \
+  --annotation-dir <AUTODL_ROOT>/ReferGaussian/data/benchmarks/4dlangsplat/HyperNeRF-Annotation/americano \
+  --dataset-dir <AUTODL_ROOT>/ReferGaussian/data/hypernerf/misc/americano \
+  --query-root <AUTODL_ROOT>/ReferGaussian/runs/stellar_tube_4dlangsplat_refresh_20260328_americano/hypernerf/americano/entitybank/query_guided \
   --output-json reports/reproducibility_20260416/4dlangsplat_americano_public_eval_reproduced.json \
   --output-md reports/reproducibility_20260416/4dlangsplat_americano_public_eval_reproduced.md
 ```

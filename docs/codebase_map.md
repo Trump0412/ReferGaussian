@@ -61,7 +61,7 @@ This preserves:
 
 ## Phase B Integration Summary
 
-Phase B introduces `hypergaussian.temporal` and only requires glue in:
+Phase B introduces `refergaussian.temporal` and only requires glue in:
 - `external/4DGaussians/arguments/__init__.py`
 - `external/4DGaussians/train.py`
 - `external/4DGaussians/render.py`

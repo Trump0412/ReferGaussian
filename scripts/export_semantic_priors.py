@@ -9,7 +9,7 @@ for candidate in (REPO_ROOT, EXTERNAL_ROOT):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
-from hypergaussian.semantics import export_semantic_priors
+from refergaussian.semantics import export_semantic_priors
 
 
 def main() -> None:

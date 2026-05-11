@@ -2,7 +2,7 @@
 
 ## Scope
 
-- Repository: `<AUTODL_ROOT>/HyperGaussian`
+- Repository: `<AUTODL_ROOT>/ReferGaussian`
 - Goal: evaluate whether the codebase is ready for a clean public release.
 
 ## Verdict
@@ -17,7 +17,7 @@ Core training/evaluation scripts and public-facing documentation are in place, a
 - Project homepage template for GitHub Pages under `docs/`.
 - Reproducibility notes with concrete commands and reported metrics.
 - Compatibility wrappers for common script entry points.
-- Naming cleanup to align package/project identity with **HyperGaussian**.
+- Naming cleanup to align package/project identity with **ReferGaussian**.
 
 ## Recommended final checks before announcement
 

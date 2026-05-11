@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="description" content="HyperGaussian: Referring 4D Gaussian Splatting.">
-  <meta name="keywords" content="HyperGaussian, 4D Gaussian Splatting, R4DGS, Referring Segmentation">
+  <meta name="description" content="ReferGaussian: Referring Segmentation in 4D Gaussian Splatting.">
+  <meta name="keywords" content="ReferGaussian, 4D Gaussian Splatting, R4DGS, Referring Segmentation">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HyperGaussian: Referring 4D Gaussian Splatting</title>
+  <title>ReferGaussian: Referring Segmentation in 4D Gaussian Splatting</title>
 
   <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
@@ -171,7 +171,7 @@
 <nav class="navbar" role="navigation" aria-label="main navigation">
   <div class="container is-max-desktop">
     <div class="navbar-brand">
-      <a class="navbar-item nav-home" href="https://github.com/Trump0412/HyperGaussian" target="_blank" rel="noreferrer">
+      <a class="navbar-item nav-home" href="https://github.com/Trump0412/ReferGaussian" target="_blank" rel="noreferrer">
         <span class="icon"><i class="fab fa-github"></i></span>
       </a>
       <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarMenu">
@@ -181,7 +181,7 @@
     <div id="navbarMenu" class="navbar-menu">
       <div class="navbar-start">
         <a class="navbar-item nav-anchor" href="https://arxiv.org/abs/XXXX.XXXXX" target="_blank" rel="noreferrer">Paper</a>
-        <a class="navbar-item nav-anchor" href="https://github.com/Trump0412/HyperGaussian" target="_blank" rel="noreferrer">Code</a>
+        <a class="navbar-item nav-anchor" href="https://github.com/Trump0412/ReferGaussian" target="_blank" rel="noreferrer">Code</a>
         <a class="navbar-item nav-anchor" href="https://huggingface.co/datasets/LiYacheng/r4d-bench-qa" target="_blank" rel="noreferrer">HuggingFace</a>
         <a class="navbar-item nav-anchor" href="#benchmark">Benchmark</a>
         <a class="navbar-item nav-anchor" href="#results">Results</a>
@@ -198,7 +198,7 @@
       <div class="columns is-centered">
         <div class="column has-text-centered">
           <p class="hero-kicker">arXiv Preprint</p>
-          <h1 class="title is-1 publication-title">HyperGaussian: Referring 4D Gaussian Splatting</h1>
+          <h1 class="title is-1 publication-title">ReferGaussian: Referring Segmentation in 4D Gaussian Splatting</h1>
 
           <div class="is-size-5 publication-authors" style="margin-top:0.5rem;">
             <span class="author-block">Bangpu Chen<sup>1</sup>,</span>
@@ -228,7 +228,7 @@
               </a>
             </span>
             <span class="link-block">
-              <a href="https://github.com/Trump0412/HyperGaussian" class="external-link button is-normal is-rounded is-light" target="_blank" rel="noreferrer">
+              <a href="https://github.com/Trump0412/ReferGaussian" class="external-link button is-normal is-rounded is-light" target="_blank" rel="noreferrer">
                 <span class="icon"><i class="fab fa-github"></i></span><span>Code</span>
               </a>
             </span>
@@ -267,10 +267,10 @@
 <section class="section" style="padding-top:1.5rem;padding-bottom:3rem;">
   <div class="container is-max-desktop">
     <div class="image-frame">
-      <img src="assets/Fig1.png" alt="HyperGaussian teaser">
+      <img src="assets/Fig1.png" alt="ReferGaussian teaser">
     </div>
     <p class="figure-caption has-text-centered" style="margin-top:1rem;">
-      <b>Figure 1.</b> HyperGaussian reconstructs dynamic scenes as 4D Gaussians and performs training-free referring inference for temporally varying, multi-target, reasoning-intensive, and zero-target queries.
+      <b>Figure 1.</b> ReferGaussian reconstructs dynamic scenes as 4D Gaussians and performs training-free referring inference for temporally varying, multi-target, reasoning-intensive, and zero-target queries.
     </p>
   </div>
 </section>
@@ -297,13 +297,13 @@
   <div class="container is-max-desktop">
     <div class="section-intro has-text-centered">
       <p class="section-kicker">Method</p>
-      <h2 class="title is-3 section-title">HyperGaussian Framework</h2>
-      <p class="section-copy">Dynamic reconstruction plus a Qwen-based Hyper-Planner in three explicit referring stages.</p>
+      <h2 class="title is-3 section-title">ReferGaussian Framework</h2>
+      <p class="section-copy">Dynamic reconstruction plus a Qwen-based Refer-Planner in three explicit referring stages.</p>
     </div>
 
     <div class="paper-card" style="margin-bottom:1.8rem;">
       <div class="image-frame">
-        <img src="assets/Fig3.png" alt="HyperGaussian framework overview">
+        <img src="assets/Fig3.png" alt="ReferGaussian framework overview">
       </div>
       <p class="figure-caption has-text-centered" style="margin-top:1rem;">
         <b>Figure 3.</b> Pipeline overview: dynamic reconstruction, static segmentation, semantic assignment, and spatio-temporal reasoning.
@@ -329,7 +329,7 @@
         <div class="method-card">
           <span class="tag-label tag-stage3">Stage 3</span>
           <h4>Spatio-Temporal Reasoning</h4>
-          <p>The Hyper-Planner decomposes language constraints and selects final referents from EntityBank without scene-specific retraining.</p>
+          <p>The Refer-Planner decomposes language constraints and selects final referents from EntityBank without scene-specific retraining.</p>
         </div>
       </div>
     </div>
@@ -361,7 +361,7 @@
           <tbody>
             <tr><td>Segment then Splat</td><td>55.6</td><td>28.4</td><td>20.3208</td><td>0.7027</td><td>0.3971</td></tr>
             <tr><td>4D LangSplat</td><td>58.4</td><td>32.1</td><td>20.3208</td><td>0.7027</td><td>0.3971</td></tr>
-            <tr class="is-selected-row"><td>HyperGaussian (Ours)</td><td><b>76.5</b></td><td><b>34.4</b></td><td><b>20.4159</b></td><td><b>0.7069</b></td><td><b>0.3942</b></td></tr>
+            <tr class="is-selected-row"><td>ReferGaussian (Ours)</td><td><b>76.5</b></td><td><b>34.4</b></td><td><b>20.4159</b></td><td><b>0.7069</b></td><td><b>0.3942</b></td></tr>
           </tbody>
         </table>
       </div>
@@ -379,7 +379,7 @@
             <tr><td>Deformable CLIP</td><td>65.01</td><td>45.37</td></tr>
             <tr><td>Non-Status Field</td><td>84.58</td><td>62.00</td></tr>
             <tr><td>4D LangSplat</td><td>88.86</td><td>66.14</td></tr>
-            <tr class="is-selected-row"><td>HyperGaussian (Ours)</td><td><b>91.62</b></td><td><b>66.48</b></td></tr>
+            <tr class="is-selected-row"><td>ReferGaussian (Ours)</td><td><b>91.62</b></td><td><b>66.48</b></td></tr>
           </tbody>
         </table>
       </div>
@@ -397,7 +397,7 @@
             <tr><td>w/o Stage 1 static segmentation</td><td>48.6</td><td>17.2</td></tr>
             <tr><td>w/o Stage 2 semantic assignment</td><td>62.9</td><td>29.8</td></tr>
             <tr><td>w/o Stage 3 spatio-temporal reasoning</td><td>36.0</td><td>26.1</td></tr>
-            <tr class="is-selected-row"><td>HyperGaussian (full)</td><td><b>76.5</b></td><td><b>34.4</b></td></tr>
+            <tr class="is-selected-row"><td>ReferGaussian (full)</td><td><b>76.5</b></td><td><b>34.4</b></td></tr>
           </tbody>
         </table>
       </div>
@@ -440,8 +440,8 @@
       <h2 class="title is-3 section-title">BibTeX</h2>
       <p class="section-copy">Replace placeholders after your arXiv is online.</p>
     </div>
-    <pre>@article{hypergaussian2026,
-  title     = {HyperGaussian: Referring 4D Gaussian Splatting},
+    <pre>@article{refergaussian2026,
+  title     = {ReferGaussian: Referring Segmentation in 4D Gaussian Splatting},
   author    = {Bangpu Chen and Yaxuan Li and Shirui Peng and Xiangtian Si and Chu Liuxin and Xitong Cao and Hongbo Jin and Jiayu Ding},
   journal   = {arXiv preprint arXiv:XXXX.XXXXX},
   year      = {2026},
@@ -453,8 +453,8 @@
 <footer class="footer">
   <div class="container is-max-desktop has-text-centered">
     <p style="color:#64748b;font-size:0.9rem;">
-      HyperGaussian &middot; arXiv 2026 &middot;
-      <a href="https://github.com/Trump0412/HyperGaussian" style="color:#2563eb;">GitHub</a>
+      ReferGaussian &middot; arXiv 2026 &middot;
+      <a href="https://github.com/Trump0412/ReferGaussian" style="color:#2563eb;">GitHub</a>
       &middot;
       <a href="https://huggingface.co/datasets/LiYacheng/r4d-bench-qa" style="color:#2563eb;">Dataset</a>
     </p>

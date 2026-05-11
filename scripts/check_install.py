@@ -28,7 +28,7 @@ def main():
         "torchvision",
         "torchaudio",
         "plyfile",
-        "hypergaussian.temporal",
+        "refergaussian.temporal",
         "utils.config_utils",
         "diff_gaussian_rasterization",
         "simple_knn._C",
@@ -48,7 +48,7 @@ def main():
         results["cuda_home"] = os.environ.get("CUDA_HOME")
 
         from argparse import Namespace
-        from hypergaussian.temporal import build_temporal_warp
+        from refergaussian.temporal import build_temporal_warp
         from utils.config_utils import load_config_dict
 
         dummy_args = Namespace(

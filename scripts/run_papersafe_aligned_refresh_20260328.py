@@ -9,8 +9,8 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REPORT_ROOT = PROJECT_ROOT / "reports" / "papersafe_aligned_refresh_20260328"
-GS_PYTHON = Path(os.environ.get("GS4D_PYTHON", str(Path(os.environ.get("GS4D_ENV_ROOT", str(Path.home() / ".cache" / "hypergaussian" / "conda-envs"))) / "gs4d-cuda121-py310" / "bin" / "python")))
-GSAM2_PYTHON = Path(os.environ.get("GS4D_GSAM2_PYTHON", str(Path(os.environ.get("GS4D_ENV_ROOT", str(Path.home() / ".cache" / "hypergaussian" / "conda-envs"))) / "grounded-sam2-py310" / "bin" / "python")))
+GS_PYTHON = Path(os.environ.get("GS4D_PYTHON", str(Path(os.environ.get("GS4D_ENV_ROOT", str(Path.home() / ".cache" / "refergaussian" / "conda-envs"))) / "gs4d-cuda121-py310" / "bin" / "python")))
+GSAM2_PYTHON = Path(os.environ.get("GS4D_GSAM2_PYTHON", str(Path(os.environ.get("GS4D_ENV_ROOT", str(Path.home() / ".cache" / "refergaussian" / "conda-envs"))) / "grounded-sam2-py310" / "bin" / "python")))
 
 PAPERPUSH_ROOT = Path(os.environ.get("PAPERPUSH_ROOT", str(PROJECT_ROOT.parent)))
 

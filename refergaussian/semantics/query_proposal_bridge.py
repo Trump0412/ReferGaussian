@@ -21,7 +21,7 @@ for _candidate in (_PROJECT_ROOT,):
 
 def _load_camera_class():
     utils_path = _UPSTREAM_ROOT / "scene" / "utils.py"
-    spec = importlib.util.spec_from_file_location("hypergaussian_scene_utils_bridge", utils_path)
+    spec = importlib.util.spec_from_file_location("refergaussian_scene_utils_bridge", utils_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Unable to load Camera utilities from {utils_path}")
     module = importlib.util.module_from_spec(spec)

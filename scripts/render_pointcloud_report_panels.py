@@ -284,7 +284,7 @@ def main() -> None:
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--max-points", type=int, default=45000)
     parser.add_argument("--baseline-title", default="4DGS baseline")
-    parser.add_argument("--ours-title", default="HyperGaussian")
+    parser.add_argument("--ours-title", default="ReferGaussian")
     parser.add_argument("--gif-path", type=Path, default=None)
     parser.add_argument("--gif-title", default="")
     parser.add_argument("--gif-frames", type=int, default=36)

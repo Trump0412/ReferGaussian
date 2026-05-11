@@ -56,7 +56,7 @@ def main() -> None:
     parser.add_argument("--baseline-method", default="")
     parser.add_argument("--ours-method", default="")
     parser.add_argument("--baseline-label", default="4DGS")
-    parser.add_argument("--ours-label", default="HyperGaussian")
+    parser.add_argument("--ours-label", default="ReferGaussian")
     parser.add_argument("--gt-label", default="GT")
     parser.add_argument("--title", default="")
     parser.add_argument("--padding", type=int, default=20)

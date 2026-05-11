@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Download all HyperNeRF scenes used in the HyperGaussian paper.
+# Download all HyperNeRF scenes used in the ReferGaussian paper.
 # Each scene requires COLMAP to generate the initial point cloud.
 # Usage:
 #   bash scripts/prepare_hypernerf.sh              # download all paper scenes

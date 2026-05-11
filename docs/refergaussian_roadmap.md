@@ -1,4 +1,4 @@
-# HyperGaussian Roadmap
+# ReferGaussian Roadmap
 
 ## Current repository status
 
@@ -71,18 +71,18 @@
 - `stellar-density`
   - Chronometric 4DGS with a density-integral time warp.
   - A learned scalar reparameterization `tau = phi(t)` where `phi` is induced by a positive temporal density.
-  - This is still not the final HyperGaussian representation.
+  - This is still not the final ReferGaussian representation.
 - `stellar_worldtube`
   - An explicit local spacetime-tube branch where one Gaussian expands into a short support interval in time.
   - The latest `v5` run uses segment-integral sampling and visibility-aware support, not only covariance inflation.
 
-## What is still missing for true HyperGaussian
+## What is still missing for true ReferGaussian
 
 The current chrono implementation only changes how scalar time enters the existing 4DGS deformation path.
 
 It does **not** yet make time behave like `x, y, z` in the representation itself.
 
-To call the system "true HyperGaussian", we need all of the following:
+To call the system "true ReferGaussian", we need all of the following:
 
 1. Time must become a first-class geometric variable, not only a warped scalar input.
 2. The primitive must carry explicit temporal extent or worldline structure.
@@ -179,7 +179,7 @@ Acceptance criteria:
 
 ### Stage D: Spacetime Tube / Worldline Gaussian
 
-Build the final HyperGaussian primitive.
+Build the final ReferGaussian primitive.
 
 Planned changes:
 

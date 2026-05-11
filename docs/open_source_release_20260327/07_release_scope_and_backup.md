@@ -7,7 +7,7 @@
 - `README.md`
 - `docs/`
 - `configs/`
-- `hypergaussian/`
+- `refergaussian/`
 - `scripts/`
 - `patches/`
 - `external/4DGaussians/`
@@ -33,12 +33,12 @@
 ## 3. 当前建议的公开仓库骨架
 
 ```text
-HyperGaussian/
+ReferGaussian/
 ├── README.md
 ├── docs/
 │   └── open_source_release_20260327/
 ├── configs/
-├── hypergaussian/
+├── refergaussian/
 ├── scripts/
 ├── patches/
 └── external/
@@ -58,16 +58,16 @@ HyperGaussian/
 
 本次建议生成的备份目录路径：
 
-- `<AUTODL_ROOT>/HyperGaussian_backups/open_source_release_20260327/`
+- `<AUTODL_ROOT>/ReferGaussian_backups/open_source_release_20260327/`
 
 本次实际归档文件路径：
 
-- `<AUTODL_ROOT>/HyperGaussian_backups/open_source_release_20260327/hypergaussian_open_source_core_20260327.tar.gz`
+- `<AUTODL_ROOT>/ReferGaussian_backups/open_source_release_20260327/refergaussian_open_source_core_20260327.tar.gz`
 
 本次额外保存的文档快照：
 
-- `<AUTODL_ROOT>/HyperGaussian_backups/open_source_release_20260327/open_source_release_20260327/`
-- `<AUTODL_ROOT>/HyperGaussian_backups/open_source_release_20260327/README.md`
+- `<AUTODL_ROOT>/ReferGaussian_backups/open_source_release_20260327/open_source_release_20260327/`
+- `<AUTODL_ROOT>/ReferGaussian_backups/open_source_release_20260327/README.md`
 
 建议其中至少包含：
 

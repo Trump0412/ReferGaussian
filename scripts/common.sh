@@ -4,7 +4,7 @@ set -euo pipefail
 GS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GS_REPO_PARENT="$(cd "${GS_ROOT}/.." && pwd)"
 GS_HOME_DEFAULT="${HOME:-/tmp}"
-GS_CACHE_ROOT="${GS4D_CACHE_ROOT:-${GS_HOME_DEFAULT}/.cache/hypergaussian}"
+GS_CACHE_ROOT="${GS4D_CACHE_ROOT:-${GS_HOME_DEFAULT}/.cache/refergaussian}"
 GS_ENV_ROOT="${GS4D_ENV_ROOT:-${GS_CACHE_ROOT}/conda-envs}"
 GS_LEGACY_ENV_ROOT="${GS4D_LEGACY_ENV_ROOT:-${GS_REPO_PARENT}/.conda-envs}"
 GS_CONDA_PKGS_DIRS="${GS4D_CONDA_PKGS_DIRS:-${GS_CACHE_ROOT}/conda-pkgs}"

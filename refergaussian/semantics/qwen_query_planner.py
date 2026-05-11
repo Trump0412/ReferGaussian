@@ -15,7 +15,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_QWEN_MODEL = Path(os.environ.get("HYPERGAUSSIAN_QWEN_MODEL", str(_PROJECT_ROOT / "models" / "Qwen3-VL-8B-Instruct")))
 
 
-QUERY_PLAN_TEMPLATE = """You are planning query-conditioned 4D entity discovery for HyperGaussian.
+QUERY_PLAN_TEMPLATE = """You are planning query-conditioned 4D entity discovery for ReferGaussian.
 You will be given a natural-language query and a small set of uniformly sampled video frames.
 Your job is to understand which objects appear in the full video, which objects are the true query subjects,
 and whether the action creates a successor object state that should be tracked.

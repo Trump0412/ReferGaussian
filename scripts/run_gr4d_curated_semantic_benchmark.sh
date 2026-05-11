@@ -4,7 +4,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 BENCHMARK_ROOT="${1:-${GS_ROOT}/data/benchmarks/gr4d_curated_v1}"
-RESULT_ROOT="${2:-${GS_EXPERIMENT_ROOT:-${GS_ROOT}/experiments}/hypergaussian_semantic_audit_$(date +%Y%m%d_%H%M%S)}"
+RESULT_ROOT="${2:-${GS_EXPERIMENT_ROOT:-${GS_ROOT}/experiments}/refergaussian_semantic_audit_$(date +%Y%m%d_%H%M%S)}"
 EXTRA_QUERY_PACK="${3:-${GS_ROOT}/configs/benchmarks/gr4d_semantic_stress_queries.json}"
 
 mkdir -p "${RESULT_ROOT}/queries" "${RESULT_ROOT}/logs" "${RESULT_ROOT}/reports"

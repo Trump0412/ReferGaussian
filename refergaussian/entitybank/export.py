@@ -976,7 +976,7 @@ def export_entitybank(
                 "keyframes": proposal_entity.get("keyframes", keyframes) if proposal_entity is not None else keyframes,
                 "segments": proposal_entity.get("segments", segments) if proposal_entity is not None else segments,
                 "static_text": proposal_entity.get("static_text", "") if proposal_entity is not None else "",
-                "global_desc": proposal_entity.get("global_desc", f"HyperGaussian entity cluster {cluster_id} with {gaussian_ids.size} Gaussians.") if proposal_entity is not None else f"HyperGaussian entity cluster {cluster_id} with {gaussian_ids.size} Gaussians.",
+                "global_desc": proposal_entity.get("global_desc", f"ReferGaussian entity cluster {cluster_id} with {gaussian_ids.size} Gaussians.") if proposal_entity is not None else f"ReferGaussian entity cluster {cluster_id} with {gaussian_ids.size} Gaussians.",
                 "dyn_desc": proposal_entity.get("dyn_desc", []) if proposal_entity is not None else [],
                 "visibility_ratio": visibility_ratio,
                 "mean_mask_area": float(proposal_entity.get("mean_mask_area", 0.0)) if proposal_entity is not None else 0.0,
@@ -999,7 +999,7 @@ def export_entitybank(
                 "entity_type": proposal_entity.get("entity_type", temporal_mode) if proposal_entity is not None else temporal_mode,
                 "temporal_mode": temporal_mode,
                 "role_hints": proposal_entity.get("role_hints", role_hints) if proposal_entity is not None else role_hints,
-                "mask_refine_source": "worldtube_reassigned_trase_proposal" if proposal_entity is not None else "hypergaussian_tube_bank",
+                "mask_refine_source": "worldtube_reassigned_trase_proposal" if proposal_entity is not None else "refergaussian_tube_bank",
                 "bbox_image_pt_key": "bbox_image",
             }
         )
@@ -1036,7 +1036,7 @@ def export_entitybank(
         "num_entities": int(len(entities)),
         "decomposition": {
             "mode": "proposal_worldtube_reassignment" if proposal_entities is not None else "support_aware_worldtube",
-            "primitive": "hypergaussian_tube_bank",
+            "primitive": "refergaussian_tube_bank",
         },
         "entities": entities,
     }
