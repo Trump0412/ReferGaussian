@@ -185,6 +185,7 @@
         <a class="navbar-item nav-anchor" href="https://huggingface.co/datasets/LiYacheng/r4d-bench-qa" target="_blank" rel="noreferrer">HuggingFace</a>
         <a class="navbar-item nav-anchor" href="#benchmark">Benchmark</a>
         <a class="navbar-item nav-anchor" href="#results">Results</a>
+        <a class="navbar-item nav-anchor" href="#analysis">Analysis</a>
         <a class="navbar-item nav-anchor" href="#qualitative">Qualitative</a>
         <a class="navbar-item nav-anchor" href="#bibtex">BibTeX</a>
       </div>
@@ -400,6 +401,48 @@
             <tr class="is-selected-row"><td>ReferGaussian (full)</td><td><b>76.5</b></td><td><b>34.4</b></td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="analysis">
+  <div class="container is-max-desktop">
+    <div class="section-intro has-text-centered">
+      <p class="section-kicker">Analysis</p>
+      <h2 class="title is-3 section-title">Benchmark, Model, and Runtime Evidence</h2>
+      <p class="section-copy">Additional rebuttal figures summarize the benchmark construction, MLLM sensitivity, and end-to-end efficiency profile.</p>
+    </div>
+
+    <div class="paper-card" style="margin-bottom:1.5rem;">
+      <div class="image-frame">
+        <img src="assets/dataset.png" alt="R4D-Bench-QA dataset construction and annotation overview">
+      </div>
+      <p class="figure-caption has-text-centered" style="margin-top:1rem;">
+        <b>Benchmark construction.</b> R4D-Bench-QA annotates target entity sets, valid temporal windows, and spatiotemporal masks for dynamic referring queries.
+      </p>
+    </div>
+
+    <div class="columns">
+      <div class="column is-6">
+        <div class="paper-card">
+          <div class="image-frame">
+            <img src="assets/vl_model_radar_6axis.png" alt="MLLM sensitivity radar across six evaluation axes">
+          </div>
+          <p class="figure-caption has-text-centered" style="margin-top:1rem;">
+            <b>MLLM sensitivity.</b> Six-axis radar plots compare referring performance under multiple vision-language backbones.
+          </p>
+        </div>
+      </div>
+      <div class="column is-6">
+        <div class="paper-card">
+          <div class="image-frame">
+            <img src="assets/runtime.png" alt="Runtime and memory breakdown for the referring pipeline">
+          </div>
+          <p class="figure-caption has-text-centered" style="margin-top:1rem;">
+            <b>Efficiency breakdown.</b> Runtime, memory, and MLLM-call statistics show first-start and cached-query costs.
+          </p>
+        </div>
       </div>
     </div>
   </div>
