@@ -207,7 +207,8 @@ bash scripts/run_public_query_protocol.sh \
   "${RUN_DIR}" \
   "${DATASET_DIR}"
 
-python scripts/evaluate_public_query_protocol.py \
+source scripts/common.sh
+gs_python scripts/evaluate_public_query_protocol.py \
   --protocol-json "${PROTOCOL_JSON}" \
   --annotation-dir "${ANNOT_DIR}" \
   --dataset-dir "${DATASET_DIR}" \
@@ -215,31 +216,91 @@ python scripts/evaluate_public_query_protocol.py \
   --output-json reports/public_eval_${SCENE}.json
 ```
 
+Reproducible profile switch:
+
+```bash
+# Public release default behavior
+export QUERY_EVAL_PROFILE=default
+
+# Current vIoU-repair profile used by the latest reproducibility runbook
+export QUERY_EVAL_PROFILE=public_time_shape_v4_recall
+```
+
+The active profile and its effective fusion parameters are written into each
+`final_query_render_sourcebg/validation.json` as `eval_profile` and `fusion_options`.
+This makes public reruns auditable and easy to compare.
+
+For paper-style batched reruns, prefer the manifest-based runner so query ids, output roots,
+and evaluator maps stay aligned:
+
+```bash
+OUT=reports/public_time_shape_v4_recall
+source scripts/common.sh
+gs_python scripts/build_public_query_manifest.py \
+  --output "${OUT}/manifest.jsonl" \
+  --output-root "${OUT}/query_root" \
+  --query-set time_sensitive \
+  --profile public_time_shape_v4_recall \
+  --gpus 0 1 2
+
+gs_python scripts/preflight_query_batch.py \
+  --manifest "${OUT}/manifest.jsonl" \
+  --gpu 0 1 2 \
+  --create-output-root
+
+gs_python scripts/run_query_batch_two_gpu.py \
+  --manifest "${OUT}/manifest.jsonl" \
+  --profile public_time_shape_v4_recall \
+  --gpu 0 1 2 \
+  --force-rerun \
+  --timeout 10800
+```
+
 ### Referring evaluation — R4D-Bench-QA
 
 ```bash
-# 1) Run query pipeline on selected benchmark tier (36 or 89 dense-GT queries)
-#    Supported inputs:
-#    - data/benchmarks/r4d_bench_qa/benchmark.json
-#    - data/benchmarks/r4d_bench_qa/benchmark_all_queries.json
-#    - downloaded HF folder root (auto-resolve under scripts/)
-bash scripts/run_ours_benchmark_query_pipeline.sh data/benchmarks/r4d_bench_qa/benchmark.json
+# Optional: profile switch for reproducible ablation
+# export QUERY_EVAL_PROFILE=default
+# export QUERY_EVAL_PROFILE=public_time_shape_v4_recall
 
-# 2) Re-evaluate from saved query outputs (no rerun of model inference)
-python scripts/evaluate_ours_benchmark.py \
+# 1) Build a manifest with official query ids.
+source scripts/common.sh
+RUN_ROOT=reports/r4d_bench_public_time_shape_v4
+gs_python scripts/build_r4d_query_manifest.py \
   --benchmark data/benchmarks/r4d_bench_qa/benchmark_all_queries.json \
-  --query-root-map reports/ours_benchmark_eval/query_root_map.json \
-  --dataset-dir-map reports/ours_benchmark_eval/dataset_dir_map.json \
-  --output-json reports/r4d_bench_eval.json \
-  --output-md reports/r4d_bench_eval.md \
+  --scenes cut_lemon split_cookie torchchocolate coffee_martini \
+  --output "${RUN_ROOT}/manifest.jsonl" \
+  --output-root "${RUN_ROOT}/query_root" \
+  --gpus 0 1 2
+
+gs_python scripts/preflight_query_batch.py \
+  --manifest "${RUN_ROOT}/manifest.jsonl" \
+  --gpu 0 1 2 \
+  --create-output-root
+
+# 2) Run the query pipeline.
+gs_python scripts/run_query_batch_two_gpu.py \
+  --manifest "${RUN_ROOT}/manifest.jsonl" \
+  --profile public_time_shape_v4_recall \
+  --gpu 0 1 2 \
+  --force-rerun \
+  --timeout 10800
+
+# 3) Re-evaluate from saved query outputs (no rerun of model inference).
+gs_python scripts/evaluate_ours_benchmark.py \
+  --benchmark data/benchmarks/r4d_bench_qa/benchmark_all_queries.json \
+  --query-root-map "${RUN_ROOT}/query_root_map.json" \
+  --dataset-dir-map "${RUN_ROOT}/dataset_dir_map.json" \
+  --output-json "${RUN_ROOT}/official_eval.json" \
+  --output-md "${RUN_ROOT}/official_eval.md" \
   --skip-missing
 ```
 
 Output files:
-- `reports/ours_benchmark_eval/query_root_map.json`
-- `reports/ours_benchmark_eval/dataset_dir_map.json`
-- `reports/r4d_bench_eval.json` (per-query Acc/vIoU/tIoU + summary)
-- `reports/r4d_bench_eval.md`
+- `${RUN_ROOT}/query_root_map.json`
+- `${RUN_ROOT}/dataset_dir_map.json`
+- `${RUN_ROOT}/official_eval.json` (per-query Acc/vIoU/tIoU + summary)
+- `${RUN_ROOT}/official_eval.md`
 
 Metric rule used in this repository:
 - Empty-set rule is enabled in evaluator: if GT and prediction are both empty (temporal union = 0), `vIoU = 1.0` and `tIoU = 1.0`.
@@ -247,6 +308,20 @@ Metric rule used in this repository:
 Important benchmark note:
 - Current HF `LiYacheng/r4d-bench-qa` artifacts provide dense GT for 36-query and 89-query tiers.
 - The larger language-only extension set does not always include dense masks, so strict `vIoU`/`tIoU` cannot be computed for those entries without extra GT alignment files.
+- Prefer the official query metadata file `R4D-Bench_queries.json` as the source of truth for query text.
+  Avoid retyping benchmark queries in ad-hoc shell scripts, because even small wording drift can change the target object set.
+
+Filter the official R4D-Bench query list by scene before running a subset benchmark:
+
+```bash
+python scripts/filter_r4d_benchmark_queries.py \
+  --input-json data/benchmarks/r4d_bench_qa/evaluation/R4D-Bench_queries.json \
+  --output-json reports/r4d_bench_queries_10scene.json \
+  --output-md reports/r4d_bench_queries_10scene.md \
+  --exclude-scenes americano cut_roasted_beef
+```
+
+This produces the 10-scene / 72-query subset used when excluding the weakest reconstruction scenes.
 
 ## Repository Layout
 

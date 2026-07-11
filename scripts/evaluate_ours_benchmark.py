@@ -70,18 +70,19 @@ def _decode_rle_string(encoded: str, n: int) -> list[int]:
         x = 0
         k = 0
         more = True
+        c = 0
         while more:
             c = ord(encoded[p]) - 48
             p += 1
             x |= (c & 0x1f) << (5 * k)
             more = (c & 0x20) != 0
             k += 1
-        if x & 1:
-            x = ~(x >> 1)
-        else:
-            x = x >> 1
-        if m > 0:
-            x += counts[m - 1]
+        if c & 0x10:
+            x |= -1 << (5 * k)
+        # COCO compressed RLE stores counts from index 3 onward as deltas
+        # from the count two positions earlier.
+        if m > 2:
+            x += counts[m - 2]
         counts.append(x)
         m += 1
     return counts
@@ -105,7 +106,18 @@ def _mask_iou(pred: np.ndarray, gt: np.ndarray) -> float:
     g = np.asarray(gt, dtype=bool)
     inter = float(np.logical_and(p, g).sum())
     union = float(np.logical_or(p, g).sum())
+    if union == 0:
+        return 1.0
     return _safe_div(inter, union)
+
+
+def _precision_recall_f1(inter: int, pred_count: int, gt_count: int) -> tuple[float, float, float]:
+    if pred_count == 0 and gt_count == 0:
+        return 1.0, 1.0, 1.0
+    precision = _safe_div(inter, pred_count)
+    recall = _safe_div(inter, gt_count)
+    f1 = _safe_div(2.0 * precision * recall, precision + recall) if (precision + recall) > 0 else 0.0
+    return precision, recall, f1
 
 
 def _decode_segmentation(seg: dict | list, image_size: tuple[int, int] | None = None) -> np.ndarray | None:
@@ -434,6 +446,13 @@ def evaluate_query(
 
     temporal_inter = int(np.logical_and(pred_full, gt_full).sum())
     temporal_union = int(np.logical_or(pred_full, gt_full).sum())
+    pred_active_count = int(pred_full.sum())
+    gt_active_count = int(gt_full.sum())
+    temporal_precision, temporal_recall, temporal_f1 = _precision_recall_f1(
+        temporal_inter,
+        pred_active_count,
+        gt_active_count,
+    )
 
     # Special case: negative query (empty gt and empty pred) → tIoU = 1.0
     if temporal_union == 0:
@@ -572,6 +591,13 @@ def evaluate_query(
         v_iou = 1.0
     else:
         v_iou = _safe_div(iou_sum, iou_count)
+    warnings = []
+    if acc >= 0.90 and t_iou < 0.50:
+        warnings.append("high_acc_low_tiou")
+    if v_iou < 0.10 and iou_count > 0:
+        warnings.append("viou_below_10_check_entity_match")
+    if temporal_recall < 0.50 and gt_active_count > 0:
+        warnings.append("low_temporal_recall")
 
     return {
         "query_id": query_id,
@@ -580,12 +606,16 @@ def evaluate_query(
         "Acc": acc,
         "vIoU": v_iou,
         "tIoU": t_iou,
+        "temporal_precision": temporal_precision,
+        "temporal_recall": temporal_recall,
+        "temporal_f1": temporal_f1,
         "dataset_type": ds_type,
         "total_frames": total_frames,
-        "gt_active_count": int(len(gt_time_ids)),
-        "pred_active_count": int(sum(1 for v in pred_by_time_id.values() if v)),
+        "gt_active_count": gt_active_count,
+        "pred_active_count": pred_active_count,
         "temporal_inter": temporal_inter,
         "temporal_union": temporal_union,
+        "score_warnings": warnings,
         "mask_found": mask_found,
         "mask_missing": mask_missing,
         "vIoU_count": iou_count,
@@ -667,6 +697,10 @@ def main() -> None:
         "Acc": float(np.mean([r["Acc"] for r in valid])) if valid else None,
         "vIoU": float(np.mean([r["vIoU"] for r in valid])) if valid else None,
         "tIoU": float(np.mean([r["tIoU"] for r in valid])) if valid else None,
+        "temporal_precision": float(np.mean([r["temporal_precision"] for r in valid])) if valid else None,
+        "temporal_recall": float(np.mean([r["temporal_recall"] for r in valid])) if valid else None,
+        "temporal_f1": float(np.mean([r["temporal_f1"] for r in valid])) if valid else None,
+        "warning_count": int(sum(len(r.get("score_warnings", [])) for r in valid)),
     }
 
     print("\n=== Summary ===")
@@ -675,6 +709,7 @@ def main() -> None:
         print(f"Acc:  {summary['Acc']*100:.4f}%")
         print(f"vIoU: {summary['vIoU']*100:.4f}%")
         print(f"tIoU: {summary['tIoU']*100:.4f}%")
+        print(f"tPrec/tRec: {summary['temporal_precision']*100:.4f}% / {summary['temporal_recall']*100:.4f}%")
 
     payload = {
         "benchmark": str(args.benchmark),
@@ -699,15 +734,17 @@ def main() -> None:
                 f"- Acc:  `{summary['Acc']*100:.4f}%`",
                 f"- vIoU: `{summary['vIoU']*100:.4f}%`",
                 f"- tIoU: `{summary['tIoU']*100:.4f}%`",
+                f"- temporal precision/recall: `{summary['temporal_precision']*100:.4f}%` / `{summary['temporal_recall']*100:.4f}%`",
+                f"- warnings: `{summary['warning_count']}`",
                 "",
-                "| Query | Status | Acc(%) | vIoU(%) | tIoU(%) |",
-                "| --- | --- | ---: | ---: | ---: |",
+                "| Query | Status | Acc(%) | vIoU(%) | tIoU(%) | tPrec(%) | tRec(%) | Warnings |",
+                "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
             ]
             for r in per_query:
                 def fmt(v):
                     return f"{v*100:.2f}" if v is not None else "n/a"
                 lines.append(
-                    f"| {r['query_id']} | {r.get('status','')} | {fmt(r.get('Acc'))} | {fmt(r.get('vIoU'))} | {fmt(r.get('tIoU'))} |"
+                    f"| {r['query_id']} | {r.get('status','')} | {fmt(r.get('Acc'))} | {fmt(r.get('vIoU'))} | {fmt(r.get('tIoU'))} | {fmt(r.get('temporal_precision'))} | {fmt(r.get('temporal_recall'))} | {','.join(r.get('score_warnings', []))} |"
                 )
         Path(args.output_md).write_text("\n".join(lines) + "\n", encoding="utf-8")
         print(f"Saved: {args.output_md}")

@@ -101,7 +101,21 @@ def _mask_iou(pred_mask: np.ndarray, gt_mask: np.ndarray) -> float:
     gt = np.asarray(gt_mask, dtype=bool)
     inter = np.logical_and(pred, gt).sum()
     union = np.logical_or(pred, gt).sum()
+    if union == 0:
+        return 1.0
     return _safe_div(inter, union)
+
+
+def _temporal_prf(pred_mask: np.ndarray, gt_mask: np.ndarray) -> tuple[float, float, float, int, int, int]:
+    pred = np.asarray(pred_mask, dtype=bool)
+    gt = np.asarray(gt_mask, dtype=bool)
+    inter = int(np.logical_and(pred, gt).sum())
+    pred_count = int(pred.sum())
+    gt_count = int(gt.sum())
+    precision = 1.0 if pred_count == 0 and gt_count == 0 else _safe_div(inter, pred_count)
+    recall = 1.0 if pred_count == 0 and gt_count == 0 else _safe_div(inter, gt_count)
+    f1 = _safe_div(2.0 * precision * recall, precision + recall) if (precision + recall) > 0 else 0.0
+    return precision, recall, f1, inter, pred_count, gt_count
 
 
 def _ranges_from_bool_mask(mask: np.ndarray) -> list[list[int]]:
@@ -259,7 +273,17 @@ def evaluate_query(
     predicted_time_ranges = _ranges_from_bool_mask(pred_full_mask)
     temporal_union = int(np.logical_or(pred_full_mask, gt_full_mask).sum())
     temporal_inter = int(np.logical_and(pred_full_mask, gt_full_mask).sum())
-    temporal_iou = _safe_div(temporal_inter, temporal_union)
+    temporal_iou = 1.0 if temporal_union == 0 else _safe_div(temporal_inter, temporal_union)
+    temporal_precision, temporal_recall, temporal_f1, _, pred_active_count, gt_active_count = _temporal_prf(
+        pred_full_mask,
+        gt_full_mask,
+    )
+    viou = 1.0 if union_count == 0 and temporal_union == 0 else _safe_div(iou_sum, union_count)
+    warnings = []
+    if acc >= 0.90 and temporal_iou < 0.50:
+        warnings.append("high_acc_low_tiou")
+    if viou < 0.10 and union_count > 0:
+        warnings.append("viou_below_10_check_entity_match")
 
     return {
         "query_slug": query_slug,
@@ -269,10 +293,18 @@ def evaluate_query(
         "timeline_frames_evaluated": int(total_frames),
         "gt_mask_frames": int(gt_mask_frames),
         "Acc": acc,
-        "vIoU": _safe_div(iou_sum, union_count),
+        "vIoU": viou,
         "temporal_tIoU": temporal_iou,
+        "temporal_precision": temporal_precision,
+        "temporal_recall": temporal_recall,
+        "temporal_f1": temporal_f1,
+        "temporal_pred_active_count": int(pred_active_count),
+        "temporal_gt_active_count": int(gt_active_count),
+        "temporal_inter": int(temporal_inter),
+        "temporal_union": int(temporal_union),
         "mask_union_frames": int(union_count),
         "mask_overlap_frames": int(overlap_count),
+        "score_warnings": warnings,
         "predicted_render_frame_segments": predicted_ranges,
         "predicted_time_segments": predicted_time_ranges,
         "gt_time_segments": query_item["targets"][0]["target_ranges"],
@@ -289,6 +321,7 @@ def main() -> None:
     parser.add_argument("--query-root", required=True)
     parser.add_argument("--output-json", required=True)
     parser.add_argument("--output-md", default=None)
+    parser.add_argument("--skip-missing", action="store_true")
     args = parser.parse_args()
 
     protocol_payload = _read_json(Path(args.protocol_json))
@@ -300,24 +333,45 @@ def main() -> None:
         query_slug = str(query_item["query_slug"])
         validation_path = Path(args.query_root) / query_slug / "final_query_render_sourcebg" / "validation.json"
         if not validation_path.exists():
+            if args.skip_missing:
+                per_query.append(
+                    {
+                        "query_slug": query_slug,
+                        "query": str(query_item.get("query", "")),
+                        "status": "missing_validation",
+                        "Acc": None,
+                        "vIoU": None,
+                        "temporal_tIoU": None,
+                        "temporal_precision": None,
+                        "temporal_recall": None,
+                        "score_warnings": ["missing_validation"],
+                        "validation_path": str(validation_path),
+                    }
+                )
+                continue
             raise FileNotFoundError(f"Missing validation for {query_slug}: {validation_path}")
         validation_payload = _read_json(validation_path)
         validation_payload["_validation_path"] = str(validation_path)
-        per_query.append(
-            evaluate_query(
-                query_item=query_item,
-                validation_payload=validation_payload,
-                metadata_payload=metadata_payload,
-                gt_masks_by_object=gt_masks_by_object,
-                top_level_objects=top_level_objects,
-            )
+        result = evaluate_query(
+            query_item=query_item,
+            validation_payload=validation_payload,
+            metadata_payload=metadata_payload,
+            gt_masks_by_object=gt_masks_by_object,
+            top_level_objects=top_level_objects,
         )
+        result["status"] = "ok"
+        per_query.append(result)
 
+    valid = [item for item in per_query if item.get("Acc") is not None]
     summary = {
         "query_count": int(len(per_query)),
-        "Acc": float(np.mean([item["Acc"] for item in per_query])) if per_query else 0.0,
-        "vIoU": float(np.mean([item["vIoU"] for item in per_query])) if per_query else 0.0,
-        "temporal_tIoU": float(np.mean([item["temporal_tIoU"] for item in per_query])) if per_query else 0.0,
+        "valid_queries": int(len(valid)),
+        "Acc": float(np.mean([item["Acc"] for item in valid])) if valid else 0.0,
+        "vIoU": float(np.mean([item["vIoU"] for item in valid])) if valid else 0.0,
+        "temporal_tIoU": float(np.mean([item["temporal_tIoU"] for item in valid])) if valid else 0.0,
+        "temporal_precision": float(np.mean([item["temporal_precision"] for item in valid])) if valid else 0.0,
+        "temporal_recall": float(np.mean([item["temporal_recall"] for item in valid])) if valid else 0.0,
+        "warning_count": int(sum(len(item.get("score_warnings", [])) for item in per_query)),
     }
     payload = {
         "protocol_json": str(Path(args.protocol_json)),
@@ -337,16 +391,22 @@ def main() -> None:
             "# Public Query Benchmark",
             "",
             f"- Queries: `{summary['query_count']}`",
+            f"- Valid queries: `{summary['valid_queries']}`",
             f"- Acc(%): `{summary['Acc'] * 100.0:.2f}`",
             f"- vIoU(%): `{summary['vIoU'] * 100.0:.2f}`",
             f"- temporal tIoU(%): `{summary['temporal_tIoU'] * 100.0:.2f}`",
+            f"- temporal precision/recall(%): `{summary['temporal_precision'] * 100.0:.2f}` / `{summary['temporal_recall'] * 100.0:.2f}`",
+            f"- warnings: `{summary['warning_count']}`",
             "",
-            "| Query | Acc(%) | vIoU(%) | tIoU(%) | Target | Pred Segments | GT Segments |",
-            "| --- | ---: | ---: | ---: | --- | --- | --- |",
+            "| Query | Acc(%) | vIoU(%) | tIoU(%) | tPrec(%) | tRec(%) | Target | Warnings | Pred Segments | GT Segments |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
         for row in per_query:
+            def fmt(value):
+                return f"{value * 100.0:.2f}" if value is not None else "n/a"
+
             lines.append(
-                f"| {row['query_slug']} | {row['Acc'] * 100.0:.2f} | {row['vIoU'] * 100.0:.2f} | {row['temporal_tIoU'] * 100.0:.2f} | {row['target_object']} | {row['predicted_time_segments']} | {row['gt_time_segments']} |"
+                f"| {row['query_slug']} | {fmt(row.get('Acc'))} | {fmt(row.get('vIoU'))} | {fmt(row.get('temporal_tIoU'))} | {fmt(row.get('temporal_precision'))} | {fmt(row.get('temporal_recall'))} | {row.get('target_object', '')} | {','.join(row.get('score_warnings', []))} | {row.get('predicted_time_segments', [])} | {row.get('gt_time_segments', [])} |"
             )
         Path(args.output_md).write_text("\n".join(lines) + "\n", encoding="utf-8")
 

@@ -3,7 +3,15 @@ runs/
 data/
 logs/
 reports/
+docs/reproducibility/
+docs/assets/dataset.png
+docs/assets/runtime.png
+docs/assets/vl_model_radar_6axis.png
+experiments/
 server_sync/
+backups/
+tmp/
+tmp_eval_*/
 __pycache__/
 *.pyc
 *.pth

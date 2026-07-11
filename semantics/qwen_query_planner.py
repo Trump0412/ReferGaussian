@@ -69,9 +69,6 @@ Return exactly one JSON object with keys:
 - stop_condition: short phrase describing when the query event should stop
 - temporal_hints: array of short phase descriptions
 - must_track_phrases: array of phrases that must be tracked through time
-- action_window_hint: short phrase for the action/contact interval, or empty string if not applicable
-- support_window_hint: short phrase for the full object/state support interval that should be scored
-- absent_query: boolean, true only when the queried object/state is absent from the scene
 - preferred_detector: one of grounding_dino, grounded_sam2
 - notes: short string
 
@@ -94,8 +91,6 @@ Rules:
 - For "cut the lemon", a good answer would inventory ["knife", "lemon", "hand", "cutting board"], and use query subjects ["knife", "lemon"].
 - For action queries, `start_condition` should begin at direct task-relevant contact, not at coarse pre-contact setup.
 - For action queries, `stop_condition` should end when the query-driven state change stabilizes, not when unrelated context remains visible.
-- For action queries, separate the short action/contact interval from the longer object/state support interval.
-  The action interval identifies the entity; the support interval is where the final query mask should be active.
 - If the query implies temporal change, include before/during/after hints.
 - For exclusion queries such as "everything except the hands", `query_subject_phrases` and `detector_phrases`
   should focus on the INCLUDED objects, not the excluded object.
@@ -104,12 +99,6 @@ Rules:
 - For left-hand / right-hand queries, keep `query_subject_phrases` on the queried side only, but if both hands
   are visible you may include both `left hand` and `right hand` in `detector_phrases` for disambiguation.
 - preferred_detector must be "grounded_sam2".
-- **ZERO / DISTRACTOR QUERY**: If the queried object does NOT exist in this scene at all
-  (e.g., asking for "an orange" in a lemon-cutting scene, "a red cup" when only transparent
-  cups exist, "a metal spoon" when none is visible), you MUST set query_subject_phrases to [],
-  detector_phrases to [], absent_query to true, and add a notes field starting with
-  "ZERO_QUERY: <reason>".
-  Do NOT hallucinate a closest-match object. Empty detection is the correct answer.
 - Output valid JSON only.
 """
 
@@ -581,18 +570,6 @@ def _canonicalize_phrase(value: Any) -> str:
         return "both hands"
     if phrase in {"hand", "hands"}:
         return "hand"
-    if phrase in {"martini glass", "cocktail glass", "wine glass", "drinking glass"}:
-        return "glass cup"
-    if phrase in {"glass", "glasscup", "glass-cup"}:
-        return "glass cup"
-    if phrase in {"chicken container", "closed chicken container", "opened chicken container"}:
-        return "container"
-    if phrase in {"box", "lid", "container box"}:
-        return "container"
-    if phrase in {"rubber chicken", "toy chicken"}:
-        return "chicken"
-    if phrase in {"torch chocolate", "torchchocolate", "chocolate piece", "piece of chocolate"}:
-        return "chocolate"
     if phrase in {"mouse pad", "mouse-pad"}:
         return "mousepad"
     if phrase in {"round mouse", "computer mouse", "wireless mouse"}:
@@ -609,17 +586,7 @@ def _canonicalize_phrase(value: Any) -> str:
         "勺子": "spoon",
         "汤勺": "spoon",
         "玻璃杯": "glass cup",
-        "马提尼杯": "glass cup",
-        "马提尼酒杯": "glass cup",
-        "鸡尾酒杯": "glass cup",
         "杯子": "cup",
-        "容器": "container",
-        "盒子": "container",
-        "盖子": "container",
-        "鸡容器": "container",
-        "小鸡容器": "container",
-        "橡胶鸡": "chicken",
-        "巧克力": "chocolate",
         "液体": "liquid",
         "咖啡": "coffee",
         "键盘": "keyboard",
@@ -814,15 +781,10 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
     stop_condition = " ".join(str(raw_payload.get("stop_condition", "")).strip().split())
     preferred_detector = str(raw_payload.get("preferred_detector", "grounded_sam2")).strip().lower()
     notes = " ".join(str(raw_payload.get("notes", "")).strip().split())
-    absent_query = bool(raw_payload.get("absent_query", False) or raw_payload.get("empty_query", False) or raw_payload.get("zero_query", False))
-    if notes.upper().startswith("ZERO_QUERY"):
-        absent_query = True
-    action_window_hint = " ".join(str(raw_payload.get("action_window_hint", "")).strip().split())
-    support_window_hint = " ".join(str(raw_payload.get("support_window_hint", "")).strip().split())
 
-    if strict and not absent_query and not video_inventory_phrases:
+    if strict and not video_inventory_phrases:
         raise ValueError("Strict Qwen planner returned no video_inventory_phrases.")
-    if strict and not absent_query and not query_subject_phrases:
+    if strict and not query_subject_phrases:
         raise ValueError("Strict Qwen planner returned no query_subject_phrases.")
     if not strict and not video_inventory_phrases:
         video_inventory_phrases = _normalize_phrase_list(raw_payload.get("detector_phrases", []))
@@ -842,7 +804,7 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         limit=4,
     )
     detector_phrases = _merge_unique_phrases(detector_base_phrases, state_detector_phrases)[:6]
-    if strict and not absent_query and not detector_phrases:
+    if strict and not detector_phrases:
         raise ValueError("Strict Qwen planner produced no detector_phrases after subject filtering.")
     if not strict and not detector_phrases:
         detector_phrases = _normalize_phrase_list(raw_payload.get("detector_phrases", []))
@@ -912,11 +874,6 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         "temporal_hints": temporal_hints,
         "phase_transition_hints": phase_transition_hints,
         "must_track_phrases": must_track_phrases,
-        "action_window_hint": action_window_hint,
-        "support_window_hint": support_window_hint,
-        "absent_query": bool(absent_query),
-        "empty_query": bool(absent_query),
-        "empty_reason": notes if absent_query else "",
         "preferred_detector": preferred_detector,
         "notes": notes,
     }
@@ -1266,12 +1223,7 @@ def plan_query_entities(
     dataset_dir = Path(dataset_dir)
     semantic_profile = _query_semantic_profile(query)
 
-    resolved_path = _resolve_qwen_model(qwen_model)
-    try:
-        from refergaussian.semantics.vlm_backends import get_vlm_planner
-        teacher = get_vlm_planner(str(resolved_path))
-    except ImportError:
-        teacher = QwenQueryPlanner(resolved_path)
+    teacher = QwenQueryPlanner(_resolve_qwen_model(qwen_model))
     sampled_entries = _load_subsampled_entries(dataset_dir=dataset_dir, frame_subsample_stride=frame_subsample_stride)
     sampled_lookup = _entry_index_lookup(sampled_entries)
 
@@ -1299,34 +1251,6 @@ def plan_query_entities(
         }
         for entry in context_entries
     ]
-    if bool(plan.get("empty_query")):
-        plan["boundary_mode"] = "skipped_empty_query"
-        plan["boundary_num_context_frames"] = 0
-        plan["boundary_context_frames"] = []
-        plan["coarse_temporal_window"] = {
-            "start_slot": None,
-            "end_slot": None,
-            "start_sample_index": None,
-            "end_sample_index": None,
-            "start_frame_index": None,
-            "end_frame_index": None,
-            "frame_labels": [],
-            "notes": plan.get("empty_reason") or plan.get("notes", ""),
-            "raw_output": "",
-        }
-        plan["temporal_refinement"] = {"start": None, "end": None}
-        plan["refined_temporal_window"] = {
-            "start_sample_index": None,
-            "end_sample_index": None,
-            "start_frame_index": None,
-            "end_frame_index": None,
-            "start_time_value": None,
-            "end_time_value": None,
-        }
-        plan["phase_transition_hints"] = []
-        if output_path is not None:
-            _write_json(Path(output_path), plan)
-        return plan
 
     boundary_entries = _sample_context_entries(
         sampled_entries,
