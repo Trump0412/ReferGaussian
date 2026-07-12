@@ -124,8 +124,8 @@ if [[ ! "${OMP_NUM_THREADS:-}" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 gs_python() {
-  if [[ "${CONDA_PREFIX:-}" == "${GS_ENV_PATH}" ]]; then
-    python "$@"
+  if [[ "${CONDA_PREFIX:-}" == "${GS_ENV_PATH}" && -x "${GS_ENV_PATH}/bin/python" ]]; then
+    "${GS_ENV_PATH}/bin/python" "$@"
   else
     require_conda_bin
     env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 XDG_CACHE_HOME="${GS_CACHE_ROOT}" TORCH_HOME="${GS_TORCH_HOME}" MPLCONFIGDIR="${GS_MPLCONFIGDIR}" CONDA_PKGS_DIRS="${GS_CONDA_PKGS_DIRS}" PIP_CACHE_DIR="${GS_PIP_CACHE_DIR}" \
@@ -134,8 +134,8 @@ gs_python() {
 }
 
 gs_pip() {
-  if [[ "${CONDA_PREFIX:-}" == "${GS_ENV_PATH}" ]]; then
-    python -m pip "$@"
+  if [[ "${CONDA_PREFIX:-}" == "${GS_ENV_PATH}" && -x "${GS_ENV_PATH}/bin/python" ]]; then
+    "${GS_ENV_PATH}/bin/python" -m pip "$@"
   else
     require_conda_bin
     env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 XDG_CACHE_HOME="${GS_CACHE_ROOT}" TORCH_HOME="${GS_TORCH_HOME}" MPLCONFIGDIR="${GS_MPLCONFIGDIR}" CONDA_PKGS_DIRS="${GS_CONDA_PKGS_DIRS}" PIP_CACHE_DIR="${GS_PIP_CACHE_DIR}" \
@@ -144,8 +144,8 @@ gs_pip() {
 }
 
 gsam2_python() {
-  if [[ "${CONDA_PREFIX:-}" == "${GSAM2_ENV_PATH}" ]]; then
-    python "$@"
+  if [[ "${CONDA_PREFIX:-}" == "${GSAM2_ENV_PATH}" && -x "${GSAM2_ENV_PATH}/bin/python" ]]; then
+    "${GSAM2_ENV_PATH}/bin/python" "$@"
   else
     require_conda_bin
     env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 XDG_CACHE_HOME="${GS_CACHE_ROOT}" TORCH_HOME="${GS_TORCH_HOME}" MPLCONFIGDIR="${GS_MPLCONFIGDIR}" CONDA_PKGS_DIRS="${GS_CONDA_PKGS_DIRS}" PIP_CACHE_DIR="${GS_PIP_CACHE_DIR}" \
@@ -154,8 +154,8 @@ gsam2_python() {
 }
 
 gsam2_pip() {
-  if [[ "${CONDA_PREFIX:-}" == "${GSAM2_ENV_PATH}" ]]; then
-    python -m pip "$@"
+  if [[ "${CONDA_PREFIX:-}" == "${GSAM2_ENV_PATH}" && -x "${GSAM2_ENV_PATH}/bin/python" ]]; then
+    "${GSAM2_ENV_PATH}/bin/python" -m pip "$@"
   else
     require_conda_bin
     env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 XDG_CACHE_HOME="${GS_CACHE_ROOT}" TORCH_HOME="${GS_TORCH_HOME}" MPLCONFIGDIR="${GS_MPLCONFIGDIR}" CONDA_PKGS_DIRS="${GS_CONDA_PKGS_DIRS}" PIP_CACHE_DIR="${GS_PIP_CACHE_DIR}" \
@@ -164,8 +164,8 @@ gsam2_pip() {
 }
 
 gs_python_cmd() {
-  if [[ "${CONDA_PREFIX:-}" == "${GS_ENV_PATH}" ]]; then
-    printf 'python'
+  if [[ "${CONDA_PREFIX:-}" == "${GS_ENV_PATH}" && -x "${GS_ENV_PATH}/bin/python" ]]; then
+    printf '%q' "${GS_ENV_PATH}/bin/python"
   else
     require_conda_bin >/dev/null
     printf 'env OMP_NUM_THREADS=%q MKL_NUM_THREADS=%q XDG_CACHE_HOME=%q TORCH_HOME=%q MPLCONFIGDIR=%q CONDA_PKGS_DIRS=%q PIP_CACHE_DIR=%q %q run --no-capture-output -p %q python' "1" "1" "${GS_CACHE_ROOT}" "${GS_TORCH_HOME}" "${GS_MPLCONFIGDIR}" "${GS_CONDA_PKGS_DIRS}" "${GS_PIP_CACHE_DIR}" "${GS_CONDA_BIN}" "${GS_ENV_PATH}"
