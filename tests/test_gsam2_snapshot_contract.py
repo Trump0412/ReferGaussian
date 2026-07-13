@@ -26,6 +26,8 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
         )
         self.assertIn("GSAM2_LOCAL_FILES_ONLY:-1", text)
         self.assertIn("--local-files-only", text)
+        self.assertIn("HF_HUB_OFFLINE=1", text)
+        self.assertIn("TRANSFORMERS_OFFLINE=1", text)
 
     def test_setup_verifies_the_same_pinned_local_cache(self) -> None:
         text = (ROOT / "scripts" / "setup_grounded_sam2.sh").read_text(encoding="utf-8")

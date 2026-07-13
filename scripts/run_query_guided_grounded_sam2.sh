@@ -56,8 +56,17 @@ if [[ "${GSAM2_REUSE_TRACKS:-0}" == "1" && -f "${TRACKS_PATH}" ]]; then
 else
 LOCAL_ONLY_ARGS=(--local-files-only)
 case "${GSAM2_LOCAL_FILES_ONLY:-1}" in
-  1|true|TRUE|yes|YES) ;;
-  0|false|FALSE|no|NO) LOCAL_ONLY_ARGS=(--no-local-files-only) ;;
+  1|true|TRUE|yes|YES)
+    # Transformers may otherwise probe Hub metadata for an optional processor
+    # config even when local_files_only=True. Offline mode keeps pinned-cache
+    # inference genuinely offline and fails immediately when setup is missing.
+    export HF_HUB_OFFLINE=1
+    export TRANSFORMERS_OFFLINE=1
+    ;;
+  0|false|FALSE|no|NO)
+    LOCAL_ONLY_ARGS=(--no-local-files-only)
+    unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE
+    ;;
   *)
     echo "GSAM2_LOCAL_FILES_ONLY must be 0 or 1" >&2
     exit 2
