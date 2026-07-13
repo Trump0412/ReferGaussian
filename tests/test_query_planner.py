@@ -80,6 +80,7 @@ class QueryPlannerPhraseTest(unittest.TestCase):
                 "tracks": [
                     {
                         "object_id": 12,
+                        "anchor_frame_index": 20,
                         "frames": [
                             {
                                 "active": True,
@@ -96,7 +97,7 @@ class QueryPlannerPhraseTest(unittest.TestCase):
             images, rows = _build_candidate_visual_evidence(candidates, tracks_payload)
 
         self.assertEqual(len(images), 2)
-        self.assertEqual([row["frame_index"] for row in rows], [0, 40])
+        self.assertEqual([row["frame_index"] for row in rows], [0, 20])
 
     def test_state_phrase_is_composed_for_an_unseen_object(self) -> None:
         phrases = _state_detector_phrase_additions(
@@ -383,6 +384,45 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         )
 
         self.assertEqual([item["id"] for item in payload["selected"]], [4])
+
+    def test_singular_plan_rejects_selector_added_interaction_partner(self) -> None:
+        candidates = [
+            {
+                "id": 3,
+                "proposal_alias": "part instance 1",
+                "proposal_phrase": "part",
+                "quality": 0.8,
+                "support_segments_test": [[0, 9]],
+                "query_relevant_segments_test": [[0, 9]],
+            },
+            {
+                "id": 4,
+                "proposal_alias": "device",
+                "proposal_phrase": "device",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+                "query_relevant_segments_test": [[0, 9]],
+            },
+        ]
+        payload = _compose_phrase_grounded_selection(
+            query="The part moving the device.",
+            query_plan_payload={
+                "query_subject_phrases": ["part"],
+                "relation_context_phrases": ["device"],
+                "action_window_hint": "during the movement",
+            },
+            candidates=candidates,
+            pair_candidates=[],
+            test_times=np.linspace(0.0, 1.0, num=10),
+            tracks_payload=None,
+            raw_phrase_payload={
+                "subject_phrases": ["part instance 1", "device"],
+                "successor_phrases": [],
+            },
+        )
+
+        self.assertEqual([item["id"] for item in payload["selected"]], [3])
+        self.assertEqual(payload["subject_phrases"], ["part instance 1"])
 
     def test_relation_disambiguation_exposes_stable_instance_aliases(self) -> None:
         candidates = [

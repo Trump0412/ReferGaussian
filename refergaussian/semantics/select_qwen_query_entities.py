@@ -453,6 +453,28 @@ def _build_candidate_visual_evidence(
         active_frames.sort(key=lambda frame: int(frame.get("frame_index", 0)))
         if len(active_frames) <= candidate_image_count:
             chosen_frames = active_frames
+        elif str(candidate.get("instance_selection_policy", "")).strip().lower() == "relation_disambiguation":
+            try:
+                anchor_frame_index = int(track.get("anchor_frame_index"))
+            except (TypeError, ValueError):
+                anchor_frame_index = None
+            if anchor_frame_index is None:
+                indices = np.linspace(0, len(active_frames) - 1, num=candidate_image_count, dtype=np.int64)
+                chosen_frames = [active_frames[int(index)] for index in sorted(set(indices.tolist()))]
+            else:
+                anchor_index = min(
+                    range(len(active_frames)),
+                    key=lambda index: abs(int(active_frames[index].get("frame_index", 0)) - anchor_frame_index),
+                )
+                chosen_indices = [anchor_index]
+                if candidate_image_count > 1:
+                    temporal_index = max(
+                        (0, len(active_frames) - 1),
+                        key=lambda index: abs(index - anchor_index),
+                    )
+                    if temporal_index not in chosen_indices:
+                        chosen_indices.append(temporal_index)
+                chosen_frames = [active_frames[index] for index in sorted(chosen_indices)]
         else:
             indices = np.linspace(0, len(active_frames) - 1, num=candidate_image_count, dtype=np.int64)
             chosen_frames = [active_frames[int(index)] for index in sorted(set(indices.tolist()))]
@@ -758,6 +780,45 @@ def _select_phrase_ids(
             if candidate_id not in phrase_matches:
                 phrase_matches.append(candidate_id)
     return selected_ids, selected_by_phrase
+
+
+def _filter_qwen_subjects_to_singular_plan_subject(
+    qwen_subjects: list[str],
+    *,
+    plan_subjects: list[str],
+    candidates: list[dict[str, Any]],
+) -> list[str]:
+    """Reject interaction partners when a singular plan has one grammatical subject.
+
+    The selector VLM may mention a useful tool or patient in its subject list
+    despite the planner having already established that the query asks for one
+    entity. Keep candidate aliases only when the corresponding physical entity
+    matches that planned subject. This is phrase-grounded and applies to
+    arbitrary categories rather than a tool/object vocabulary.
+    """
+    if len(plan_subjects) != 1:
+        return qwen_subjects
+    target_phrase = str(plan_subjects[0]).strip()
+    if not target_phrase:
+        return qwen_subjects
+    filtered: list[str] = []
+    for qwen_phrase in qwen_subjects:
+        matching_candidates = [
+            candidate
+            for candidate in candidates
+            if _candidate_phrase_score(qwen_phrase, candidate) >= 0.45
+        ]
+        if any(_candidate_phrase_score(target_phrase, candidate) >= 0.45 for candidate in matching_candidates):
+            filtered.append(qwen_phrase)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for phrase in filtered:
+        normalized = _normalize_phrase(phrase)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(phrase)
+    return deduped
 
 
 def _choose_subject_pair(
@@ -2139,6 +2200,12 @@ def _compose_phrase_grounded_selection(
         qwen_successors = []
     qwen_subjects = _expand_counted_subject_phrases(qwen_subjects, limit=3)
     plan_subjects = _expand_counted_subject_phrases(plan_subjects, limit=3)
+    if not is_exclusion_query:
+        qwen_subjects = _filter_qwen_subjects_to_singular_plan_subject(
+            qwen_subjects,
+            plan_subjects=plan_subjects,
+            candidates=candidates,
+        )
     # If Qwen actually ran (raw_phrase_payload is not None) and explicitly returned empty subject_phrases,
     # respect that as "no matching entity" — do NOT fall back to plan_subjects.
     qwen_ran = raw_phrase_payload is not None
