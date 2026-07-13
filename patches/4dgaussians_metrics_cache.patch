@@ -1,0 +1,40 @@
+--- a/metrics.py
++++ b/metrics.py
+@@ -15,7 +15,7 @@ import torch
+ import torchvision.transforms.functional as tf
+ from utils.loss_utils import ssim
+-from lpipsPyTorch import lpips
++from lpipsPyTorch import LPIPS
+ import json
+ from tqdm import tqdm
+ from utils.image_utils import psnr
+@@ -65,20 +65,23 @@ def evaluate(model_paths):
+                 renders, gts, image_names = readImages(renders_dir, gt_dir)
+ 
+                 ssims = []
+                 psnrs = []
+                 lpipss = []
+                 lpipsa = []
+                 ms_ssims = []
+                 Dssims = []
+-                for idx in tqdm(range(len(renders)), desc="Metric evaluation progress"):
+-                    ssims.append(ssim(renders[idx], gts[idx]))
+-                    psnrs.append(psnr(renders[idx], gts[idx]))
+-                    lpipss.append(lpips(renders[idx], gts[idx], net_type='vgg'))
+-                    ms_ssims.append(ms_ssim(renders[idx], gts[idx],data_range=1, size_average=True ))
+-                    lpipsa.append(lpips(renders[idx], gts[idx], net_type='alex'))
+-                    Dssims.append((1-ms_ssims[-1])/2)
++                # The helper function constructs a new LPIPS network each call.
++                # Cache the two immutable metric networks per rendered method so
++                # every frame retains the same metric definition without paying
++                # a model-initialization cost hundreds of times.
++                lpips_vgg_metric = LPIPS(net_type='vgg').cuda()
++                lpips_alex_metric = LPIPS(net_type='alex').cuda()
++                with torch.no_grad():
++                    for idx in tqdm(range(len(renders)), desc="Metric evaluation progress"):
++                        ssims.append(ssim(renders[idx], gts[idx]))
++                        psnrs.append(psnr(renders[idx], gts[idx]))
++                        lpipss.append(lpips_vgg_metric(renders[idx], gts[idx]))
++                        ms_ssims.append(ms_ssim(renders[idx], gts[idx],data_range=1, size_average=True ))
++                        lpipsa.append(lpips_alex_metric(renders[idx], gts[idx]))
++                        Dssims.append((1-ms_ssims[-1])/2)

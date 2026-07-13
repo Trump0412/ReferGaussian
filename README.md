@@ -305,6 +305,11 @@ For iterative debugging only, set `GS_SKIP_FULL_METRICS=1` to run the uniform
 subset metric path. Do not compare subset metrics with the full-frame paper
 table; omit that variable for any final reconstruction report.
 
+The full and subset metric paths cache each LPIPS network once per evaluated
+method rather than reconstructing it for every frame. This is a runtime-only
+change: PSNR, SSIM, MS-SSIM, LPIPS-vgg, and LPIPS-alex retain their original
+per-frame definitions and reduction.
+
 ### Referring evaluation — 4DLangSplat public protocol
 
 Run per scene (example: `split-cookie`):

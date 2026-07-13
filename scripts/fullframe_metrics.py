@@ -17,7 +17,7 @@ for candidate in (REPO_ROOT, EXTERNAL_ROOT):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
-from lpipsPyTorch import lpips
+from lpipsPyTorch import LPIPS
 from utils.image_utils import psnr
 from utils.loss_utils import ssim
 
@@ -54,6 +54,7 @@ def main() -> None:
     ssims = []
     ms_ssims = []
     lpips_vgg = []
+    lpips_vgg_metric = LPIPS(net_type="vgg").to(device) if args.with_lpips else None
 
     for idx, name in enumerate(filenames, start=1):
         render = load_image(renders_dir / name, device)
@@ -62,8 +63,8 @@ def main() -> None:
             psnrs.append(float(psnr(render, gt).mean().item()))
             ssims.append(float(ssim(render, gt).mean().item()))
             ms_ssims.append(float(ms_ssim(render, gt, data_range=1.0, size_average=True).item()))
-            if args.with_lpips:
-                lpips_vgg.append(float(lpips(render, gt, net_type="vgg").mean().item()))
+            if lpips_vgg_metric is not None:
+                lpips_vgg.append(float(lpips_vgg_metric(render, gt).mean().item()))
         if idx % 50 == 0 or idx == len(filenames):
             print(f"[{idx}/{len(filenames)}] {method}")
 

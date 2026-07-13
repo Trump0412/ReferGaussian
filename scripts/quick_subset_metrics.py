@@ -16,7 +16,7 @@ for candidate in (REPO_ROOT, EXTERNAL_ROOT):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
-from lpipsPyTorch import lpips
+from lpipsPyTorch import LPIPS
 from utils.image_utils import psnr
 from utils.loss_utils import ssim
 
@@ -56,6 +56,7 @@ def main() -> None:
     psnrs = []
     ssims = []
     lpips_vgg = []
+    lpips_vgg_metric = LPIPS(net_type="vgg").cuda() if args.with_lpips else None
 
     for name in filenames:
         render = load_image(renders_dir / name)
@@ -63,8 +64,8 @@ def main() -> None:
         with torch.no_grad():
             psnrs.append(float(psnr(render, gt).mean().item()))
             ssims.append(float(ssim(render, gt).mean().item()))
-            if args.with_lpips:
-                lpips_vgg.append(float(lpips(render, gt, net_type="vgg").mean().item()))
+            if lpips_vgg_metric is not None:
+                lpips_vgg.append(float(lpips_vgg_metric(render, gt).mean().item()))
 
     payload = {
         "method": method,

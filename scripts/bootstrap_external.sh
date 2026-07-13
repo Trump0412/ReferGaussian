@@ -92,5 +92,8 @@ apply_integration_patch
 apply_4dgs_patch \
   "${ROOT_DIR}/patches/4dgaussians_seed_order.patch" \
   "seed-order reproducibility patch"
+apply_4dgs_patch \
+  "${ROOT_DIR}/patches/4dgaussians_metrics_cache.patch" \
+  "LPIPS metric-cache patch"
 
 echo "All external dependencies are ready under ${EXTERNAL_DIR}."

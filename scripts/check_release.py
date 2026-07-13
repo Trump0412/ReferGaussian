@@ -49,6 +49,7 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/train_baseline.sh",
     "scripts/eval_baseline.sh",
     "patches/4dgaussians_seed_order.patch",
+    "patches/4dgaussians_metrics_cache.patch",
 )
 REQUIRED_RUNTIME_TOKENS = {
     "scripts/build_joint_query_proposal_dir.py": "mask_supported_lifting",
@@ -65,7 +66,7 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/run_query_batch_two_gpu.py": "--strict-release",
     "scripts/validate_refergaussian_run.py": "validate_refergaussian_run",
     "scripts/eval_baseline.sh": "external/4DGaussians/render.py",
-    "scripts/bootstrap_external.sh": "4dgaussians_seed_order.patch",
+    "scripts/bootstrap_external.sh": "4dgaussians_metrics_cache.patch",
 }
 ENGLISH_RUNTIME_FILES = (
     "refergaussian/semantics/qwen_query_planner.py",
@@ -226,6 +227,11 @@ def check_runtime_release_guards() -> list[str]:
     )
     if not seed_after_safe_state:
         errors.append("4DGaussians seed-order patch must restore the requested seed after safe_state")
+    metrics_patch_text = (ROOT / "patches" / "4dgaussians_metrics_cache.patch").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    if "LPIPS(net_type='vgg').cuda()" not in metrics_patch_text:
+        errors.append("4DGaussians metric patch must cache the VGG LPIPS network")
     for relative_path in ("scripts/train.sh", "scripts/train_baseline.sh"):
         train_text = (ROOT / relative_path).read_text(encoding="utf-8", errors="replace")
         if "REFERGAUSSIAN_SEED" not in train_text or "--seed" not in train_text:
