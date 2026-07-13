@@ -17,6 +17,7 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
         self.assertIn("HF_MODEL_ID_TO_FILENAMES", text)
         self.assertIn("revision=sam2_model_revision", text)
         self.assertIn("local_files_only=local_files_only", text)
+        self.assertIn("use_fast=True", text)
         self.assertNotIn("SAM2VideoPredictor.from_pretrained(sam2_model_id", text)
 
     def test_launcher_defaults_to_local_only_weights(self) -> None:

@@ -538,6 +538,7 @@ def run_grounded_sam2_query(
         processor = AutoProcessor.from_pretrained(
             grounding_model_id,
             revision=grounding_model_revision,
+            use_fast=True,
             local_files_only=local_files_only,
         )
         grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(

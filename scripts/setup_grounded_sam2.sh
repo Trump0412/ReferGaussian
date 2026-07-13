@@ -69,7 +69,9 @@ sam2_model_id = "${SAM2_MODEL_ID}"
 gdino_model_revision = "${GDINO_MODEL_REVISION}"
 sam2_model_revision = "${SAM2_MODEL_REVISION}"
 
-processor = AutoProcessor.from_pretrained(gdino_model_id, revision=gdino_model_revision)
+processor = AutoProcessor.from_pretrained(
+    gdino_model_id, revision=gdino_model_revision, use_fast=True
+)
 grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(gdino_model_id, revision=gdino_model_revision)
 config_name, checkpoint_name = HF_MODEL_ID_TO_FILENAMES[sam2_model_id]
 checkpoint_path = hf_hub_download(
@@ -81,7 +83,7 @@ predictor = build_sam2_video_predictor(config_file=config_name, ckpt_path=checkp
 
 # Verify that inference can use the fully pinned local cache without a Hub call.
 AutoProcessor.from_pretrained(
-    gdino_model_id, revision=gdino_model_revision, local_files_only=True
+    gdino_model_id, revision=gdino_model_revision, use_fast=True, local_files_only=True
 )
 AutoModelForZeroShotObjectDetection.from_pretrained(
     gdino_model_id, revision=gdino_model_revision, local_files_only=True

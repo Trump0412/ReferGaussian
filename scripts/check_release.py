@@ -308,6 +308,7 @@ def check_runtime_release_guards() -> list[str]:
         "HF_MODEL_ID_TO_FILENAMES",
         "revision=sam2_model_revision",
         "local_files_only=local_files_only",
+        "use_fast=True",
     ):
         if token not in grounded_backend_text:
             errors.append(f"Grounded-SAM2 runtime must pin local snapshots: {token}")
