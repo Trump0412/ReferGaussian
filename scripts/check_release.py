@@ -178,6 +178,12 @@ def check_runtime_release_guards() -> list[str]:
     if "require_refergaussian_run" not in pipeline_text:
         errors.append("Published query pipeline must validate the ReferGaussian training identity")
 
+    grounded_sam_text = (ROOT / "scripts/run_query_guided_grounded_sam2.sh").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    if "GSAM2_QUERY_PLAN_STRICT_FALLBACK:-1" in grounded_sam_text:
+        errors.append("Published Stage-1 path must not enable non-strict planner fallback by default")
+
     baseline_eval_text = (ROOT / "scripts/eval_baseline.sh").read_text(
         encoding="utf-8", errors="replace"
     )

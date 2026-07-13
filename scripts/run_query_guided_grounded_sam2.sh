@@ -29,11 +29,11 @@ else
   )
   if [[ "${GSAM2_QUERY_PLAN_STRICT:-1}" == "1" ]]; then
     if ! gsam2_python "${GS_ROOT}/scripts/plan_query_entities.py" "${plan_args[@]}" --strict; then
-      if [[ "${GSAM2_QUERY_PLAN_STRICT_FALLBACK:-1}" == "1" ]]; then
-        echo "[warn] strict query planner failed; retrying with non-strict mode"
+      if [[ "${GSAM2_QUERY_PLAN_STRICT_FALLBACK:-0}" == "1" ]]; then
+        echo "[warn] strict query planner failed; retrying because non-strict mode was explicitly enabled"
         gsam2_python "${GS_ROOT}/scripts/plan_query_entities.py" "${plan_args[@]}"
       else
-        echo "[error] strict query planner failed and strict fallback is disabled" >&2
+        echo "[error] strict query planner failed; inspect the planner diagnostics or explicitly enable GSAM2_QUERY_PLAN_STRICT_FALLBACK=1" >&2
         exit 1
       fi
     fi
