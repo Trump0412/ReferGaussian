@@ -353,6 +353,7 @@ def _source_entries(dataset_dir: Path) -> list[dict[str, Any]]:
             "image_id": str(entry["image_id"]),
             "frame_index": int(entry["frame_index"]),
             "time_value": float(entry["time_value"]),
+            "image_path": str(entry["image_path"]),
         }
         for entry in entries
     ]
