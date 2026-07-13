@@ -501,31 +501,6 @@ def _query_requests_dual_hands(query: str, phrase_groups: list[list[str]]) -> bo
     return False
 
 
-def _single_hand_query_side(query: str) -> str | None:
-    query_lower = " ".join(str(query).strip().lower().split())
-    query_compact = query_lower.replace(" ", "")
-    if any(token in query_compact for token in ("双手", "两只手", "两手", "左右手")):
-        return None
-    if "both hands" in query_lower or "two hands" in query_lower:
-        return None
-    if ("left hand" in query_lower and "right hand" in query_lower) or ("right hand" in query_lower and "left hand" in query_lower):
-        return None
-    if "left hand" in query_lower or "左手" in query_compact:
-        return "left hand"
-    if "right hand" in query_lower or "右手" in query_compact:
-        return "right hand"
-    return None
-
-
-def _opposite_hand_phrase(phrase: str | None) -> str | None:
-    normalized = _normalize_phrase(phrase or "")
-    if normalized == "left hand":
-        return "right hand"
-    if normalized == "right hand":
-        return "left hand"
-    return None
-
-
 def _is_hand_candidate(candidate: dict[str, Any]) -> bool:
     texts = [
         candidate.get("proposal_alias", ""),
@@ -623,55 +598,6 @@ def _select_phrase_ids(
         selected_ids.append(entity_id)
         selected_by_phrase[target] = [int(item["id"]) for item in matches]
     return selected_ids, selected_by_phrase
-
-
-def _maybe_swap_single_hand_subject(
-    *,
-    query: str,
-    candidates: list[dict[str, Any]],
-    subject_ids: list[int],
-    subject_phrases: list[str],
-    subject_matches: dict[str, list[int]],
-) -> tuple[list[int], list[str], dict[str, list[int]], str | None]:
-    if not _env_flag("QUERY_SWAP_LATERAL_HANDS", False):
-        return subject_ids, subject_phrases, subject_matches, None
-    if len(subject_ids) != 1 or len(subject_phrases) != 1:
-        return subject_ids, subject_phrases, subject_matches, None
-
-    queried_side = _single_hand_query_side(query)
-    opposite_side = _opposite_hand_phrase(queried_side)
-    if queried_side is None or opposite_side is None:
-        return subject_ids, subject_phrases, subject_matches, None
-
-    current_id = int(subject_ids[0])
-    current_row = next((candidate for candidate in candidates if int(candidate.get("id", -1)) == current_id), None)
-    if current_row is None or not _is_hand_candidate(current_row):
-        return subject_ids, subject_phrases, subject_matches, None
-
-    current_side = _normalize_phrase(
-        current_row.get("proposal_phrase", "")
-        or current_row.get("static_text", "")
-        or subject_phrases[0]
-    )
-    if current_side != queried_side:
-        return subject_ids, subject_phrases, subject_matches, None
-
-    opposite_ids, opposite_matches = _select_phrase_ids(candidates, [opposite_side], allow_missing=True)
-    if not opposite_ids:
-        return subject_ids, subject_phrases, subject_matches, None
-
-    swapped_id = int(opposite_ids[0])
-    if swapped_id == current_id:
-        return subject_ids, subject_phrases, subject_matches, None
-
-    updated_matches = dict(subject_matches)
-    updated_matches["__hand_swap_hotfix__"] = [current_id, swapped_id]
-    updated_matches.setdefault(opposite_side, list(opposite_matches.get(opposite_side, [])))
-    note = (
-        f"Handedness swap hotfix enabled: query side '{queried_side}' remapped "
-        f"from entity {current_id} to opposite-side entity {swapped_id}."
-    )
-    return [swapped_id], [opposite_side], updated_matches, note
 
 
 def _choose_subject_pair(
@@ -1712,15 +1638,6 @@ def _compose_phrase_grounded_selection(
         ]
         subject_matches = {"__all__": [int(candidate["id"]) for candidate in candidates]}
     subject_ids, subject_phrases = _dedupe_subject_selection(subject_ids, subject_phrases)
-    hand_swap_note = None
-    if not requires_dual_hands:
-        subject_ids, subject_phrases, subject_matches, hand_swap_note = _maybe_swap_single_hand_subject(
-            query=query,
-            candidates=candidates,
-            subject_ids=subject_ids,
-            subject_phrases=subject_phrases,
-            subject_matches=subject_matches,
-        )
     if requires_dual_hands and len(subject_ids) < 2:
         fallback_rows = _dual_hand_fallback_rows(candidates)
         if len(fallback_rows) >= 2:
@@ -2026,8 +1943,6 @@ def _compose_phrase_grounded_selection(
             notes_parts.append(f"Start condition: {query_plan_payload['start_condition']}")
         if query_plan_payload.get("stop_condition"):
             notes_parts.append(f"Stop condition: {query_plan_payload['stop_condition']}")
-        if hand_swap_note:
-            notes_parts.append(hand_swap_note)
         return {
             "query": query,
             "selected": selected_rows,

@@ -16,10 +16,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 def _default_qwen_model_candidates() -> list[Path]:
     candidates: list[Path] = []
-    env_paths = [
-        os.environ.get("REFERGAUSSIAN_QWEN_MODEL"),
-        os.environ.get("HYPERGAUSSIAN_QWEN_MODEL"),
-    ]
+    env_paths = [os.environ.get("REFERGAUSSIAN_QWEN_MODEL")]
     for raw_path in env_paths:
         if not raw_path:
             continue
@@ -29,7 +26,6 @@ def _default_qwen_model_candidates() -> list[Path]:
         [
             _PROJECT_ROOT / "models" / "Qwen3-VL-8B-Instruct",
             _PROJECT_ROOT.parent / "models" / "Qwen3-VL-8B-Instruct",
-            Path("/root/autodl-tmp/models/Qwen3-VL-8B-Instruct"),
             Path.home() / "models" / "Qwen3-VL-8B-Instruct",
         ]
     )

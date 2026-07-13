@@ -23,7 +23,7 @@ def build_temporal_warp(args, device: str = "cuda"):
         model = MonotonicMLPWarp(hidden_dim=hidden_dim, num_layers=num_layers)
     elif warp_type == "density":
         model = DensityIntegralWarp(hidden_dim=hidden_dim, num_layers=num_layers, num_bins=num_bins)
-    elif warp_type in {"stellar", "stellar_metric", "local"}:
+    elif warp_type in {"refergaussian", "contextual", "local"}:
         model = ContextualMetricWarp(hidden_dim=hidden_dim, num_layers=num_layers)
     else:
         raise ValueError(f"Unsupported temporal warp type: {warp_type}")

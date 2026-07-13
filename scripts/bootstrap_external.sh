@@ -52,4 +52,16 @@ clone_checkout_repo() {
 clone_checkout_repo "4DGaussians" "${FOURD_REPO_URL}" "${FOURD_REPO_REF}" "train.py"
 clone_checkout_repo "Grounded-SAM-2" "${GSAM2_REPO_URL}" "${GSAM2_REPO_REF}" "sam2/__init__.py"
 
+REFERGAUSSIAN_4DGS_PATCH="${ROOT_DIR}/patches/4dgaussians_refergaussian.patch"
+FOURD_TARGET="${EXTERNAL_DIR}/4DGaussians"
+if git -C "${FOURD_TARGET}" apply --check --whitespace=nowarn "${REFERGAUSSIAN_4DGS_PATCH}"; then
+  git -C "${FOURD_TARGET}" apply --whitespace=nowarn "${REFERGAUSSIAN_4DGS_PATCH}"
+  echo "[done] applied ReferGaussian integration patch to 4DGaussians"
+elif git -C "${FOURD_TARGET}" apply --reverse --check "${REFERGAUSSIAN_4DGS_PATCH}"; then
+  echo "[ok] ReferGaussian integration patch already applied"
+else
+  echo "[error] 4DGaussians checkout does not match the released integration patch." >&2
+  exit 4
+fi
+
 echo "All external dependencies are ready under ${EXTERNAL_DIR}."

@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
-"""
-generate_dynerf_camera_jsons.py
+"""Create camera metadata required by the DyNeRF referring pipeline.
 
-为 dynerf 数据集生成 HyperNeRF 风格的 camera/XXXX.json 文件。
-dynerf 数据集只有 poses_bounds.npy (LLFF格式)，而 query pipeline 需要
-camera/XXXX.json 格式 (nerfies/HyperNeRF 格式)。
+Neural 3D Video / DyNeRF scenes provide ``poses_bounds.npy`` in LLFF format,
+while the referring pipeline also expects one Nerfies-style ``camera/*.json``
+file per image.  The supported monocular release layout uses a fixed ``cam00``
+camera, so every frame receives the same calibrated camera record.
 
-对于 dynerf，同一场景所有帧使用同一相机（cam00，固定位置），
-所以所有 camera/XXXX.json 内容相同，只是文件名不同。
-
-用法:
-  python scripts/generate_dynerf_camera_jsons.py \
-    --dataset-dir /path/to/dynerf/coffee_martini \
-    [--cam-index 0] \
-    [--dry-run]
+Example:
+    python scripts/generate_dynerf_camera_jsons.py \
+        --dataset-dir data/dynerf/coffee_martini
 """
 from __future__ import annotations
 
@@ -168,7 +163,7 @@ def generate_camera_jsons(
             print(f"  [dry-run] would write: {out_path}")
 
     if not dry_run:
-        print(f"✅ Generated {len(frame_ids)} camera JSON files in {camera_dir}")
+        print(f"Generated {len(frame_ids)} camera JSON files in {camera_dir}")
         # Verify
         sample = camera_dir / f"{frame_ids[0]}.json"
         loaded = json.loads(sample.read_text())

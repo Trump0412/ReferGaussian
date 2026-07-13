@@ -1,0 +1,2 @@
+# The integration patch preserves upstream context verbatim so it applies to the pinned 4DGaussians revision.
+patches/4dgaussians_refergaussian.patch whitespace=-trailing-space

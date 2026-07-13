@@ -12,6 +12,26 @@ def _read_json(path: Path) -> dict:
         return json.load(handle)
 
 
+def _read_manifest_query_ids(path: Path) -> set[str]:
+    query_ids: set[str] = set()
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, raw_line in enumerate(handle, start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSONL row {line_number} in {path}: {exc}") from exc
+            query_id = str(row.get("query_id", "")).strip()
+            if not query_id:
+                raise ValueError(f"Manifest row {line_number} has no query_id: {path}")
+            query_ids.add(query_id)
+    if not query_ids:
+        raise ValueError(f"Manifest contains no query ids: {path}")
+    return query_ids
+
+
 def _norm(text: str) -> str:
     return " ".join(str(text).strip().lower().replace("-", " ").replace("_", " ").split())
 
@@ -321,6 +341,11 @@ def main() -> None:
     parser.add_argument("--query-root", required=True)
     parser.add_argument("--output-json", required=True)
     parser.add_argument("--output-md", default=None)
+    parser.add_argument(
+        "--query-manifest",
+        default=None,
+        help="Optional JSONL manifest. Only protocol queries listed by query_id are evaluated.",
+    )
     parser.add_argument("--skip-missing", action="store_true")
     args = parser.parse_args()
 
@@ -328,9 +353,17 @@ def main() -> None:
     metadata_payload = _read_json(Path(args.dataset_dir) / "metadata.json")
     _, gt_masks_by_object, top_level_objects = _build_gt_masks(Path(args.annotation_dir))
 
+    manifest_query_ids = (
+        _read_manifest_query_ids(Path(args.query_manifest))
+        if args.query_manifest
+        else None
+    )
+
     per_query = []
     for query_item in protocol_payload.get("queries", []):
         query_slug = str(query_item["query_slug"])
+        if manifest_query_ids is not None and query_slug not in manifest_query_ids:
+            continue
         validation_path = Path(args.query_root) / query_slug / "final_query_render_sourcebg" / "validation.json"
         if not validation_path.exists():
             if args.skip_missing:
@@ -378,6 +411,7 @@ def main() -> None:
         "annotation_dir": str(Path(args.annotation_dir)),
         "dataset_dir": str(Path(args.dataset_dir)),
         "query_root": str(Path(args.query_root)),
+        "query_manifest": str(Path(args.query_manifest)) if args.query_manifest else None,
         "summary": summary,
         "queries": per_query,
     }

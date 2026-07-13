@@ -5,12 +5,15 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10](https://img.shields.io/badge/Python-3.10-brightgreen.svg)](#environment-setup)
 [![CUDA 12.1](https://img.shields.io/badge/CUDA-12.1-orange.svg)](#environment-setup)
+[![ACM MM 2026](https://img.shields.io/badge/ACM%20MM-2026-8A2BE2.svg)](#citation)
 
-[Project Page](https://trump0412.github.io/ReferGaussian/) | [arXiv (Coming Soon)](https://arxiv.org/abs/XXXX.XXXXX) | [Citation](#citation) | [Dataset (HuggingFace)](https://huggingface.co/datasets/LiYacheng/r4d-bench-qa)
+[Project Page](https://trump0412.github.io/ReferGaussian/) | Paper (coming soon) | [Citation](#citation) | [Dataset (HuggingFace)](https://huggingface.co/datasets/LiYacheng/r4d-bench-qa)
 
 </div>
 
 **Authors:** Bangpu Chen, Yaxuan Li, Shirui Peng, Xiangtian Si, Chu Liuxin, Xitong Cao, Hongbo Jin, Jiayu Ding
+
+Accepted at **ACM Multimedia 2026**.
 
 ---
 
@@ -24,13 +27,23 @@
 
 ## Results
 
-### R4D-Bench-QA — joint referring + reconstruction
+### R4D-Bench-QA — referring segmentation
 
-| Method | Acc ↑ | vIoU ↑ | PSNR ↑ | SSIM ↑ | LPIPS ↓ |
-|---|---|---|---|---|---|
-| Segment then Splat | 55.6 | 28.4 | 20.3208 | 0.7027 | 0.3971 |
-| 4D LangSplat | 58.4 | 32.1 | 20.3208 | 0.7027 | 0.3971 |
-| ReferGaussian (Ours) | **76.5** | **34.4** | **20.4159** | **0.7069** | **0.3942** |
+| Method | Acc ↑ | vIoU ↑ |
+|---|---:|---:|
+| Segment then Splat | 55.6 | 28.4 |
+| 4D LangSplat | 58.4 | 32.1 |
+| ReferGaussian (Ours) | **76.5** | **34.4** |
+
+### Reconstruction — fixed 8-scene protocol
+
+| Method | PSNR ↑ | SSIM ↑ | LPIPS ↓ |
+|---|---:|---:|---:|
+| 4D Gaussian Splatting | 28.312 | 0.8753 | 0.2325 |
+| ReferGaussian (Ours) | **28.486** | **0.8777** | **0.2233** |
+
+The reconstruction table uses the fixed 8-scene release protocol. Results where either
+method has PSNR below 20 dB are excluded from paper-facing reconstruction comparisons.
 
 ### Generalization — 4D LangSplat HyperNeRF split
 
@@ -46,7 +59,7 @@
 
 | Variant | Acc ↑ | vIoU ↑ |
 |---|---|---|
-| 4DGS reconstruction (no HyperGS) | 62.9 | 31.5 |
+| 4DGS reconstruction backbone only | 62.9 | 31.5 |
 | w/o Stage 1 static segmentation | 48.6 | 17.2 |
 | w/o Stage 2 semantic assignment | 62.9 | 29.8 |
 | w/o Stage 3 spatio-temporal reasoning | 36.0 | 26.1 |
@@ -119,8 +132,6 @@ Default path is `models/Qwen3-VL-8B-Instruct/` (relative to repo root). Override
 
 ```bash
 export REFERGAUSSIAN_QWEN_MODEL=/path/to/Qwen3-VL-8B-Instruct
-# Backward compatibility (legacy name also supported):
-# export HYPERGAUSSIAN_QWEN_MODEL=/path/to/Qwen3-VL-8B-Instruct
 ```
 
 ### SAM2 and Grounding DINO (Grounded-SAM2 pipeline)
@@ -153,6 +164,29 @@ Register a local scene:
 bash scripts/prepare_local_hypernerf_scene.sh /path/to/scene <group> <scene>
 ```
 
+### DyNeRF / Neural 3D Video
+
+The fixed R4D-Bench-QA release additionally uses `coffee_martini`,
+`sear_steak`, and `cut_roasted_beef` from Neural 3D Video. Obtain those source
+scenes under their original license, then place each scene at
+`data/dynerf/<scene>/`. The referring pipeline expects the following layout:
+
+```text
+data/dynerf/coffee_martini/
+  poses_bounds.npy
+  cam00/images/0000.png
+  ...
+```
+
+Generate the required per-frame camera metadata after placing a scene:
+
+```bash
+python scripts/generate_dynerf_camera_jsons.py \
+  --dataset-dir data/dynerf/coffee_martini
+```
+
+The command is deterministic and may be repeated safely for each DyNeRF scene.
+
 ### 4DLangSplat annotations
 
 ```bash
@@ -176,6 +210,9 @@ Dataset link: [https://huggingface.co/datasets/LiYacheng/r4d-bench-qa](https://h
 ```bash
 # Example: keyboard scene
 bash scripts/train.sh hypernerf misc/keyboard
+
+# Example: DyNeRF scene after the layout above is prepared
+bash scripts/train.sh dynerf coffee_martini
 ```
 
 Output is written to `runs/refergaussian/hypernerf/keyboard/`.
@@ -256,6 +293,10 @@ gs_python scripts/run_query_batch_two_gpu.py \
   --timeout 10800
 ```
 
+When evaluating a subset such as `time_sensitive`, pass the same manifest to
+`evaluate_public_query_protocol.py --query-manifest "${OUT}/manifest.jsonl"`.
+This prevents unrequested protocol queries from appearing as missing results.
+
 ### Referring evaluation — R4D-Bench-QA
 
 ```bash
@@ -268,7 +309,8 @@ source scripts/common.sh
 RUN_ROOT=reports/r4d_bench_public_time_shape_v4
 gs_python scripts/build_r4d_query_manifest.py \
   --benchmark data/benchmarks/r4d_bench_qa/benchmark_all_queries.json \
-  --scenes cut_lemon split_cookie torchchocolate coffee_martini \
+  --scenes coffee_martini sear_steak cut_roasted_beef \
+           cut_lemon espresso keyboard split_cookie torchchocolate \
   --output "${RUN_ROOT}/manifest.jsonl" \
   --output-root "${RUN_ROOT}/query_root" \
   --gpus 0 1 2
@@ -311,17 +353,23 @@ Important benchmark note:
 - Prefer the official query metadata file `R4D-Bench_queries.json` as the source of truth for query text.
   Avoid retyping benchmark queries in ad-hoc shell scripts, because even small wording drift can change the target object set.
 
-Filter the official R4D-Bench query list by scene before running a subset benchmark:
+The paper-facing release protocol is fixed to 8 scenes and 58 English queries:
+
+- DyNeRF: `coffee_martini`, `sear_steak`, `cut_roasted_beef`
+- HyperNeRF: `cut_lemon`, `espresso`, `keyboard`, `split_cookie`, `torchchocolate`
+
+Filter the official query metadata to this fixed protocol when preparing a release run:
 
 ```bash
 python scripts/filter_r4d_benchmark_queries.py \
   --input-json data/benchmarks/r4d_bench_qa/evaluation/R4D-Bench_queries.json \
-  --output-json reports/r4d_bench_queries_10scene.json \
-  --output-md reports/r4d_bench_queries_10scene.md \
-  --exclude-scenes americano cut_roasted_beef
+  --output-json reports/r4d_bench_queries_8scene.json \
+  --output-md reports/r4d_bench_queries_8scene.md \
+  --include-scenes coffee_martini sear_steak cut_roasted_beef \
+                   cut_lemon espresso keyboard split_cookie torchchocolate
 ```
 
-This produces the 10-scene / 72-query subset used when excluding the weakest reconstruction scenes.
+This produces the canonical 8-scene / 58-query release set. Scene selection is fixed before evaluation.
 
 ## Repository Layout
 
@@ -341,16 +389,18 @@ ReferGaussian/
 
 ## Citation
 
-Replace the placeholder below before final release:
-- `XXXX.XXXXX` -> your final arXiv id
+Before publishing a release, run:
+
+```bash
+python scripts/check_release.py
+```
 
 ```bibtex
-@article{refergaussian2026,
+@inproceedings{chen2026refergaussian,
   title     = {ReferGaussian: Referring Segmentation in 4D Gaussian Splatting},
   author    = {Bangpu Chen and Yaxuan Li and Shirui Peng and Xiangtian Si and Chu Liuxin and Xitong Cao and Hongbo Jin and Jiayu Ding},
-  journal   = {arXiv preprint arXiv:XXXX.XXXXX},
-  year      = {2026},
-  url       = {https://arxiv.org/abs/XXXX.XXXXX}
+  booktitle = {Proceedings of the ACM International Conference on Multimedia},
+  year      = {2026}
 }
 ```
 

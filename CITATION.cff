@@ -1,14 +1,26 @@
 cff-version: 1.2.0
 title: "ReferGaussian: Referring Segmentation in 4D Gaussian Splatting"
-message: "If you use this project, please cite the corresponding paper."
+message: "If you use this project, please cite our ACM Multimedia 2026 paper."
 type: software
 authors:
-  - family-names: "Author1FamilyName"
-    given-names: "Author1GivenName"
-  - family-names: "Author2FamilyName"
-    given-names: "Author2GivenName"
+  - family-names: "Chen"
+    given-names: "Bangpu"
+  - family-names: "Li"
+    given-names: "Yaxuan"
+  - family-names: "Peng"
+    given-names: "Shirui"
+  - family-names: "Si"
+    given-names: "Xiangtian"
+  - family-names: "Chu"
+    given-names: "Liuxin"
+  - family-names: "Cao"
+    given-names: "Xitong"
+  - family-names: "Jin"
+    given-names: "Hongbo"
+  - family-names: "Ding"
+    given-names: "Jiayu"
 repository-code: "https://github.com/Trump0412/ReferGaussian"
-url: "https://arxiv.org/abs/XXXX.XXXXX"
+url: "https://trump0412.github.io/ReferGaussian/"
 license: "MIT"
 abstract: >-
   ReferGaussian is a unified framework for dynamic 4D Gaussian reconstruction
@@ -19,12 +31,25 @@ keywords:
   - Referring Understanding
   - Multimodal Reasoning
 preferred-citation:
-  type: article
+  type: conference-paper
   title: "ReferGaussian: Referring Segmentation in 4D Gaussian Splatting"
   authors:
-    - family-names: "Author1FamilyName"
-      given-names: "Author1GivenName"
-    - family-names: "Author2FamilyName"
-      given-names: "Author2GivenName"
-  journal: "arXiv preprint arXiv:XXXX.XXXXX"
+    - family-names: "Chen"
+      given-names: "Bangpu"
+    - family-names: "Li"
+      given-names: "Yaxuan"
+    - family-names: "Peng"
+      given-names: "Shirui"
+    - family-names: "Si"
+      given-names: "Xiangtian"
+    - family-names: "Chu"
+      given-names: "Liuxin"
+    - family-names: "Cao"
+      given-names: "Xitong"
+    - family-names: "Jin"
+      given-names: "Hongbo"
+    - family-names: "Ding"
+      given-names: "Jiayu"
+  conference:
+    name: "ACM Multimedia 2026"
   year: 2026
