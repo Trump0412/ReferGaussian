@@ -439,6 +439,24 @@ When evaluating a subset such as `time_sensitive`, pass the same manifest to
 `evaluate_public_query_protocol.py --query-manifest "${OUT}/manifest.jsonl"`.
 This prevents unrequested protocol queries from appearing as missing results.
 
+To compare a renderer while holding the completed Stage-1 tracks, Qwen
+selection, and Gaussian entity fixed, use the re-render utility. It writes a
+new evaluator-compatible output root and, by default, exports only numerical
+masks and `validation.json` rather than videos or overlays:
+
+```bash
+gs_python scripts/rerender_query_outputs.py \
+  --manifest "${OUT}/manifest.jsonl" \
+  --output-root reports/public_time_shape_v4_alpha_rerender \
+  --profile public_time_shape_v4_recall \
+  --gpu 0 \
+  --require-complete
+```
+
+The new root includes `query_root_map.json` and `dataset_dir_map.json`, so it
+can be evaluated with the same strict evaluator command. This utility never
+reruns or changes the original selection and never uses a full-scene fallback.
+
 ### Referring evaluation — R4D-Bench-QA
 
 ```bash
