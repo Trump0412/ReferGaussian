@@ -61,6 +61,43 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         self.assertLess(images[0].width, 640)
         self.assertLess(images[0].height, 360)
 
+    def test_relation_instance_visual_evidence_uses_two_temporal_moments(self) -> None:
+        with TemporaryDirectory() as directory:
+            overlay_paths = []
+            for index in range(3):
+                overlay_path = Path(directory) / f"overlay_{index}.png"
+                Image.new("RGB", (640, 360), color=(10 + index, 20, 30)).save(overlay_path)
+                overlay_paths.append(overlay_path)
+            candidates = [
+                {
+                    "id": 4,
+                    "stage1_object_id": 12,
+                    "proposal_alias": "target instance 1",
+                    "instance_selection_policy": "relation_disambiguation",
+                }
+            ]
+            tracks_payload = {
+                "tracks": [
+                    {
+                        "object_id": 12,
+                        "frames": [
+                            {
+                                "active": True,
+                                "frame_index": index * 20,
+                                "bbox_xyxy": [100, 80, 300, 260],
+                                "overlay_path": str(overlay_path),
+                            }
+                            for index, overlay_path in enumerate(overlay_paths)
+                        ],
+                    }
+                ]
+            }
+
+            images, rows = _build_candidate_visual_evidence(candidates, tracks_payload)
+
+        self.assertEqual(len(images), 2)
+        self.assertEqual([row["frame_index"] for row in rows], [0, 40])
+
     def test_state_phrase_is_composed_for_an_unseen_object(self) -> None:
         phrases = _state_detector_phrase_additions(
             "the package broken into several pieces",

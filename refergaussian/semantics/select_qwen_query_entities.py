@@ -422,12 +422,25 @@ def _build_candidate_visual_evidence(
         return [], []
 
     candidate_tracks = candidate_tracks[:max_images]
-    images_per_candidate = max(1, min(3, max_images // len(candidate_tracks)))
+    images_per_candidate = [1 for _candidate, _track in candidate_tracks]
+    remaining_images = max(0, max_images - len(candidate_tracks))
+    # Relation-disambiguation needs temporal evidence for the competing
+    # instances. Reserve a second moment for each such candidate before using
+    # the remaining budget elsewhere; normal candidates retain one compact
+    # evidence crop just as before.
+    for index, (candidate, _track) in enumerate(candidate_tracks):
+        if remaining_images <= 0:
+            break
+        if str(candidate.get("instance_selection_policy", "")).strip().lower() != "relation_disambiguation":
+            continue
+        images_per_candidate[index] += 1
+        remaining_images -= 1
     evidence_images: list[Image.Image] = []
     evidence_rows: list[dict[str, Any]] = []
     resampling = getattr(Image, "Resampling", Image).LANCZOS
 
-    for candidate, track in candidate_tracks:
+    for candidate_index, (candidate, track) in enumerate(candidate_tracks):
+        candidate_image_count = int(images_per_candidate[candidate_index])
         active_frames = [
             frame
             for frame in track.get("frames", [])
@@ -438,10 +451,10 @@ def _build_candidate_visual_evidence(
         if not active_frames:
             continue
         active_frames.sort(key=lambda frame: int(frame.get("frame_index", 0)))
-        if len(active_frames) <= images_per_candidate:
+        if len(active_frames) <= candidate_image_count:
             chosen_frames = active_frames
         else:
-            indices = np.linspace(0, len(active_frames) - 1, num=images_per_candidate, dtype=np.int64)
+            indices = np.linspace(0, len(active_frames) - 1, num=candidate_image_count, dtype=np.int64)
             chosen_frames = [active_frames[int(index)] for index in sorted(set(indices.tolist()))]
 
         for frame in chosen_frames:
