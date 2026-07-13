@@ -320,8 +320,10 @@ run_build_query_proposal_with_relaxed_retry() {
 
 run_export_entitybank_with_proposal() {
   local min_gaussians_per_entity="${QUERY_MIN_GAUSSIANS_PER_ENTITY:-32}"
-  if query_requires_dual_hands; then
-    min_gaussians_per_entity="${QUERY_DUAL_HAND_MIN_GAUSSIANS_PER_ENTITY:-4}"
+  local requested_entity_count
+  requested_entity_count="$(query_requested_entity_count)"
+  if [[ "${requested_entity_count}" -gt 1 ]]; then
+    min_gaussians_per_entity="${QUERY_MULTI_ENTITY_MIN_GAUSSIANS_PER_ENTITY:-4}"
   elif query_is_static_set; then
     min_gaussians_per_entity="${QUERY_STATIC_SET_MIN_GAUSSIANS_PER_ENTITY:-4}"
   fi
@@ -335,13 +337,33 @@ run_export_entitybank_with_proposal() {
     --min-gaussians-per-entity "${min_gaussians_per_entity}"
 }
 
-query_requires_dual_hands() {
-  local q_lc
-  q_lc="$(printf '%s' "${QUERY_TEXT}" | tr '[:upper:]' '[:lower:]')"
-  if [[ "${q_lc}" == *"both hands"* || "${q_lc}" == *"two hands"* || "${q_lc}" == *"left hand and right hand"* || "${q_lc}" == *"right hand and left hand"* ]]; then
-    return 0
-  fi
-  return 1
+query_requested_entity_count() {
+  local query_plan_path="${TRACK_DIR}/query_plan.json"
+  gs_python - "${query_plan_path}" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+payload = {}
+if path.is_file():
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = {}
+
+phrases = payload.get("primary_subject_phrases") or payload.get("query_subject_phrases") or []
+phrases = [str(phrase).strip().lower() for phrase in phrases if str(phrase).strip()]
+count = max(len(phrases), 1)
+for phrase in phrases:
+    normalized = " ".join(re.findall(r"[a-z0-9]+", phrase))
+    if re.match(r"^(?:both|two)\b", normalized) or re.match(r"^(?:a )?pair of\b", normalized):
+        count = max(count, 2)
+    elif re.match(r"^three\b", normalized):
+        count = max(count, 3)
+print(count)
+PY
 }
 
 query_is_static_set() {
@@ -407,10 +429,11 @@ if [[ "${proposal_ready}" == "1" ]]; then
   else
     run_export_entitybank_with_proposal
   fi
-  if query_requires_dual_hands; then
+  requested_entity_count="$(query_requested_entity_count)"
+  if [[ "${requested_entity_count}" -gt 1 ]]; then
     entity_count="$(query_entitybank_size)"
-    if [[ "${entity_count}" -lt 2 ]]; then
-      echo "[error] dual-hand query but mask-supported lifting produced only ${entity_count} entities" >&2
+    if [[ "${entity_count}" -lt "${requested_entity_count}" ]]; then
+      echo "[error] multi-entity query requires ${requested_entity_count} independently supported entities, but lifting produced ${entity_count}" >&2
       exit 3
     fi
   fi

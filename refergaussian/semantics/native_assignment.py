@@ -434,7 +434,7 @@ def export_native_semantic_assignments(
         if role_scores["support"] >= 0.60:
             concept_tags.update({"support_surface", "board_like"})
         if role_scores["agent"] >= 0.60:
-            concept_tags.update({"agent", "hand_like"})
+            concept_tags.add("agent")
         native_texts = _native_texts(
             entity_id=entity_id,
             semantic_head=semantic_head,

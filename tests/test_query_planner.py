@@ -6,10 +6,15 @@ import unittest
 
 from refergaussian.semantics.qwen_query_planner import (
     _canonicalize_phrase,
+    _count_neutral_detector_phrases,
     _normalize_plan,
     _state_detector_phrase_additions,
 )
-from refergaussian.semantics.select_qwen_query_entities import _candidate_phrase_score
+from refergaussian.semantics.select_qwen_query_entities import (
+    _candidate_phrase_score,
+    _expand_counted_subject_phrases,
+    _select_phrase_ids,
+)
 
 
 class QueryPlannerPhraseTest(unittest.TestCase):
@@ -70,6 +75,23 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         self.assertEqual(_canonicalize_phrase("mouse-pad"), "mouse pad")
         score = _candidate_phrase_score("mouse pad", {"proposal_alias": "mousepad"})
         self.assertGreaterEqual(score, 0.9)
+
+    def test_counted_subjects_use_generic_distinct_entity_selection(self) -> None:
+        phrases = _expand_counted_subject_phrases(["both cups"])
+        self.assertEqual(phrases, ["cup", "cup"])
+        candidates = [
+            {"id": 1, "proposal_alias": "red cup", "quality": 0.9},
+            {"id": 2, "proposal_alias": "blue cup", "quality": 0.8},
+        ]
+        selected_ids, selected_by_phrase = _select_phrase_ids(candidates, phrases)
+        self.assertEqual(selected_ids, [1, 2])
+        self.assertEqual(selected_by_phrase["cup"], [1, 2])
+
+    def test_count_neutral_detector_variant_is_not_category_specific(self) -> None:
+        phrases = _count_neutral_detector_phrases(["two packages"])
+        self.assertIn("two packages", phrases)
+        self.assertIn("packages", phrases)
+        self.assertIn("package", phrases)
 
 
 if __name__ == "__main__":

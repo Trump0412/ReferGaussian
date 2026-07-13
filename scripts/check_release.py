@@ -218,6 +218,18 @@ def check_runtime_release_guards() -> list[str]:
     if "SCENE_QUERIES_ALL" in public_manifest_text:
         errors.append("Public release manifest must be generated only from annotation protocols")
 
+    for relative_path in (
+        "refergaussian/semantics/qwen_query_planner.py",
+        "refergaussian/semantics/select_qwen_query_entities.py",
+        "scripts/run_query_specific_worldtube_pipeline.sh",
+    ):
+        runtime_text = (ROOT / relative_path).read_text(encoding="utf-8", errors="replace")
+        for forbidden in ("dual_hand", "handed_detector", "QUERY_DUAL_HAND", "hand_like"):
+            if forbidden in runtime_text:
+                errors.append(
+                    f"Runtime must use generic multi-entity handling, not a hand-specific branch: {relative_path}"
+                )
+
     setup_gsam_text = (ROOT / "scripts/setup_grounded_sam2.sh").read_text(
         encoding="utf-8", errors="replace"
     )

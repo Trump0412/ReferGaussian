@@ -281,7 +281,7 @@ def _merge_ranges(ranges: list[list[int]]) -> list[list[int]]:
 
 
 def _canonicalize_phrase(value: Any) -> str:
-    """Normalize English typography and number without object-specific aliases."""
+    """Normalize English typography without object-specific aliases."""
     phrase = " ".join(
         str(value).strip().lower().replace("_", " ").replace("-", " ").split()
     )
@@ -292,14 +292,6 @@ def _canonicalize_phrase(value: Any) -> str:
         if phrase.startswith(prefix):
             phrase = phrase[len(prefix):].strip()
     phrase = phrase.strip(" .,!?:;\"'()[]{}")
-    if phrase in {"lefthand", "left hands"}:
-        return "left hand"
-    if phrase in {"righthand", "right hands"}:
-        return "right hand"
-    if phrase in {"two hands", "both hand", "hands pair"}:
-        return "both hands"
-    if phrase in {"hand", "hands"}:
-        return "hand"
     return phrase
 
 
@@ -370,8 +362,25 @@ def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: in
     return value
 
 
+def _singularize_match_token(token: str) -> str:
+    """Use a conservative English inflection rule for phrase matching."""
+    if not token.isalpha() or len(token) <= 3:
+        return token
+    if token.endswith("ies") and len(token) > 4:
+        return token[:-3] + "y"
+    if token.endswith(("ches", "shes", "sses", "xes", "zes", "ses")):
+        return token[:-2]
+    if token.endswith("s") and not token.endswith("ss"):
+        return token[:-1]
+    return token
+
+
 def _phrase_tokens(value: str) -> set[str]:
-    return {token for token in _normalize_phrase(value).split() if token}
+    return {
+        _singularize_match_token(token)
+        for token in _normalize_phrase(value).split()
+        if token
+    }
 
 
 def _compact_phrase(value: str) -> str:
@@ -442,81 +451,56 @@ def _dedupe_subject_selection(
     return dedup_ids, dedup_phrases
 
 
-def _expand_dual_hand_subjects(phrases: list[str]) -> list[str]:
+def _expand_counted_subject_phrases(phrases: list[str], *, limit: int | None = None) -> list[str]:
+    """Expand generic count phrases into independently selectable subjects.
+
+    This is intentionally category-agnostic: ``both cups`` and ``two packages``
+    follow the same path.  Each expanded phrase is later matched to a distinct
+    candidate entity rather than using an object-specific recovery rule.
+    """
     expanded: list[str] = []
     for phrase in phrases:
         normalized = _normalize_phrase(phrase)
-        if normalized == "both hands":
-            expanded.extend(["left hand", "right hand"])
+        if not normalized:
             continue
-        expanded.append(normalized)
+        tokens = normalized.split()
+        count = 1
+        start = 0
+        if tokens[:1] and tokens[0] in {"both", "two"}:
+            count = 2
+            start = 1
+        elif tokens[:1] and tokens[0] == "three":
+            count = 3
+            start = 1
+        elif tokens[:3] == ["a", "pair", "of"]:
+            count = 2
+            start = 3
+        elif tokens[:2] == ["pair", "of"]:
+            count = 2
+            start = 2
+        if start >= len(tokens):
+            expanded.append(normalized)
+            continue
+        if count == 1:
+            expanded.append(normalized)
+            continue
+        base = tokens[start:]
+        base[-1] = _singularize_match_token(base[-1])
+        expanded.extend([" ".join(base)] * count)
     output: list[str] = []
     seen: set[str] = set()
     for phrase in expanded:
-        if not phrase or phrase in seen:
+        # Repeated phrases encode a requested cardinality and must be retained.
+        if not phrase:
+            continue
+        if phrase in seen:
+            output.append(phrase)
             continue
         seen.add(phrase)
         output.append(phrase)
+    if limit is not None:
+        output = output[: int(limit)]
     return output
-
-
-def _query_requests_dual_hands(query: str, phrase_groups: list[list[str]]) -> bool:
-    query_lower = str(query).lower()
-    if "both hands" in query_lower or "two hands" in query_lower:
-        return True
-    if ("left hand" in query_lower and "right hand" in query_lower) or ("right hand" in query_lower and "left hand" in query_lower):
-        return True
-    for group in phrase_groups:
-        for phrase in group:
-            normalized = _normalize_phrase(phrase)
-            if normalized == "both hands":
-                return True
-        normalized_group = {_normalize_phrase(phrase) for phrase in group}
-        if "left hand" in normalized_group and "right hand" in normalized_group:
-            return True
-    return False
-
-
-def _is_hand_candidate(candidate: dict[str, Any]) -> bool:
-    texts = [
-        candidate.get("proposal_alias", ""),
-        candidate.get("proposal_phrase", ""),
-        candidate.get("static_text", ""),
-        candidate.get("global_desc", ""),
-        " ".join(str(tag) for tag in candidate.get("concept_tags", [])),
-    ]
-    for text in texts:
-        normalized = _normalize_phrase(str(text))
-        if any(token in normalized for token in ("hand", "left hand", "right hand")):
-            return True
-    return False
-
-
-def _dual_hand_fallback_rows(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    hand_rows = [candidate for candidate in candidates if _is_hand_candidate(candidate)]
-    if len(hand_rows) < 2:
-        return []
-    hand_rows.sort(
-        key=lambda item: (
-            -_candidate_phrase_score("hand", item),
-            -float(item.get("quality", 0.0)),
-            -_ranges_total_len(item.get("moving_segments_test", [])),
-            -_ranges_total_len(item.get("query_relevant_segments_test", [])),
-            _first_range_start(item.get("support_segments_test", [])),
-            int(item.get("id", -1)),
-        )
-    )
-    selected: list[dict[str, Any]] = []
-    seen: set[int] = set()
-    for row in hand_rows:
-        entity_id = int(row.get("id", -1))
-        if entity_id in seen:
-            continue
-        seen.add(entity_id)
-        selected.append(row)
-        if len(selected) >= 2:
-            break
-    return selected
 
 
 def _select_phrase_ids(
@@ -527,6 +511,7 @@ def _select_phrase_ids(
     normalized_targets = [_normalize_phrase(phrase) for phrase in phrases if str(phrase).strip()]
     selected_ids: list[int] = []
     selected_by_phrase: dict[str, list[int]] = {}
+    used_entity_ids: set[int] = set()
     if not normalized_targets:
         return selected_ids, selected_by_phrase
     for target in normalized_targets:
@@ -561,6 +546,9 @@ def _select_phrase_ids(
                 int(item.get("id", -1)),
             )
         )
+        unused_matches = [item for item in matches if int(item.get("id", -1)) not in used_entity_ids]
+        if unused_matches:
+            matches = unused_matches
         if not matches:
             if allow_missing:
                 continue
@@ -568,7 +556,12 @@ def _select_phrase_ids(
         selected = matches[0]
         entity_id = int(selected["id"])
         selected_ids.append(entity_id)
-        selected_by_phrase[target] = [int(item["id"]) for item in matches]
+        used_entity_ids.add(entity_id)
+        phrase_matches = selected_by_phrase.setdefault(target, [])
+        for item in matches:
+            candidate_id = int(item["id"])
+            if candidate_id not in phrase_matches:
+                phrase_matches.append(candidate_id)
     return selected_ids, selected_by_phrase
 
 
@@ -1075,11 +1068,7 @@ def _candidate_matches_phrase(candidate: dict[str, Any], phrase: str, threshold:
     phrase_norm = _normalize_phrase(phrase)
     if not phrase_norm:
         return False
-    if _candidate_phrase_score(phrase_norm, candidate) >= float(threshold):
-        return True
-    if phrase_norm in {"hand", "left hand", "right hand", "both hands"}:
-        return _is_hand_candidate(candidate)
-    return False
+    return _candidate_phrase_score(phrase_norm, candidate) >= float(threshold)
 
 
 def _select_static_candidates(
@@ -1090,7 +1079,6 @@ def _select_static_candidates(
     if not candidates:
         return []
     query_norm = _normalize_phrase(query)
-    explicit_hand_query = "hand" in query_norm
     total_frames = max(int(test_frame_count), 1)
     scored: list[tuple[float, dict[str, Any]]] = []
     for candidate in candidates:
@@ -1100,9 +1088,6 @@ def _select_static_candidates(
         support_ratio = float(support_len) / float(total_frames)
         stationary_ratio = float(stationary_len) / float(total_frames)
         moving_ratio = float(moving_len) / float(max(support_len, 1))
-        hand_like = _is_hand_candidate(candidate)
-        if hand_like and not explicit_hand_query:
-            continue
         if support_ratio < 0.20:
             continue
         if stationary_ratio < 0.70 and not (support_ratio >= 0.85 and moving_ratio <= 0.04):
@@ -1717,9 +1702,8 @@ def _compose_phrase_grounded_selection(
     if is_exclusion_query:
         qwen_subjects = []
         qwen_successors = []
-    qwen_subjects = _expand_dual_hand_subjects(qwen_subjects)
-    plan_subjects = _expand_dual_hand_subjects(plan_subjects)
-    requires_dual_hands = _query_requests_dual_hands(query, [qwen_subjects, plan_subjects])
+    qwen_subjects = _expand_counted_subject_phrases(qwen_subjects, limit=3)
+    plan_subjects = _expand_counted_subject_phrases(plan_subjects, limit=3)
     # If Qwen actually ran (raw_phrase_payload is not None) and explicitly returned empty subject_phrases,
     # respect that as "no matching entity" — do NOT fall back to plan_subjects.
     qwen_ran = raw_phrase_payload is not None
@@ -1731,7 +1715,7 @@ def _compose_phrase_grounded_selection(
             query_state_mode = plan_state_mode
     if query_state_mode is not None and len(plan_subjects) >= 2 and len(qwen_subjects) < len(plan_subjects):
         subject_phrases = plan_subjects
-    elif qwen_ran and not qwen_subjects and not requires_dual_hands and not is_exclusion_query:
+    elif qwen_ran and not qwen_subjects and not is_exclusion_query:
         # Qwen explicitly returned empty — treat as "entity does not satisfy query conditions"
         subject_phrases = []
     else:
@@ -1785,15 +1769,6 @@ def _compose_phrase_grounded_selection(
         ]
         subject_matches = {"__all__": [int(candidate["id"]) for candidate in candidates]}
     subject_ids, subject_phrases = _dedupe_subject_selection(subject_ids, subject_phrases)
-    if requires_dual_hands and len(subject_ids) < 2:
-        fallback_rows = _dual_hand_fallback_rows(candidates)
-        if len(fallback_rows) >= 2:
-            subject_ids = [int(row["id"]) for row in fallback_rows]
-            subject_phrases = [
-                str(row.get("proposal_alias") or row.get("proposal_phrase") or row.get("static_text") or f"entity_{row['id']}")
-                for row in fallback_rows
-            ]
-            subject_matches["__dual_hands_fallback__"] = [int(row["id"]) for row in fallback_rows]
     split_keywords = ("broken", "pieces", "halves", "split", "cracked")
     intact_keywords = ("complete", "whole", "intact", "unbroken")
     if len(subject_ids) == 1:

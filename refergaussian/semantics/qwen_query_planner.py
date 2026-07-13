@@ -78,14 +78,14 @@ Rules:
 - Keep the output compact: video_inventory_phrases <= 8, query_subject_phrases <= 3, query_successor_phrases <= 2, detector_phrases <= 4, optional_phrases <= 6, temporal_hints <= 4.
 - Use English-only phrase outputs for all phrase lists and conditions. Do not output Chinese phrases.
 - Do not use role words like patient/tool/agent in the phrase lists.
-- Keep phrases concrete and static, such as "tool", "object", "hand", "surface", "object fragments".
+- Keep phrases concrete and static, such as "tool", "object", "surface", "object fragments".
 - `video_inventory_phrases` should summarize the main objects visible across the whole video.
 - `primary_subject_phrases` must name the grammatical referent requested by the query. For a singular
   relational or action query such as "the X while it acts on Y", include only X; Y is context unless the
   query explicitly asks for both entities or for a set.
 - `query_subject_phrases` should contain only the minimum nouns needed to answer the query.
 - `detector_phrases` should normally equal `query_subject_phrases + query_successor_phrases`, and not include unrelated context objects.
-- Do not include non-subject context objects like a board or a hand in `detector_phrases` unless they are truly required by the query itself.
+- Do not include non-subject context objects in `detector_phrases` unless they are truly required by the query itself.
 - Only use `query_successor_phrases` when the action creates a new stable object state, such as "object fragments".
 - Do not invent count-based successor phrases when downstream mask tracking can discover the split directly.
 - `phase_transition_hints` should use the 0-based sampled-frame slot indices from the observed frame list.
@@ -99,12 +99,12 @@ Rules:
 - For action queries, separate the short action/contact interval from the longer object/state support interval.
   The action interval identifies the entity; the support interval is where the final query mask should be active.
 - If the query implies temporal change, include before/during/after hints.
-- For exclusion queries such as "everything except the hands", `query_subject_phrases` and `detector_phrases`
+- For exclusion queries such as "everything except the named object", `query_subject_phrases` and `detector_phrases`
   should focus on the INCLUDED objects, not the excluded object.
 - For set queries such as "all objects that remain stationary", `detector_phrases` may include multiple visible
   objects so downstream stages can filter the correct subset.
-- For left-hand / right-hand queries, keep `query_subject_phrases` on the queried side only, but if both hands
-  are visible you may include both `left hand` and `right hand` in `detector_phrases` for disambiguation.
+- For count-based set queries, preserve the requested entity phrase in `query_subject_phrases` and let the
+  detector use an additional count-neutral noun phrase when needed.
 - preferred_detector must be "grounded_sam2".
 - **ZERO / DISTRACTOR QUERY**: If the queried object does NOT exist in this scene at all
   (e.g., asking for a blue object when only red objects are visible, or a metal tool when none
@@ -462,17 +462,6 @@ def _extract_exclusion_phrases(query_norm: str) -> list[str]:
     return _normalize_phrase_list(extracted)
 
 
-def _handed_detector_companions(query_subject_phrases: list[str], detector_phrases: list[str]) -> list[str]:
-    subject_set = {_canonicalize_phrase(value) for value in query_subject_phrases}
-    detector_set = {_canonicalize_phrase(value) for value in detector_phrases}
-    additions: list[str] = []
-    if "left hand" in subject_set and "right hand" not in detector_set:
-        additions.append("right hand")
-    if "right hand" in subject_set and "left hand" not in detector_set:
-        additions.append("left hand")
-    return additions
-
-
 def _state_detector_phrase_additions(query: str, base_phrases: list[str]) -> list[str]:
     """Generate state-aware detector phrases without scene-specific vocabularies.
 
@@ -593,7 +582,7 @@ def _normalize_phrase_list(values: Any) -> list[str]:
 
 
 def _canonicalize_phrase(value: Any) -> str:
-    """Normalize English typography and number without object-specific aliases."""
+    """Normalize English typography without object-specific aliases."""
     phrase = " ".join(
         str(value).strip().lower().replace("_", " ").replace("-", " ").split()
     )
@@ -604,25 +593,51 @@ def _canonicalize_phrase(value: Any) -> str:
         if phrase.startswith(prefix):
             phrase = phrase[len(prefix):].strip()
     phrase = phrase.strip(" .,!?:;\"'()[]{}")
-    if phrase in {"lefthand", "left hands"}:
-        return "left hand"
-    if phrase in {"righthand", "right hands"}:
-        return "right hand"
-    if phrase in {"two hands", "both hand", "hands pair"}:
-        return "both hands"
-    if phrase in {"hand", "hands"}:
-        return "hand"
     return phrase
 
 
-def _expand_dual_hand_phrases(phrases: list[str], *, limit: int | None = None) -> list[str]:
+def _singularize_counted_token(token: str) -> str:
+    """Provide a conservative English singular form only for count phrases."""
+    if not token.isalpha() or len(token) <= 3:
+        return token
+    if token.endswith("ies") and len(token) > 4:
+        return token[:-3] + "y"
+    if token.endswith(("ches", "shes", "sses", "xes", "zes", "ses")):
+        return token[:-2]
+    if token.endswith("s") and not token.endswith("ss"):
+        return token[:-1]
+    return token
+
+
+def _count_neutral_detector_phrases(phrases: list[str], *, limit: int | None = None) -> list[str]:
+    """Add generic detector variants for plural/count-based entity requests.
+
+    The query subject itself is retained verbatim for semantic selection.  The
+    additional variants simply make open-vocabulary detection robust when a
+    model does not understand quantifiers such as ``both`` or ``two``.
+    """
     expanded: list[str] = []
     for phrase in phrases:
         normalized = _canonicalize_phrase(phrase)
-        if normalized == "both hands":
-            expanded.extend(["left hand", "right hand"])
+        if not normalized:
             continue
         expanded.append(normalized)
+        tokens = normalized.split()
+        start = 0
+        if tokens[:1] and tokens[0] in {"both", "two", "three"}:
+            start = 1
+        elif tokens[:3] == ["a", "pair", "of"]:
+            start = 3
+        elif tokens[:2] == ["pair", "of"]:
+            start = 2
+        if start >= len(tokens):
+            continue
+        if start:
+            count_neutral = tokens[start:]
+            expanded.append(" ".join(count_neutral))
+            singular = count_neutral[:]
+            singular[-1] = _singularize_counted_token(singular[-1])
+            expanded.append(" ".join(singular))
     output = _normalize_phrase_list(expanded)
     if limit is not None:
         output = output[: int(limit)]
@@ -837,10 +852,6 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         query_subject_phrases = _normalize_phrase_list(raw_payload.get("detector_phrases", []))[:2]
     if not strict and not video_inventory_phrases:
         video_inventory_phrases = query_subject_phrases[:]
-    query_subject_phrases = _expand_dual_hand_phrases(query_subject_phrases, limit=3)
-    primary_subject_phrases = _expand_dual_hand_phrases(primary_subject_phrases, limit=3)
-    query_successor_phrases = _expand_dual_hand_phrases(query_successor_phrases, limit=2)
-
     query_profile = _query_semantic_profile(query)
     is_exclusion_query = _is_exclusion_query_text(query_profile["query_norm"])
     is_static_set_query = _is_static_set_query_text(query_profile["query_norm"])
@@ -856,9 +867,9 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         query,
         _merge_unique_phrases(query_subject_phrases, query_successor_phrases),
     )
-    detector_base_phrases = _expand_dual_hand_phrases(
+    detector_base_phrases = _count_neutral_detector_phrases(
         _merge_unique_phrases(query_subject_phrases, query_successor_phrases),
-        limit=4,
+        limit=6,
     )
     detector_phrases = _merge_unique_phrases(detector_base_phrases, state_detector_phrases)[:6]
     if strict and not absent_query and not detector_phrases:
@@ -871,7 +882,7 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
     optional_phrases = [phrase for phrase in video_inventory_phrases if phrase not in detector_phrases]
     optional_phrases = _merge_unique_phrases(optional_phrases, [phrase for phrase in raw_optional_phrases if phrase not in detector_phrases])[:6]
     must_track_phrases = [phrase for phrase in query_subject_phrases if phrase in must_track_phrases] or query_subject_phrases[:]
-    must_track_phrases = _expand_dual_hand_phrases(must_track_phrases, limit=3)
+    must_track_phrases = _count_neutral_detector_phrases(must_track_phrases, limit=4)
     phase_transition_hints = _normalize_phase_transition_hints(
         raw_payload.get("phase_transition_hints", []),
         valid_phrases=set(_merge_unique_phrases(query_subject_phrases, query_successor_phrases, detector_phrases)),
@@ -902,18 +913,9 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
             query_subject_phrases = [
                 phrase for phrase in query_subject_phrases if _canonicalize_phrase(phrase) not in exclusion_phrases
             ]
-        if is_static_set_query and "hand" not in query_profile["query_norm"]:
-            broad_candidates = [
-                phrase for phrase in broad_candidates if _canonicalize_phrase(phrase) not in {"hand", "left hand", "right hand"}
-            ]
         detector_limit = 8 if (is_exclusion_query or is_static_set_query) else 6
         detector_phrases = broad_candidates[:detector_limit] or detector_phrases
         must_track_phrases = _merge_unique_phrases(query_subject_phrases, detector_phrases)[:detector_limit]
-
-    hand_companions = _handed_detector_companions(query_subject_phrases, detector_phrases)
-    if hand_companions:
-        detector_phrases = _merge_unique_phrases(detector_phrases, hand_companions)[:8]
-        optional_phrases = _merge_unique_phrases(optional_phrases, hand_companions)[:8]
 
     return {
         "query": query,
