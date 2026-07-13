@@ -365,6 +365,12 @@ unconstrained full-scene entity. Query inference also requires the exact
 ReferGaussian test renders produced by `scripts/eval.sh`; raw source RGB
 frames are not used as a surrogate render.
 
+For the released v4 profiles, the final entity mask is rendered with the same
+selected-Gaussian alpha-splat geometry used during multi-frame lifting. Stage-1
+masks provide boundary supervision only; they never replace the final Gaussian
+entity mask, and legacy point-disk or convex-hull rendering is not used by the
+strict v4 path.
+
 For paper-style batched reruns, prefer the manifest-based runner so query ids, output roots,
 and evaluator maps stay aligned:
 

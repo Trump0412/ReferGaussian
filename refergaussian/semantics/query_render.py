@@ -82,6 +82,8 @@ class EntityCloud:
     gate: np.ndarray
     spatial_extent: np.ndarray
     spatial_scale: np.ndarray | None = None
+    opacity_logit: np.ndarray | None = None
+    opacity_source: str = "unavailable"
 
 
 @dataclass
@@ -333,7 +335,13 @@ def _apply_render_profile_env_defaults(eval_profile: str) -> None:
             "GS_QUERY_TRACK_STRICT_FALLBACK_SCALE": "1.0",
             "GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY": "1",
             "GS_QUERY_CLOUD_BOX_EXPANSION": "0",
-            "GS_QUERY_CLOUD_RENDER_MODE": "component_shape_hull",
+            "GS_QUERY_CLOUD_RENDER_MODE": "gaussian_alpha",
+            "GS_QUERY_ALPHA_GATE_THRESHOLD": "0.01",
+            "GS_QUERY_ALPHA_REL_THRESHOLD": "0.18",
+            "GS_QUERY_ALPHA_ABS_THRESHOLD": "0.015",
+            "GS_QUERY_ALPHA_POSTFILTER_KERNEL": "1",
+            "GS_QUERY_ALPHA_REQUIRE_SUCCESS": "1",
+            "GS_QUERY_ALPHA_REQUIRE_OPACITY": "1",
             "GS_QUERY_CLOUD_POINT_RADIUS_SCALE": "3.00",
             "GS_QUERY_CLOUD_POINT_RADIUS_MIN": "1",
             "GS_QUERY_CLOUD_POINT_RADIUS_MAX": "84",
@@ -1215,6 +1223,36 @@ def _selected_item_gaussian_ids(
     return np.asarray(entity_map.get(int(item["id"]), []), dtype=np.int64).reshape(-1)
 
 
+def _opacity_logits_from_probabilities(values: np.ndarray) -> np.ndarray | None:
+    probabilities = np.asarray(values, dtype=np.float32).reshape(-1)
+    if probabilities.size == 0 or not np.all(np.isfinite(probabilities)):
+        return None
+    probabilities = np.clip(probabilities, 1.0e-6, 1.0 - 1.0e-6)
+    return (np.log(probabilities) - np.log1p(-probabilities)).astype(np.float32)
+
+
+def _load_entity_opacity_logits(
+    run_dir: Path,
+    trajectory_payload: Any,
+    gaussian_count: int,
+) -> tuple[np.ndarray | None, str]:
+    """Load the same Gaussian opacity used by lifting, without a mask fallback."""
+    if "opacity" in trajectory_payload.files:
+        raw = np.asarray(trajectory_payload["opacity"], dtype=np.float32).reshape(-1)
+        if raw.size == int(gaussian_count) and np.all(np.isfinite(raw)):
+            return raw, "trajectory_bank"
+
+    try:
+        from .worldtube_consistency import load_opacity_sigmoid
+
+        raw = _opacity_logits_from_probabilities(load_opacity_sigmoid(run_dir))
+        if raw is not None and raw.size == int(gaussian_count):
+            return raw, "point_cloud"
+    except Exception:
+        pass
+    return None, "unavailable"
+
+
 def _load_entity_clouds(run_dir: Path, selected_items: list[dict[str, Any]]) -> dict[int, EntityCloud]:
     entitybank_dir = run_dir / "entitybank"
     entities_payload = _read_json(entitybank_dir / "entities.json")
@@ -1232,6 +1270,11 @@ def _load_entity_clouds(run_dir: Path, selected_items: list[dict[str, Any]]) -> 
         spatial_scale = np.asarray(trajectory_payload["spatial_scale"], dtype=np.float32)
         if spatial_scale.ndim != 2 or spatial_scale.shape[0] != trajectories.shape[0] or spatial_scale.shape[1] < 3:
             spatial_scale = None
+    opacity_logit, opacity_source = _load_entity_opacity_logits(
+        run_dir,
+        trajectory_payload,
+        gaussian_count=int(trajectories.shape[0]),
+    )
 
     clouds: dict[int, EntityCloud] = {}
     for item_index, item in enumerate(selected_items):
@@ -1249,6 +1292,8 @@ def _load_entity_clouds(run_dir: Path, selected_items: list[dict[str, Any]]) -> 
             gate=gate[gaussian_ids],
             spatial_extent=spatial_extent[gaussian_ids],
             spatial_scale=None if spatial_scale is None else spatial_scale[gaussian_ids, :3],
+            opacity_logit=None if opacity_logit is None else opacity_logit[gaussian_ids],
+            opacity_source=opacity_source,
         )
     return clouds
 
@@ -1452,7 +1497,12 @@ def _project_entity_cloud_mask(
         return None, None
     sample_index = int(np.abs(cloud.sample_times - float(time_value)).argmin())
     render_mode = " ".join(str(os.environ.get("GS_QUERY_CLOUD_RENDER_MODE", "point_hull")).strip().lower().replace("-", "_").split())
-    if render_mode in {"alpha_splat", "semantic_alpha", "gaussian_alpha"} and torch is not None and prepare_semantic_frame_inputs is not None and render_selection_mask is not None:
+    alpha_modes = {"alpha_splat", "semantic_alpha", "gaussian_alpha"}
+    strict_alpha = _env_flag("GS_QUERY_ALPHA_REQUIRE_SUCCESS", False)
+    if render_mode in alpha_modes and (torch is None or prepare_semantic_frame_inputs is None or render_selection_mask is None):
+        if strict_alpha:
+            raise RuntimeError("Gaussian alpha projection is required but semantic rendering dependencies are unavailable")
+    if render_mode in alpha_modes and torch is not None and prepare_semantic_frame_inputs is not None and render_selection_mask is not None:
         points_world_all = np.asarray(cloud.trajectories[:, sample_index, :], dtype=np.float32)
         gate_values_all = np.asarray(cloud.gate[:, sample_index], dtype=np.float32).reshape(-1)
         if cloud.spatial_scale is not None:
@@ -1460,8 +1510,25 @@ def _project_entity_cloud_mask(
         else:
             extent = np.asarray(cloud.spatial_extent, dtype=np.float32).reshape(-1)
             spatial_scale_all = np.repeat(np.maximum(extent[:, None], 1.0e-4), 3, axis=1).astype(np.float32)
+        opacity_all = (
+            np.zeros((points_world_all.shape[0],), dtype=np.float32)
+            if cloud.opacity_logit is None
+            else np.asarray(cloud.opacity_logit, dtype=np.float32).reshape(-1)
+        )
+        if cloud.opacity_logit is None and _env_flag("GS_QUERY_ALPHA_REQUIRE_OPACITY", False):
+            raise RuntimeError(f"Gaussian alpha projection requires opacity for entity {cloud.entity_id}")
+        if opacity_all.size != points_world_all.shape[0]:
+            if strict_alpha:
+                raise RuntimeError(
+                    f"Gaussian alpha projection opacity count mismatch for entity {cloud.entity_id}: "
+                    f"{opacity_all.size} vs {points_world_all.shape[0]}"
+                )
+            opacity_all = np.zeros((points_world_all.shape[0],), dtype=np.float32)
         scale_x, scale_y = _image_projection_scale(camera, image_size)
         image_scale = float(0.5 * (scale_x + scale_y))
+        alpha_device = os.environ.get("GS_QUERY_ALPHA_DEVICE", "").strip()
+        if not alpha_device:
+            alpha_device = "cuda" if torch.cuda.is_available() else "cpu"
         try:
             prepared = prepare_semantic_frame_inputs(
                 camera=camera,
@@ -1470,12 +1537,12 @@ def _project_entity_cloud_mask(
                 time_value=float(time_value),
                 points=points_world_all,
                 spatial_scale=spatial_scale_all,
-                opacity=np.zeros((points_world_all.shape[0],), dtype=np.float32),
+                opacity=opacity_all,
                 visibility_gate=gate_values_all,
                 image_scale=image_scale,
                 max_gaussians=_env_int("GS_QUERY_ALPHA_MAX_GAUSSIANS", 20000, minimum=1),
                 gate_threshold=_env_float("GS_QUERY_ALPHA_GATE_THRESHOLD", 0.08, minimum=0.0),
-                device=os.environ.get("GS_QUERY_ALPHA_DEVICE", "cpu"),
+                device=alpha_device,
             )
             if int(prepared.gaussian_ids.numel()) > 0:
                 selected_weights = torch.ones(
@@ -1499,7 +1566,11 @@ def _project_entity_cloud_mask(
                     if bbox is not None:
                         return mask, bbox
         except Exception as exc:
+            if strict_alpha:
+                raise RuntimeError(f"Gaussian alpha projection failed for entity {cloud.entity_id}: {exc}") from exc
             print(f"[warn] alpha_splat projection failed for entity {cloud.entity_id}: {exc}", file=sys.stderr)
+        if strict_alpha:
+            return None, None
 
     points_world = np.asarray(cloud.trajectories[:, sample_index, :], dtype=np.float32)
     gate_values = np.asarray(cloud.gate[:, sample_index], dtype=np.float32).reshape(-1)
@@ -2146,6 +2217,8 @@ def render_hypernerf_query_video(
                     "cloud_mask_bbox_xyxy": cloud_bbox,
                     "query_track_area_fraction": _mask_area_fraction(query_track_mask),
                     "cloud_mask_area_fraction": _mask_area_fraction(cloud_mask),
+                    "cloud_projection_mode": os.environ.get("GS_QUERY_CLOUD_RENDER_MODE", "point_hull"),
+                    "cloud_opacity_source": None if entry.get("cloud") is None else entry["cloud"].opacity_source,
                     "support_score": float(entry["support_score"][frame_index]),
                     **query_track_meta,
                 }

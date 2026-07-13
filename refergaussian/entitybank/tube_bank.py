@@ -238,6 +238,7 @@ def save_tube_bank(
         visibility_proxy=bank["visibility_proxy"],
         xyz=state.xyz,
         spatial_scale=state.spatial_scale,
+        opacity=state.opacity,
         velocity=state.velocity,
         acceleration=state.acceleration,
         anchor=state.anchor,
