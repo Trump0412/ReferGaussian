@@ -31,6 +31,9 @@ class RendererGeometryCacheTest(unittest.TestCase):
         )
         np.save(root / "opacity_logit.npy", np.zeros((2, 3), dtype=np.float32))
         np.save(root / "covariance_packed.npy", np.ones((2, 3, 6), dtype=np.float32))
+        np.save(root / "projection_world_view.npy", np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0))
+        np.save(root / "projection_full.npy", np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0))
+        np.save(root / "projection_image_sizes.npy", np.asarray([[100, 80], [100, 80]], dtype=np.int32))
         (root / GEOMETRY_MANIFEST_NAME).write_text(
             json.dumps(
                 {
@@ -53,6 +56,18 @@ class RendererGeometryCacheTest(unittest.TestCase):
         self.assertEqual(frame.image_id, "000002")
         self.assertTrue(np.array_equal(frame.centers[:, 0], np.asarray([6.0, 4.0], dtype=np.float32)))
         self.assertEqual(frame.covariance_packed.shape, (2, 6))
+
+    def test_resolves_renderer_projection_camera(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_cache(root)
+            cache = RendererGeometryCache(root)
+            camera = cache.resolve_projection_camera("000001", 0.0)
+            pixels = camera.project(np.asarray([[-1.0, -1.0, 1.0], [1.0, 1.0, 1.0]], dtype=np.float32))
+            local = camera.points_to_local_points(np.asarray([[0.0, 0.0, 2.0]], dtype=np.float32))
+
+        self.assertTrue(np.allclose(pixels, np.asarray([[0.0, 0.0], [100.0, 80.0]], dtype=np.float32)))
+        self.assertTrue(np.allclose(local, np.asarray([[0.0, 0.0, 2.0]], dtype=np.float32)))
 
     def test_missing_id_and_frame_are_hard_errors(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

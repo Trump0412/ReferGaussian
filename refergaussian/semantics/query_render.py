@@ -1709,6 +1709,7 @@ def _project_entity_cloud_mask(
     points_world_all = np.asarray(cloud.trajectories[:, sample_index, :], dtype=np.float32)
     gate_values_all = np.asarray(cloud.gate[:, sample_index], dtype=np.float32).reshape(-1)
     covariance_world_all = None
+    projection_camera = camera
     if cloud.renderer_geometry is not None:
         if cloud.gaussian_ids is None:
             raise ValueError(f"Renderer geometry has no Gaussian-id map for entity {cloud.entity_id}")
@@ -1723,6 +1724,11 @@ def _project_entity_cloud_mask(
         opacity_all = renderer_frame.opacity_logit
         covariance_world_all = renderer_frame.covariance_packed
         opacity_source = "renderer_geometry"
+        projection_camera = cloud.renderer_geometry.resolve_projection_camera(
+            image_id=image_id,
+            time_value=float(time_value),
+            require_exact_image_id=cloud.require_renderer_geometry,
+        )
     else:
         if cloud.require_renderer_geometry:
             raise FileNotFoundError(
@@ -1756,14 +1762,14 @@ def _project_entity_cloud_mask(
                     f"{opacity_all.size} vs {points_world_all.shape[0]}"
                 )
             opacity_all = np.zeros((points_world_all.shape[0],), dtype=np.float32)
-        scale_x, scale_y = _image_projection_scale(camera, image_size)
+        scale_x, scale_y = _image_projection_scale(projection_camera, image_size)
         image_scale = float(0.5 * (scale_x + scale_y))
         alpha_device = os.environ.get("GS_QUERY_ALPHA_DEVICE", "").strip()
         if not alpha_device:
             alpha_device = "cuda" if torch.cuda.is_available() else "cpu"
         try:
             prepared = prepare_semantic_frame_inputs(
-                camera=camera,
+                camera=projection_camera,
                 frame_index=0,
                 image_id="query",
                 time_value=float(time_value),

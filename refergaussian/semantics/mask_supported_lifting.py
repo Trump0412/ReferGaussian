@@ -335,12 +335,6 @@ def _collect_support(
 
     for frame, bank_index in zip(sampled_frames, sampled_indices.tolist()):
         image_id = str(frame["image_id"])
-        camera = Camera.from_json(dataset_dir / "camera" / f"{image_id}.json")
-        width = int(max(round(float(np.asarray(camera.image_size)[0])), 1))
-        height = int(max(round(float(np.asarray(camera.image_size)[1])), 1))
-        mask = _load_mask(frame["mask_path"], width=width, height=height)
-        regions = build_mask_regions(mask, core_kernel=5, outer_kernel=17)
-        distance_region = _build_distance_regions(mask, thin_mode=_is_geometrically_thin_mask(mask))
         points = trajectories[:, int(bank_index), :]
         opacity = np.asarray(state.opacity, dtype=np.float32)
         visibility_gate = gate[:, int(bank_index)]
@@ -365,6 +359,21 @@ def _collect_support(
                     "Renderer geometry support cache must provide packed covariance for every Gaussian; "
                     f"got {None if covariance_world is None else covariance_world.shape}"
                 )
+            # Stage-1 masks are produced at the same source resolution as the
+            # reconstruction inputs.  Use the renderer's centered-FoV camera,
+            # not the dataset JSON lens model, for both support and splatting.
+            camera = renderer_geometry.resolve_projection_camera(
+                image_id=image_id,
+                time_value=float(frame["time_value"]),
+                require_exact_image_id=True,
+            )
+        else:
+            camera = Camera.from_json(dataset_dir / "camera" / f"{image_id}.json")
+        width = int(max(round(float(np.asarray(camera.image_size)[0])), 1))
+        height = int(max(round(float(np.asarray(camera.image_size)[1])), 1))
+        mask = _load_mask(frame["mask_path"], width=width, height=height)
+        regions = build_mask_regions(mask, core_kernel=5, outer_kernel=17)
+        distance_region = _build_distance_regions(mask, thin_mode=_is_geometrically_thin_mask(mask))
         prepared = prepare_semantic_frame_inputs(
             camera=camera,
             frame_index=int(frame["frame_index"]),

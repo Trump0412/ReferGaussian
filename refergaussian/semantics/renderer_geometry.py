@@ -22,7 +22,7 @@ from typing import Any, Iterable
 import numpy as np
 
 
-GEOMETRY_SCHEMA_VERSION = 1
+GEOMETRY_SCHEMA_VERSION = 2
 GEOMETRY_MANIFEST_NAME = "geometry_manifest.json"
 
 
@@ -36,6 +36,77 @@ class RendererGeometryFrame:
     covariance_packed: np.ndarray | None
     opacity_logit: np.ndarray
     exact_image_id: bool
+
+
+@dataclass(frozen=True)
+class RendererProjectionCamera:
+    """The source-camera projection actually consumed by the 4DGS renderer.
+
+    The upstream renderer does not project through HyperNeRF's JSON camera
+    model directly: it constructs a centered-FoV Graphdeco camera at the
+    training image resolution.  Semantic lifting must use that same matrix
+    contract, otherwise a seemingly small principal-point difference shifts a
+    projected entity by dozens of pixels.
+
+    Matrices use the upstream row-vector convention, i.e. homogeneous world
+    points are multiplied as ``[x, y, z, 1] @ matrix``.
+    """
+
+    image_size: np.ndarray
+    world_view_transform: np.ndarray
+    full_proj_transform: np.ndarray
+
+    def __post_init__(self) -> None:
+        image_size = np.asarray(self.image_size, dtype=np.int32).reshape(-1)
+        world_view = np.asarray(self.world_view_transform, dtype=np.float32)
+        full_proj = np.asarray(self.full_proj_transform, dtype=np.float32)
+        if image_size.shape != (2,) or np.any(image_size <= 0):
+            raise ValueError(f"Renderer projection image_size must be [width, height], got {image_size}")
+        if world_view.shape != (4, 4) or full_proj.shape != (4, 4):
+            raise ValueError(
+                "Renderer projection matrices must both be [4,4], got "
+                f"{world_view.shape} and {full_proj.shape}"
+            )
+        object.__setattr__(self, "image_size", image_size)
+        object.__setattr__(self, "world_view_transform", world_view)
+        object.__setattr__(self, "full_proj_transform", full_proj)
+
+    @staticmethod
+    def _homogeneous(points: np.ndarray) -> tuple[np.ndarray, tuple[int, ...]]:
+        array = np.asarray(points, dtype=np.float32)
+        if array.shape[-1:] != (3,):
+            raise ValueError(f"Expected points ending in xyz, got {array.shape}")
+        shape = array.shape
+        flat = array.reshape(-1, 3)
+        homogeneous = np.concatenate(
+            [flat, np.ones((flat.shape[0], 1), dtype=np.float32)], axis=1
+        )
+        return homogeneous, shape
+
+    def points_to_local_points(self, points: np.ndarray) -> np.ndarray:
+        homogeneous, shape = self._homogeneous(points)
+        local = homogeneous @ self.world_view_transform
+        return np.asarray(local[:, :3], dtype=np.float32).reshape(shape)
+
+    def project(self, points: np.ndarray) -> np.ndarray:
+        homogeneous, shape = self._homogeneous(points)
+        clip = homogeneous @ self.full_proj_transform
+        denominator = clip[:, 3]
+        safe_denominator = np.where(
+            np.abs(denominator) > 1.0e-8,
+            denominator,
+            np.where(denominator >= 0.0, 1.0e-8, -1.0e-8),
+        )
+        ndc = clip[:, :2] / safe_denominator[:, None]
+        width, height = (int(self.image_size[0]), int(self.image_size[1]))
+        pixels = np.stack(
+            [
+                (ndc[:, 0] + 1.0) * (0.5 * float(width)),
+                (ndc[:, 1] + 1.0) * (0.5 * float(height)),
+            ],
+            axis=1,
+        )
+        return np.asarray(pixels, dtype=np.float32).reshape((*shape[:-1], 2))
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -133,6 +204,9 @@ class RendererGeometryCache:
         self.gaussian_ids = np.load(self.root / "gaussian_ids.npy", mmap_mode="r")
         self.centers = np.load(self.root / "centers.npy", mmap_mode="r")
         self.opacity_logit = np.load(self.root / "opacity_logit.npy", mmap_mode="r")
+        self.projection_world_view = np.load(self.root / "projection_world_view.npy", mmap_mode="r")
+        self.projection_full = np.load(self.root / "projection_full.npy", mmap_mode="r")
+        self.projection_image_sizes = np.load(self.root / "projection_image_sizes.npy", mmap_mode="r")
         covariance_path = self.root / "covariance_packed.npy"
         self.covariance_packed = np.load(covariance_path, mmap_mode="r") if covariance_path.is_file() else None
 
@@ -147,6 +221,21 @@ class RendererGeometryCache:
             raise ValueError(
                 f"Invalid opacity shape {self.opacity_logit.shape}; expected "
                 f"({expected_frames}, {expected_gaussians})"
+            )
+        if self.projection_world_view.shape != (expected_frames, 4, 4):
+            raise ValueError(
+                f"Invalid projection world-view shape {self.projection_world_view.shape}; expected "
+                f"({expected_frames}, 4, 4)"
+            )
+        if self.projection_full.shape != (expected_frames, 4, 4):
+            raise ValueError(
+                f"Invalid projection full-matrix shape {self.projection_full.shape}; expected "
+                f"({expected_frames}, 4, 4)"
+            )
+        if self.projection_image_sizes.shape != (expected_frames, 2):
+            raise ValueError(
+                f"Invalid projection image-size shape {self.projection_image_sizes.shape}; expected "
+                f"({expected_frames}, 2)"
             )
         if self.covariance_packed is not None and self.covariance_packed.shape != (
             expected_frames,
@@ -178,6 +267,23 @@ class RendererGeometryCache:
             )
         return positions[valid] if not require_all else positions
 
+    def _resolve_frame_index(
+        self,
+        image_id: str | None,
+        time_value: float,
+        *,
+        require_exact_image_id: bool,
+    ) -> tuple[int, bool]:
+        normalized_image_id = "" if image_id is None else str(image_id)
+        if normalized_image_id and normalized_image_id in self._image_to_index:
+            return self._image_to_index[normalized_image_id], True
+        if require_exact_image_id:
+            raise KeyError(
+                f"Renderer geometry cache has no source state for image_id='{normalized_image_id}' "
+                f"under {self.root}"
+            )
+        return int(np.abs(self.time_values - float(time_value)).argmin()), False
+
     def resolve(
         self,
         image_id: str | None,
@@ -186,18 +292,11 @@ class RendererGeometryCache:
         *,
         require_exact_image_id: bool = True,
     ) -> RendererGeometryFrame:
-        normalized_image_id = "" if image_id is None else str(image_id)
-        if normalized_image_id and normalized_image_id in self._image_to_index:
-            frame_index = self._image_to_index[normalized_image_id]
-            exact_image_id = True
-        else:
-            if require_exact_image_id:
-                raise KeyError(
-                    f"Renderer geometry cache has no source state for image_id='{normalized_image_id}' "
-                    f"under {self.root}"
-                )
-            frame_index = int(np.abs(self.time_values - float(time_value)).argmin())
-            exact_image_id = False
+        frame_index, exact_image_id = self._resolve_frame_index(
+            image_id,
+            time_value,
+            require_exact_image_id=require_exact_image_id,
+        )
 
         if gaussian_ids is None:
             columns: np.ndarray | slice = slice(None)
@@ -214,6 +313,25 @@ class RendererGeometryCache:
             ),
             opacity_logit=np.asarray(self.opacity_logit[frame_index, columns], dtype=np.float32),
             exact_image_id=exact_image_id,
+        )
+
+    def resolve_projection_camera(
+        self,
+        image_id: str | None,
+        time_value: float,
+        *,
+        require_exact_image_id: bool = True,
+    ) -> RendererProjectionCamera:
+        """Return the exact source-camera projection used during reconstruction."""
+        frame_index, _exact_image_id = self._resolve_frame_index(
+            image_id,
+            time_value,
+            require_exact_image_id=require_exact_image_id,
+        )
+        return RendererProjectionCamera(
+            image_size=np.asarray(self.projection_image_sizes[frame_index], dtype=np.int32),
+            world_view_transform=np.asarray(self.projection_world_view[frame_index], dtype=np.float32),
+            full_proj_transform=np.asarray(self.projection_full[frame_index], dtype=np.float32),
         )
 
 
@@ -424,6 +542,65 @@ def _renderer_state_at_time(
     )
 
 
+def _renderer_projection_metadata(
+    dataset_dir: Path,
+    source_entry: dict[str, Any],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Rebuild the upstream centered-FoV camera for one source image.
+
+    HyperNeRF camera JSON includes an off-centre principal point and distortion,
+    while upstream 4DGaussians deliberately trains with a Graphdeco FoV camera.
+    We persist the latter exactly.  The source image dimensions determine the
+    renderer raster resolution; the FoV is still derived from the native JSON
+    image size, matching ``Load_hyper_data(..., ratio=0.5)``.
+    """
+    from PIL import Image
+
+    from scene.utils import Camera as SourceCamera
+    from utils.graphics_utils import focal2fov, getProjectionMatrix, getWorld2View2
+
+    image_id = str(source_entry["image_id"])
+    camera_path = dataset_dir / "camera" / f"{image_id}.json"
+    if not camera_path.is_file():
+        raise FileNotFoundError(
+            "Renderer-consistent semantic projection requires source camera JSON for "
+            f"image_id='{image_id}', missing {camera_path}"
+        )
+    image_path = Path(str(source_entry["image_path"]))
+    if not image_path.is_file():
+        raise FileNotFoundError(
+            f"Renderer-consistent semantic projection cannot find source image {image_path}"
+        )
+    source_camera = SourceCamera.from_json(camera_path)
+    with Image.open(image_path) as image:
+        image_width, image_height = (int(image.size[0]), int(image.size[1]))
+    native_size = np.asarray(source_camera.image_size, dtype=np.float32).reshape(-1)
+    if native_size.size < 2:
+        raise ValueError(f"Invalid source camera image size in {camera_path}: {native_size}")
+    native_width = int(max(round(float(native_size[0])), 1))
+    native_height = int(max(round(float(native_size[1])), 1))
+    focal_values = np.asarray(source_camera.focal_length, dtype=np.float32).reshape(-1)
+    if focal_values.size == 0:
+        raise ValueError(f"Invalid source camera focal length in {camera_path}")
+    focal = float(focal_values[0])
+    rotation = np.asarray(source_camera.orientation, dtype=np.float32).T
+    translation = -np.asarray(source_camera.position, dtype=np.float32) @ rotation
+    world_view = np.asarray(getWorld2View2(rotation, translation), dtype=np.float32).T
+    projection = getProjectionMatrix(
+        znear=0.01,
+        zfar=100.0,
+        fovX=focal2fov(focal, native_width),
+        fovY=focal2fov(focal, native_height),
+    )
+    projection = projection.detach().cpu().numpy().astype(np.float32).T
+    full_projection = (world_view @ projection).astype(np.float32)
+    return (
+        world_view,
+        full_projection,
+        np.asarray([image_width, image_height], dtype=np.int32),
+    )
+
+
 def _valid_existing_cache(
     output_dir: Path,
     frame_requests: list[dict[str, Any]],
@@ -454,8 +631,8 @@ def export_renderer_geometry(
     Gaussians for a small Stage-1 frame set, while final rendering needs only
     selected Gaussians for a larger evaluation frame set.
     """
-    del dataset_dir  # The source-camera metadata is already carried by frame_requests.
     run_dir = Path(run_dir)
+    dataset_dir = Path(dataset_dir)
     output_dir = Path(output_dir)
     normalized_requests = [
         {
@@ -475,6 +652,21 @@ def export_renderer_geometry(
     ]
     if duplicate_ids:
         raise ValueError(f"renderer geometry frame requests contain duplicate image ids: {duplicate_ids[:3]}")
+
+    source_entries = {
+        str(entry["image_id"]): entry
+        for entry in _source_entries(dataset_dir)
+    }
+    missing_source_entries = [
+        str(request["image_id"])
+        for request in normalized_requests
+        if str(request["image_id"]) not in source_entries
+    ]
+    if missing_source_entries:
+        raise KeyError(
+            "Renderer geometry requests are not present in the source-image map: "
+            + ", ".join(missing_source_entries[:8])
+        )
 
     args, gaussians, temporal_warp, _scene, iteration = _load_renderer_runtime(run_dir)
     total_gaussians = int(gaussians.get_xyz.shape[0])
@@ -519,6 +711,24 @@ def export_renderer_geometry(
         dtype=np.float32,
         shape=(frame_count, gaussian_count),
     )
+    projection_world_view = np.lib.format.open_memmap(
+        output_dir / "projection_world_view.npy",
+        mode="w+",
+        dtype=np.float32,
+        shape=(frame_count, 4, 4),
+    )
+    projection_full = np.lib.format.open_memmap(
+        output_dir / "projection_full.npy",
+        mode="w+",
+        dtype=np.float32,
+        shape=(frame_count, 4, 4),
+    )
+    projection_image_sizes = np.lib.format.open_memmap(
+        output_dir / "projection_image_sizes.npy",
+        mode="w+",
+        dtype=np.int32,
+        shape=(frame_count, 2),
+    )
     start = time.monotonic()
     for frame_index, request in enumerate(normalized_requests):
         state_centers, state_covariance, state_opacity = _renderer_state_at_time(
@@ -530,9 +740,19 @@ def export_renderer_geometry(
         centers[frame_index] = state_centers
         covariance[frame_index] = state_covariance
         opacity[frame_index] = state_opacity
+        world_view, full_projection, image_size = _renderer_projection_metadata(
+            dataset_dir,
+            source_entries[str(request["image_id"])],
+        )
+        projection_world_view[frame_index] = world_view
+        projection_full[frame_index] = full_projection
+        projection_image_sizes[frame_index] = image_size
     centers.flush()
     covariance.flush()
     opacity.flush()
+    projection_world_view.flush()
+    projection_full.flush()
+    projection_image_sizes.flush()
     np.save(output_dir / "gaussian_ids.npy", ids)
     manifest = {
         "schema_version": GEOMETRY_SCHEMA_VERSION,
@@ -545,6 +765,8 @@ def export_renderer_geometry(
         "time_values": [float(row["time_value"]) for row in normalized_requests],
         "gaussian_count": gaussian_count,
         "state_fields": ["centers", "covariance_packed", "opacity_logit"],
+        "projection_fields": ["projection_world_view", "projection_full", "projection_image_sizes"],
+        "projection_mode": "4dgs_renderer_camera",
         "temporal_warp_enabled": bool(getattr(args, "warp_enabled", False)),
         "temporal_warp_type": str(getattr(args, "temporal_warp_type", "identity")),
         "temporal_extent_enabled": bool(getattr(args, "temporal_extent_enabled", False)),
@@ -553,4 +775,3 @@ def export_renderer_geometry(
     }
     _write_json(output_dir / GEOMETRY_MANIFEST_NAME, manifest)
     return output_dir
-
