@@ -27,12 +27,14 @@ Accepted at **ACM Multimedia 2026**.
 
 ## Results
 
-The following tables are the accepted-paper results under the stated fixed
-protocols. They are not partial reruns: a new release reproduction must cover
-all expected queries, retain the manifest/evaluator output, and report
-overall, non-empty-only, and zero-target outcomes separately.
+The following tables reproduce the accepted-paper reported values under the
+stated fixed protocols. They are archival paper tables, not a claim that a new
+release rerun has already completed. A new release reproduction must cover all
+expected queries, retain the manifest/evaluator output, and report overall,
+non-empty-only, and zero-target outcomes separately.
 See [the release reproduction protocol](docs/RELEASE_REPRODUCTION_PROTOCOL.md)
-for the fixed scene/query sets and required artifacts.
+and [the release verification status](docs/REPRODUCTION_STATUS.md) for the
+fixed scene/query sets, required artifacts, and current verification boundary.
 
 ### Paper results — R4D-Bench-QA referring segmentation
 
@@ -72,7 +74,12 @@ method has PSNR below 20 dB are excluded from paper-facing reconstruction compar
 | w/o Stage 3 spatio-temporal reasoning | 36.0 | 26.1 |
 | ReferGaussian (full) | **76.5** | **34.4** |
 
-### Reconstruction — keyboard scene (appendix)
+### Reconstruction — keyboard scene (archival appendix)
+
+This row is retained from the accepted-paper appendix. Its historical 4DGS
+artifact is not a complete matched-seed release record, so it is not a
+fresh-install verification claim. Use the fixed paired protocol below for any
+new comparison.
 
 | Method | PSNR ↑ | SSIM ↑ | LPIPS ↓ | Train time ↓ | FPS ↑ | Storage (MB) ↓ |
 |---|---|---|---|---|---|---|
