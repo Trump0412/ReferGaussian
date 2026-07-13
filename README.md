@@ -243,6 +243,9 @@ Dataset link: [https://huggingface.co/datasets/LiYacheng/r4d-bench-qa](https://h
 # Example: keyboard scene
 bash scripts/train.sh hypernerf misc/keyboard
 
+# Matched 4D Gaussian Splatting baseline for the same scene/configuration
+bash scripts/train_baseline.sh hypernerf misc/keyboard
+
 # Example: DyNeRF scene after the layout above is prepared
 bash scripts/train.sh dynerf coffee_martini
 ```
@@ -255,9 +258,15 @@ Output is written to `runs/refergaussian/hypernerf/keyboard/`.
 
 ```bash
 bash scripts/eval.sh hypernerf misc/keyboard
+
+# Evaluate the matched 4DGS baseline without enabling ReferGaussian's warp
+bash scripts/eval_baseline.sh hypernerf misc/keyboard
 ```
 
-Writes PSNR / SSIM / LPIPS to `runs/refergaussian/hypernerf/keyboard/metrics.log`.
+The two commands write PSNR / SSIM / LPIPS to their respective run directories.
+For a fair reconstruction comparison, use the same dataset source, 4DGaussians
+scene config, iteration budget, and metric mode for both runs. The wrappers
+write `config.yaml` and `metrics_summary.json` beside each output for audit.
 
 ### Referring evaluation — 4DLangSplat public protocol
 

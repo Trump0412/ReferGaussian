@@ -42,6 +42,8 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/build_4dlangsplat_query_protocol.py",
     "scripts/evaluate_ours_benchmark.py",
     "scripts/validate_refergaussian_run.py",
+    "scripts/train_baseline.sh",
+    "scripts/eval_baseline.sh",
 )
 REQUIRED_RUNTIME_TOKENS = {
     "scripts/build_joint_query_proposal_dir.py": "mask_supported_lifting",
@@ -52,6 +54,7 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/build_4dlangsplat_query_protocol.py": "video_annotations.json",
     "scripts/evaluate_ours_benchmark.py": "--query-manifest",
     "scripts/validate_refergaussian_run.py": "validate_refergaussian_run",
+    "scripts/eval_baseline.sh": "external/4DGaussians/render.py",
 }
 ENGLISH_RUNTIME_FILES = (
     "refergaussian/semantics/qwen_query_planner.py",
@@ -174,6 +177,12 @@ def check_runtime_release_guards() -> list[str]:
         errors.append("Published query pipeline must not enable relaxed GSAM2 retry by default")
     if "require_refergaussian_run" not in pipeline_text:
         errors.append("Published query pipeline must validate the ReferGaussian training identity")
+
+    baseline_eval_text = (ROOT / "scripts/eval_baseline.sh").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    if "--warp_enabled" in baseline_eval_text or "temporal_warp_type" in baseline_eval_text:
+        errors.append("Baseline evaluation must not enable ReferGaussian temporal warp")
     return errors
 
 
