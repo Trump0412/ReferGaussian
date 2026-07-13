@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
 import numpy as np
+from PIL import Image
 
 from refergaussian.semantics.qwen_query_planner import (
     _canonicalize_phrase,
@@ -19,6 +22,7 @@ from refergaussian.semantics.qwen_query_planner import (
 )
 from refergaussian.semantics.select_qwen_query_entities import (
     _candidate_phrase_score,
+    _build_candidate_visual_evidence,
     _compose_phrase_grounded_selection,
     _expand_counted_subject_phrases,
     _select_phrase_ids,
@@ -26,6 +30,36 @@ from refergaussian.semantics.select_qwen_query_entities import (
 
 
 class QueryPlannerPhraseTest(unittest.TestCase):
+    def test_candidate_visual_evidence_uses_mask_overlay_crops(self) -> None:
+        with TemporaryDirectory() as directory:
+            overlay_path = Path(directory) / "overlay.png"
+            Image.new("RGB", (640, 360), color=(10, 20, 30)).save(overlay_path)
+            candidates = [{"id": 4, "stage1_object_id": 12, "proposal_alias": "target object"}]
+            tracks_payload = {
+                "tracks": [
+                    {
+                        "object_id": 12,
+                        "frames": [
+                            {
+                                "active": True,
+                                "frame_index": 20,
+                                "bbox_xyxy": [100, 80, 300, 260],
+                                "overlay_path": str(overlay_path),
+                            }
+                        ],
+                    }
+                ]
+            }
+
+            images, rows = _build_candidate_visual_evidence(candidates, tracks_payload)
+
+        self.assertEqual(len(images), 1)
+        self.assertEqual(rows[0]["candidate_id"], 4)
+        self.assertEqual(rows[0]["stage1_object_id"], 12)
+        self.assertEqual(rows[0]["kind"], "stage1_mask_overlay_crop")
+        self.assertLess(images[0].width, 640)
+        self.assertLess(images[0].height, 360)
+
     def test_state_phrase_is_composed_for_an_unseen_object(self) -> None:
         phrases = _state_detector_phrase_additions(
             "the package broken into several pieces",

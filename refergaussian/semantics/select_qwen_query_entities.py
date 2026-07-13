@@ -42,6 +42,9 @@ Query plan:
 Candidate entities:
 {candidate_json}
 
+Candidate visual evidence:
+{candidate_visual_evidence_json}
+
 Candidate interaction windows:
 {pair_json}
 
@@ -97,6 +100,11 @@ CRITICAL temporal-selectivity rules (apply these STRICTLY):
     (d) Location/context matches if specified (e.g., "on tray" vs "on table")
     (e) State matches if specified (e.g., "solid" vs "melting", "complete" vs "broken")
     If ANY required attribute doesn't match, do NOT select the entity — return [].
+11. VISUAL EVIDENCE IS AN INDEPENDENT CHECK: The supplied images are ordered exactly as described
+    in candidate_visual_evidence_json. Each is a source-frame crop with the candidate's Stage 1 mask
+    overlay. Do not treat a detector alias alone as proof of identity. If the masked visual evidence
+    shows only a broader category, a different object part, or the wrong relational context, reject
+    that candidate. If no candidate survives this check, return [].
 """
 
 
@@ -360,6 +368,115 @@ def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: in
     if maximum is not None:
         value = min(int(maximum), value)
     return value
+
+
+def _build_candidate_visual_evidence(
+    candidates: list[dict[str, Any]],
+    tracks_payload: dict[str, Any] | None,
+) -> tuple[list[Image.Image], list[dict[str, Any]]]:
+    """Load compact, query-independent Stage 1 overlay crops for VLM selection.
+
+    The final selector previously received only aliases and text descriptions.  A
+    detector alias is not sufficient evidence of the requested entity, especially
+    for fine-grained parts, attributes, or relations.  These crops preserve the
+    existing candidate set while giving the selector a deterministic visual check.
+    """
+    if not _env_flag("QUERY_SELECTION_VISUAL_EVIDENCE", True) or not tracks_payload:
+        return [], []
+    max_images = _env_int(
+        "QUERY_SELECTION_VISUAL_EVIDENCE_MAX_IMAGES",
+        8,
+        minimum=0,
+        maximum=16,
+    )
+    if max_images <= 0:
+        return [], []
+
+    tracks_by_object_id: dict[int, dict[str, Any]] = {}
+    for track in tracks_payload.get("tracks", []):
+        if not isinstance(track, dict):
+            continue
+        try:
+            tracks_by_object_id[int(track.get("object_id"))] = track
+        except (TypeError, ValueError):
+            continue
+
+    candidate_tracks: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for candidate in candidates:
+        try:
+            object_id = int(candidate.get("stage1_object_id"))
+        except (TypeError, ValueError):
+            continue
+        track = tracks_by_object_id.get(object_id)
+        if track is not None:
+            candidate_tracks.append((candidate, track))
+    if not candidate_tracks:
+        return [], []
+
+    candidate_tracks = candidate_tracks[:max_images]
+    images_per_candidate = max(1, min(3, max_images // len(candidate_tracks)))
+    evidence_images: list[Image.Image] = []
+    evidence_rows: list[dict[str, Any]] = []
+    resampling = getattr(Image, "Resampling", Image).LANCZOS
+
+    for candidate, track in candidate_tracks:
+        active_frames = [
+            frame
+            for frame in track.get("frames", [])
+            if isinstance(frame, dict)
+            and bool(frame.get("active", False))
+            and Path(str(frame.get("overlay_path", ""))).is_file()
+        ]
+        if not active_frames:
+            continue
+        active_frames.sort(key=lambda frame: int(frame.get("frame_index", 0)))
+        if len(active_frames) <= images_per_candidate:
+            chosen_frames = active_frames
+        else:
+            indices = np.linspace(0, len(active_frames) - 1, num=images_per_candidate, dtype=np.int64)
+            chosen_frames = [active_frames[int(index)] for index in sorted(set(indices.tolist()))]
+
+        for frame in chosen_frames:
+            if len(evidence_images) >= max_images:
+                break
+            overlay_path = Path(str(frame["overlay_path"]))
+            try:
+                with Image.open(overlay_path) as image_handle:
+                    image = image_handle.convert("RGB")
+            except (OSError, ValueError):
+                continue
+            bbox = frame.get("bbox_xyxy")
+            if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+                try:
+                    x0, y0, x1, y1 = [int(round(float(value))) for value in bbox]
+                except (TypeError, ValueError):
+                    x0 = y0 = x1 = y1 = 0
+                if x1 > x0 and y1 > y0:
+                    padding = max(12, int(round(max(x1 - x0, y1 - y0) * 0.20)))
+                    x0 = max(0, x0 - padding)
+                    y0 = max(0, y0 - padding)
+                    x1 = min(image.width, x1 + padding)
+                    y1 = min(image.height, y1 + padding)
+                    image = image.crop((x0, y0, x1, y1))
+            image.thumbnail((512, 512), resampling)
+            evidence_rows.append(
+                {
+                    "image_index": int(len(evidence_images)),
+                    "candidate_id": int(candidate["id"]),
+                    "candidate_alias": str(
+                        candidate.get("proposal_alias")
+                        or candidate.get("proposal_phrase")
+                        or candidate.get("static_text")
+                        or ""
+                    ),
+                    "stage1_object_id": int(track.get("object_id")),
+                    "frame_index": int(frame.get("frame_index", 0)),
+                    "overlay_path": str(overlay_path),
+                    "kind": "stage1_mask_overlay_crop",
+                }
+            )
+            evidence_images.append(image)
+    return evidence_images, evidence_rows
 
 
 def _singularize_match_token(token: str) -> str:
@@ -2712,6 +2829,11 @@ def main() -> None:
     tracks_payload = _resolve_query_tracks_payload(Path(args.query_plan_path)) if args.query_plan_path else None
     test_times = _test_time_values(run_dir)
     query = str(args.query).strip()
+    visual_evidence_images, visual_evidence_rows = _build_candidate_visual_evidence(
+        candidates,
+        tracks_payload,
+    )
+    visual_evidence_json = json.dumps(visual_evidence_rows, ensure_ascii=False, indent=2)
     raw_payload: dict[str, Any] | None = None
     raw_output = ""
     skip_qwen_selection = os.environ.get("QUERY_SKIP_QWEN_SELECTION", "0") == "1"
@@ -2729,6 +2851,7 @@ def main() -> None:
                 query=query,
                 query_plan_json=json.dumps(query_plan_payload, ensure_ascii=False, indent=2),
                 candidate_json=json.dumps(candidates, ensure_ascii=False, indent=2),
+                candidate_visual_evidence_json=visual_evidence_json,
                 pair_json=json.dumps(pair_candidates[:16], ensure_ascii=False, indent=2),
                 total_frames=int(test_times.shape[0]) if test_times.size else "unknown",
             )
@@ -2738,7 +2861,7 @@ def main() -> None:
                 teacher = get_vlm_teacher(str(resolved_path))
             except ImportError:
                 teacher = QwenQueryPlanner(resolved_path)
-            raw_payload, raw_output = teacher.generate_json(prompt=prompt, images=None)
+            raw_payload, raw_output = teacher.generate_json(prompt=prompt, images=visual_evidence_images or None)
         selection_payload = _compose_phrase_grounded_selection(
             query=query,
             query_plan_payload=query_plan_payload,
@@ -2754,6 +2877,7 @@ def main() -> None:
             query=query,
             query_plan_json=json.dumps(query_plan_payload, ensure_ascii=False, indent=2),
             candidate_json=json.dumps(candidates, ensure_ascii=False, indent=2),
+            candidate_visual_evidence_json=visual_evidence_json,
             pair_json=json.dumps(pair_candidates[:16], ensure_ascii=False, indent=2),
             total_frames=int(test_times.shape[0]) if test_times.size else "unknown",
         )
@@ -2763,9 +2887,14 @@ def main() -> None:
             teacher = get_vlm_teacher(str(resolved_path))
         except ImportError:
             teacher = QwenQueryPlanner(resolved_path)
-        raw_payload, raw_output = teacher.generate_json(prompt=prompt, images=None)
+        raw_payload, raw_output = teacher.generate_json(prompt=prompt, images=visual_evidence_images or None)
         selection_payload = _normalize_selected(raw_payload, valid_ids=valid_ids, query=query)
         selection_payload["raw_output"] = raw_output
+    selection_payload["visual_evidence"] = {
+        "enabled": bool(_env_flag("QUERY_SELECTION_VISUAL_EVIDENCE", True)),
+        "image_count": int(len(visual_evidence_images)),
+        "items": visual_evidence_rows,
+    }
     track_state_mode = _selection_track_state_mode(selection_payload)
     if track_state_mode is not None:
         selection_payload["track_state_mode"] = track_state_mode
