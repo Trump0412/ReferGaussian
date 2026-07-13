@@ -84,6 +84,8 @@ class EntityCloud:
     spatial_scale: np.ndarray | None = None
     opacity_logit: np.ndarray | None = None
     opacity_source: str = "unavailable"
+    alpha_relative_threshold: float | None = None
+    alpha_absolute_threshold: float | None = None
 
 
 @dataclass
@@ -1256,6 +1258,11 @@ def _load_entity_opacity_logits(
 def _load_entity_clouds(run_dir: Path, selected_items: list[dict[str, Any]]) -> dict[int, EntityCloud]:
     entitybank_dir = run_dir / "entitybank"
     entities_payload = _read_json(entitybank_dir / "entities.json")
+    entity_records = {
+        int(entity["id"]): entity
+        for entity in entities_payload.get("entities", [])
+        if entity.get("id") is not None
+    }
     entity_map = {
         int(entity["id"]): np.asarray(entity.get("gaussian_ids", []), dtype=np.int64)
         for entity in entities_payload.get("entities", [])
@@ -1278,6 +1285,22 @@ def _load_entity_clouds(run_dir: Path, selected_items: list[dict[str, Any]]) -> 
 
     clouds: dict[int, EntityCloud] = {}
     for item_index, item in enumerate(selected_items):
+        entity_record = entity_records.get(int(item.get("id", -1)), {})
+        diagnostics = entity_record.get("rendered_diagnostics", {})
+        relative_threshold = diagnostics.get("alpha_relative_threshold")
+        absolute_threshold = diagnostics.get("alpha_absolute_threshold")
+        try:
+            relative_threshold = float(relative_threshold)
+        except (TypeError, ValueError):
+            relative_threshold = None
+        try:
+            absolute_threshold = float(absolute_threshold)
+        except (TypeError, ValueError):
+            absolute_threshold = None
+        if relative_threshold is not None and not np.isfinite(relative_threshold):
+            relative_threshold = None
+        if absolute_threshold is not None and not np.isfinite(absolute_threshold):
+            absolute_threshold = None
         gaussian_ids = _selected_item_gaussian_ids(entity_map, item)
         if gaussian_ids.size == 0:
             continue
@@ -1294,6 +1317,8 @@ def _load_entity_clouds(run_dir: Path, selected_items: list[dict[str, Any]]) -> 
             spatial_scale=None if spatial_scale is None else spatial_scale[gaussian_ids, :3],
             opacity_logit=None if opacity_logit is None else opacity_logit[gaussian_ids],
             opacity_source=opacity_source,
+            alpha_relative_threshold=relative_threshold,
+            alpha_absolute_threshold=absolute_threshold,
         )
     return clouds
 
@@ -1553,8 +1578,16 @@ def _project_entity_cloud_mask(
                 mask, _alpha = render_selection_mask(
                     prepared,
                     selected_weights,
-                    relative_threshold=_env_float("GS_QUERY_ALPHA_REL_THRESHOLD", 0.16, minimum=0.0),
-                    absolute_threshold=_env_float("GS_QUERY_ALPHA_ABS_THRESHOLD", 0.010, minimum=0.0),
+                    relative_threshold=(
+                        float(cloud.alpha_relative_threshold)
+                        if cloud.alpha_relative_threshold is not None
+                        else _env_float("GS_QUERY_ALPHA_REL_THRESHOLD", 0.16, minimum=0.0)
+                    ),
+                    absolute_threshold=(
+                        float(cloud.alpha_absolute_threshold)
+                        if cloud.alpha_absolute_threshold is not None
+                        else _env_float("GS_QUERY_ALPHA_ABS_THRESHOLD", 0.010, minimum=0.0)
+                    ),
                 )
                 if mask.shape != (int(image_size[1]), int(image_size[0])):
                     mask = _resize_mask_to_shape(mask, (int(image_size[1]), int(image_size[0])))
@@ -2219,6 +2252,16 @@ def render_hypernerf_query_video(
                     "cloud_mask_area_fraction": _mask_area_fraction(cloud_mask),
                     "cloud_projection_mode": os.environ.get("GS_QUERY_CLOUD_RENDER_MODE", "point_hull"),
                     "cloud_opacity_source": None if entry.get("cloud") is None else entry["cloud"].opacity_source,
+                    "cloud_alpha_relative_threshold": (
+                        None
+                        if entry.get("cloud") is None
+                        else entry["cloud"].alpha_relative_threshold
+                    ),
+                    "cloud_alpha_absolute_threshold": (
+                        None
+                        if entry.get("cloud") is None
+                        else entry["cloud"].alpha_absolute_threshold
+                    ),
                     "support_score": float(entry["support_score"][frame_index]),
                     **query_track_meta,
                 }

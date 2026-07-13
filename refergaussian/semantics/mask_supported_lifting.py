@@ -591,10 +591,27 @@ def _graph_expand(
     return np.unique(selected.astype(np.int64))
 
 
-def _selection_metrics(selection_ids: np.ndarray, support: LiftingSupport, num_gaussians: int, device: str, scoring_mode: str | None = None) -> dict[str, Any]:
+def _selection_metrics(
+    selection_ids: np.ndarray,
+    support: LiftingSupport,
+    num_gaussians: int,
+    device: str,
+    scoring_mode: str | None = None,
+    relative_threshold: float = 0.18,
+    absolute_threshold: float = 0.015,
+    max_frames: int | None = None,
+) -> dict[str, Any]:
     mask = np.zeros((num_gaussians,), dtype=np.float32)
     mask[np.asarray(selection_ids, dtype=np.int64)] = 1.0
-    return _selection_mask_metrics(mask, support=support, device=device, scoring_mode=scoring_mode)
+    return _selection_mask_metrics(
+        mask,
+        support=support,
+        device=device,
+        scoring_mode=scoring_mode,
+        relative_threshold=relative_threshold,
+        absolute_threshold=absolute_threshold,
+        max_frames=max_frames,
+    )
 
 
 def _empty_metric_row() -> dict[str, Any]:
@@ -794,13 +811,25 @@ def _bootstrap_proxy_evidence_selection(
     return selected, info
 
 
-def _selection_mask_metrics(mask: np.ndarray, support: LiftingSupport, device: str, scoring_mode: str | None = None) -> dict[str, Any]:
+def _selection_mask_metrics(
+    mask: np.ndarray,
+    support: LiftingSupport,
+    device: str,
+    scoring_mode: str | None = None,
+    relative_threshold: float = 0.18,
+    absolute_threshold: float = 0.015,
+    max_frames: int | None = None,
+) -> dict[str, Any]:
     mask = np.asarray(mask, dtype=np.float32).reshape(-1)
     rows: list[dict[str, float]] = []
     pred_areas: list[float] = []
     active_hits = 0
     metric_samples = support.samples
-    max_metric_frames = _env_optional_int("QUERY_LIFT_METRIC_MAX_FRAMES", None, minimum=1)
+    max_metric_frames = (
+        int(max_frames)
+        if max_frames is not None
+        else _env_optional_int("QUERY_LIFT_METRIC_MAX_FRAMES", None, minimum=1)
+    )
     if max_metric_frames is not None and len(metric_samples) > int(max_metric_frames):
         sample_indices = _resample_indices(len(metric_samples), int(max_metric_frames))
         metric_samples = [metric_samples[int(index)] for index in sample_indices.tolist()]
@@ -820,7 +849,12 @@ def _selection_mask_metrics(mask: np.ndarray, support: LiftingSupport, device: s
         )
         local_ids = prepared.gaussian_ids.detach().cpu().numpy().astype(np.int64)
         local_weights = torch.as_tensor(mask[local_ids], dtype=torch.float32, device=device)
-        pred, _alpha = render_selection_mask(prepared, local_weights, relative_threshold=0.18, absolute_threshold=0.015)
+        pred, _alpha = render_selection_mask(
+            prepared,
+            local_weights,
+            relative_threshold=float(relative_threshold),
+            absolute_threshold=float(absolute_threshold),
+        )
         pred_area = float(np.asarray(pred, dtype=bool).sum())
         pred_areas.append(pred_area)
         if pred_area > 0.0:
@@ -913,6 +947,8 @@ def _selection_mask_metrics(mask: np.ndarray, support: LiftingSupport, device: s
         "active_frame_coverage": active_frame_coverage,
         "area_cv": area_cv,
         "mean_pred_area": float(np.mean(pred_areas)) if pred_areas else 0.0,
+        "alpha_relative_threshold": float(relative_threshold),
+        "alpha_absolute_threshold": float(absolute_threshold),
     }
 
 
@@ -1034,6 +1070,7 @@ def _bootstrap_refine_selection(
     device: str,
     seed_index: int = 0,
     bank: dict[str, np.ndarray] | None = None,
+    max_gaussians: int | None = None,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     max_iter = _env_int("QUERY_LIFT_BOOTSTRAP_MAX_ITER", 5, minimum=1)
     wall_timeout = _env_float("QUERY_LIFT_BOOTSTRAP_TIMEOUT", 60.0, minimum=10.0)
@@ -1077,6 +1114,18 @@ def _bootstrap_refine_selection(
         - 0.04 * support.negative_score
     ).astype(np.float32)
     score[seed_ids] += 0.22
+    selection_cap = int(
+        min(
+            num_gaussians,
+            max(1, int(max_gaussians)) if max_gaussians is not None else num_gaussians,
+        )
+    )
+    if seed_ids.size > selection_cap:
+        seed_ids = seed_ids[
+            np.argsort(-score[seed_ids], kind="mergesort")[:selection_cap]
+        ]
+        membership[:] = 0.0
+        membership[seed_ids] = 1.0
     frame_count = len(support.samples)
     if frame_count == 0:
         return seed_ids, {"bootstrap_iters": 0, "bootstrap_best_iou": 0.0}
@@ -1185,6 +1234,10 @@ def _bootstrap_refine_selection(
         membership[drop_mask] = 0.0
         membership[(support.outer_ratio > 0.88) & (support.positive_score < 0.08) & (support.distance_positive_score < 0.12)] = 0.0
         ids = np.where(membership > 0.5)[0].astype(np.int64)
+        if ids.size > selection_cap:
+            ids = ids[np.argsort(-score[ids], kind="mergesort")[:selection_cap]]
+            membership[:] = 0.0
+            membership[ids] = 1.0
         if area_deficit > 0.0 and ids.size:
             expand_add = int(max(16, min(512, round(ids.size * min(0.35, area_deficit / max(float(target_area_ratio), 1.0e-6))))))
             expanded_ids = _safe_graph_expand_from_selection(ids, support=support, bank=bank or _BOOTSTRAP_BANK_CACHE, max_add=expand_add, graph_knn=24, radius_scale=2.10 if thin_mode else 1.75)
@@ -1192,6 +1245,10 @@ def _bootstrap_refine_selection(
                 ids = expanded_ids.astype(np.int64)
                 membership[:] = 0.0
                 membership[ids] = 1.0
+        if ids.size > selection_cap:
+            ids = ids[np.argsort(-score[ids], kind="mergesort")[:selection_cap]]
+            membership[:] = 0.0
+            membership[ids] = 1.0
         if ids.size == 0:
             ids = np.argsort(-score, kind="mergesort")[: max(16, min(256, num_gaussians))].astype(np.int64)
             membership[ids] = 1.0
@@ -2009,6 +2066,158 @@ def _coverage_v4_selection_utility(row: dict[str, Any], target_area_ratio: float
     )
 
 
+def _alpha_calibration_levels() -> list[tuple[float, float]]:
+    """Read a small, reproducible alpha-binarization grid for v4 lifting."""
+    raw = os.environ.get(
+        "QUERY_LIFT_ALPHA_CALIBRATION_LEVELS",
+        "0.18:0.015,0.08:0.006,0.03:0.002,0.01:0.001",
+    )
+    levels: list[tuple[float, float]] = []
+    seen: set[tuple[float, float]] = set()
+    for item in str(raw).split(","):
+        pieces = [piece.strip() for piece in item.split(":")]
+        if len(pieces) != 2:
+            continue
+        try:
+            relative = float(pieces[0])
+            absolute = float(pieces[1])
+        except ValueError:
+            continue
+        if not (np.isfinite(relative) and np.isfinite(absolute)):
+            continue
+        level = (
+            float(np.clip(relative, 0.0, 1.0)),
+            float(max(absolute, 0.0)),
+        )
+        if level not in seen:
+            levels.append(level)
+            seen.add(level)
+    return levels or [(0.18, 0.015)]
+
+
+def _calibrate_alpha_threshold(
+    selection_ids: np.ndarray,
+    support: LiftingSupport,
+    num_gaussians: int,
+    device: str,
+    scoring_mode: str,
+) -> dict[str, Any]:
+    """Choose a Gaussian alpha threshold from held multi-frame mask evidence.
+
+    This calibrates how a selected 3D Gaussian entity is *rendered*. It does
+    not copy, fuse, or return a Stage-1 2D mask, so the final output remains a
+    projection of the same selected Gaussian set.
+    """
+    max_frames = _env_int("QUERY_LIFT_ALPHA_CALIBRATION_MAX_FRAMES", 8, minimum=1)
+    trials: list[dict[str, Any]] = []
+    for relative, absolute in _alpha_calibration_levels():
+        metrics = _selection_metrics(
+            selection_ids,
+            support=support,
+            num_gaussians=num_gaussians,
+            device=device,
+            scoring_mode=scoring_mode,
+            relative_threshold=relative,
+            absolute_threshold=absolute,
+            max_frames=max_frames,
+        )
+        utility = (
+            float(metrics.get("score", float("-inf")))
+            + 0.20 * float(metrics.get("rendered_iou_stage1", 0.0))
+            + 0.08 * float(metrics.get("recall", 0.0))
+            - 0.08 * float(metrics.get("outer_leakage", 1.0))
+        )
+        metrics["alpha_calibration_utility"] = float(utility)
+        metrics["alpha_calibration_method"] = "multiframe_rendered_overlap"
+        metrics["alpha_calibration_frame_count"] = int(min(len(support.samples), max_frames))
+        trials.append(
+            {
+                "relative_threshold": float(relative),
+                "absolute_threshold": float(absolute),
+                "utility": float(utility),
+                "rendered_iou_stage1": float(metrics.get("rendered_iou_stage1", 0.0)),
+                "precision": float(metrics.get("precision", 0.0)),
+                "recall": float(metrics.get("recall", 0.0)),
+                "area_ratio": float(metrics.get("area_ratio", 0.0)),
+                "outer_leakage": float(metrics.get("outer_leakage", 1.0)),
+                "metrics": metrics,
+            }
+        )
+
+    best = max(
+        trials,
+        key=lambda row: (
+            float(row["utility"]),
+            float(row["rendered_iou_stage1"]),
+            float(row["recall"]),
+            -float(row["outer_leakage"]),
+        ),
+    )
+    result = dict(best["metrics"])
+    result["alpha_calibration_trials"] = [
+        {key: value for key, value in row.items() if key != "metrics"}
+        for row in trials
+    ]
+    return result
+
+
+def _calibrate_v4_candidate_rows(
+    scored: list[dict[str, Any]],
+    support: LiftingSupport,
+    num_gaussians: int,
+    device: str,
+    target_area_ratio: float,
+) -> None:
+    """Calibrate a bounded candidate shortlist, then validate it on all frames."""
+    if not _env_flag("QUERY_LIFT_ALPHA_THRESHOLD_CALIBRATION", False) or not scored:
+        return
+    max_candidates = _env_int("QUERY_LIFT_ALPHA_CALIBRATION_MAX_CANDIDATES", 3, minimum=1)
+    ranked = sorted(
+        scored,
+        key=lambda row: _coverage_v4_selection_utility(row, target_area_ratio=target_area_ratio),
+        reverse=True,
+    )
+    selected = list(ranked[:max_candidates])
+    largest = max(scored, key=lambda row: int(row.get("gaussian_count", 0)))
+    # The largest compatible candidate is a useful recall probe. Reserve a
+    # bounded slot for it instead of letting a cluster of tiny, high-precision
+    # candidates monopolize threshold calibration.
+    if all(row is not largest for row in selected):
+        if selected:
+            selected[-1] = largest
+        else:
+            selected.append(largest)
+
+    for row in selected:
+        calibrated = _calibrate_alpha_threshold(
+            np.asarray(row["ids"], dtype=np.int64),
+            support=support,
+            num_gaussians=num_gaussians,
+            device=device,
+            scoring_mode="mask_bootstrap_refine",
+        )
+        relative = float(calibrated["alpha_relative_threshold"])
+        absolute = float(calibrated["alpha_absolute_threshold"])
+        full_metrics = _selection_metrics(
+            np.asarray(row["ids"], dtype=np.int64),
+            support=support,
+            num_gaussians=num_gaussians,
+            device=device,
+            scoring_mode="mask_bootstrap_refine",
+            relative_threshold=relative,
+            absolute_threshold=absolute,
+        )
+        full_metrics.update(
+            {
+                "alpha_calibration_method": calibrated["alpha_calibration_method"],
+                "alpha_calibration_frame_count": calibrated["alpha_calibration_frame_count"],
+                "alpha_calibration_utility": calibrated["alpha_calibration_utility"],
+                "alpha_calibration_trials": calibrated["alpha_calibration_trials"],
+            }
+        )
+        row.update(full_metrics)
+
+
 def _coverage_v4_quality_gate(row: dict[str, Any], target_area_ratio: float, thin_object: bool = False) -> tuple[bool, str]:
     """Reject tiny/wrong lifted entities before they become final proposals."""
     target = max(float(target_area_ratio), 1.0e-6)
@@ -2252,6 +2461,7 @@ def _candidate_variants(support: LiftingSupport, bank: dict[str, np.ndarray], mi
                     num_gaussians=num_gaussians,
                     device=str("cuda" if torch.cuda.is_available() else "cpu"),
                     bank=bank,
+                    max_gaussians=max_gaussians,
                 )
                 print(
                     f"[mask_supported_lifting] bootstrap done {idx + 1}/{candidate_limit} "
@@ -2477,6 +2687,13 @@ def build_mask_supported_lifting_proposal_dir(
                 best = _choose_boundary_refine_candidate(scored)
             elif mode in {"mask_bootstrap_refine", "bootstrap_refine"}:
                 target = _env_float("QUERY_LIFT_BOOTSTRAP_TARGET_AREA_RATIO", 0.70, minimum=0.05, maximum=2.0)
+                _calibrate_v4_candidate_rows(
+                    scored,
+                    support=support,
+                    num_gaussians=num_gaussians,
+                    device=device,
+                    target_area_ratio=target,
+                )
                 feasible = []
                 thin_object = _support_is_geometrically_thin(support)
                 for row in scored:
@@ -2626,6 +2843,12 @@ def build_mask_supported_lifting_proposal_dir(
                     "selection_area_target",
                     "quality_gate_pass",
                     "quality_gate_reason",
+                    "alpha_relative_threshold",
+                    "alpha_absolute_threshold",
+                    "alpha_calibration_method",
+                    "alpha_calibration_frame_count",
+                    "alpha_calibration_utility",
+                    "alpha_calibration_trials",
                 )
                 if key in best
             }
