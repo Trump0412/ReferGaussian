@@ -55,6 +55,7 @@ Observed sampled frames:
 Return exactly one JSON object with keys:
 - query: original query
 - video_inventory_phrases: array of short static noun phrases describing the main visible objects in the whole video
+- primary_subject_phrases: array of the exact entity or entities requested by the query, excluding action context
 - query_subject_phrases: array of short static noun phrases for the primary query objects only
 - query_successor_phrases: array of short static noun phrases that appear only after a query-driven state change, such as "object fragments"
 - phase_transition_hints: array of objects, each with keys {{phrase, last_pre_change_slot, first_post_change_slot, reason}}
@@ -79,6 +80,9 @@ Rules:
 - Do not use role words like patient/tool/agent in the phrase lists.
 - Keep phrases concrete and static, such as "tool", "object", "hand", "surface", "object fragments".
 - `video_inventory_phrases` should summarize the main objects visible across the whole video.
+- `primary_subject_phrases` must name the grammatical referent requested by the query. For a singular
+  relational or action query such as "the X while it acts on Y", include only X; Y is context unless the
+  query explicitly asks for both entities or for a set.
 - `query_subject_phrases` should contain only the minimum nouns needed to answer the query.
 - `detector_phrases` should normally equal `query_subject_phrases + query_successor_phrases`, and not include unrelated context objects.
 - Do not include non-subject context objects like a board or a hand in `detector_phrases` unless they are truly required by the query itself.
@@ -87,7 +91,9 @@ Rules:
 - `phase_transition_hints` should use the 0-based sampled-frame slot indices from the observed frame list.
 - Use `phase_transition_hints` only when the query implies a subject state transition or a before/after distinction.
 - Prefer the earliest semantic change point suggested by the sampled frames, not the latest frame where the object is already fully separated.
-- For an action query, inventory only the interacting object(s) and necessary tool(s), and use those as query subjects.
+- For an action query, keep only the requested entity or explicitly requested entity set as query subjects.
+  Interaction partners may appear in the inventory or optional list, but must not be promoted to subjects merely
+  because they participate in the action.
 - For action queries, `start_condition` should begin at direct task-relevant contact, not at coarse pre-contact setup.
 - For action queries, `stop_condition` should end when the query-driven state change stabilizes, not when unrelated context remains visible.
 - For action queries, separate the short action/contact interval from the longer object/state support interval.
@@ -641,6 +647,48 @@ def _merge_unique_phrases(*groups: list[str]) -> list[str]:
     return merged
 
 
+def _phrase_token_span(text: str, phrase: str) -> int | None:
+    """Return the first whole-token occurrence of an entity phrase in text."""
+    text_tokens = re.findall(r"[a-z]+", str(text).lower())
+    phrase_tokens = re.findall(r"[a-z]+", _canonicalize_phrase(phrase))
+    if not phrase_tokens or len(phrase_tokens) > len(text_tokens):
+        return None
+    width = len(phrase_tokens)
+    for index in range(len(text_tokens) - width + 1):
+        if text_tokens[index : index + width] == phrase_tokens:
+            return index
+    return None
+
+
+def _leading_query_subject_phrases(query: str, candidates: list[str]) -> list[str]:
+    """Recover a singular English query referent when a planner includes context.
+
+    This is deliberately syntactic rather than vocabulary-driven. It only
+    constrains a query's leading noun phrase before a temporal/relative clause,
+    so it applies equally to unseen objects and actions.
+    """
+    query_text = " ".join(str(query).strip().lower().replace("_", " ").split())
+    clause = re.search(
+        r"\b(?:while|when|as|before|after|during|until|once|that|which|who)\b",
+        query_text,
+    )
+    prefix = query_text[: clause.start()] if clause else query_text
+    matches: list[tuple[int, str]] = []
+    for phrase in candidates:
+        position = _phrase_token_span(prefix, phrase)
+        if position is not None:
+            matches.append((position, phrase))
+    if not matches:
+        return []
+
+    matches.sort(key=lambda item: (item[0], -len(item[1].split()), item[1]))
+    has_explicit_set = bool(re.search(r"\b(?:both|all|each)\b", prefix))
+    has_coordinated_subjects = " and " in prefix and len(matches) > 1
+    if has_explicit_set or has_coordinated_subjects:
+        return [phrase for _, phrase in matches]
+    return [matches[0][1]]
+
+
 def _normalize_phase_transition_hints(values: Any, valid_phrases: set[str]) -> list[dict[str, Any]]:
     hints: list[dict[str, Any]] = []
     seen: set[tuple[str, int | None, int | None]] = set()
@@ -769,6 +817,7 @@ def _normalize_boundary_refinement(
 def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True) -> dict[str, Any]:
     video_inventory_phrases = _normalize_phrase_list(raw_payload.get("video_inventory_phrases", []))[:8]
     query_subject_phrases = _normalize_phrase_list(raw_payload.get("query_subject_phrases", []))[:3]
+    primary_subject_phrases = _normalize_phrase_list(raw_payload.get("primary_subject_phrases", []))[:3]
     query_successor_phrases = _normalize_phrase_list(raw_payload.get("query_successor_phrases", []))[:2]
     raw_optional_phrases = _normalize_phrase_list(raw_payload.get("optional_phrases", []))[:6]
     must_track_phrases = _normalize_phrase_list(raw_payload.get("must_track_phrases", []))[:3]
@@ -795,7 +844,19 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
     if not strict and not video_inventory_phrases:
         video_inventory_phrases = query_subject_phrases[:]
     query_subject_phrases = _expand_dual_hand_phrases(query_subject_phrases, limit=3)
+    primary_subject_phrases = _expand_dual_hand_phrases(primary_subject_phrases, limit=3)
     query_successor_phrases = _expand_dual_hand_phrases(query_successor_phrases, limit=2)
+
+    query_profile = _query_semantic_profile(query)
+    is_exclusion_query = _is_exclusion_query_text(query_profile["query_norm"])
+    is_static_set_query = _is_static_set_query_text(query_profile["query_norm"])
+    if primary_subject_phrases and not is_exclusion_query:
+        query_subject_phrases = primary_subject_phrases
+    elif not is_exclusion_query and not query_profile["asks_set"]:
+        leading_subjects = _leading_query_subject_phrases(query, query_subject_phrases)
+        if leading_subjects:
+            query_subject_phrases = leading_subjects
+    primary_subject_phrases = query_subject_phrases[:]
 
     state_detector_phrases = _state_detector_phrase_additions(
         query,
@@ -831,9 +892,6 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
     if not stop_condition:
         stop_condition = "when the query-driven object state change has completed"
 
-    query_profile = _query_semantic_profile(query)
-    is_exclusion_query = _is_exclusion_query_text(query_profile["query_norm"])
-    is_static_set_query = _is_static_set_query_text(query_profile["query_norm"])
     exclusion_phrases = set(_extract_exclusion_phrases(query_profile["query_norm"]))
 
     if is_exclusion_query or is_static_set_query or query_profile["asks_set"]:
@@ -866,6 +924,7 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
     return {
         "query": query,
         "video_inventory_phrases": video_inventory_phrases,
+        "primary_subject_phrases": primary_subject_phrases,
         "query_subject_phrases": query_subject_phrases,
         "query_successor_phrases": query_successor_phrases,
         "detector_phrases": detector_phrases,

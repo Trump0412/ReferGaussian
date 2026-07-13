@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from refergaussian.semantics.qwen_query_planner import _state_detector_phrase_additions
+from refergaussian.semantics.qwen_query_planner import _normalize_plan, _state_detector_phrase_additions
 
 
 class QueryPlannerPhraseTest(unittest.TestCase):
@@ -31,6 +31,34 @@ class QueryPlannerPhraseTest(unittest.TestCase):
             ["vessel"],
         )
         self.assertIn("liquid above midpoint", phrases)
+
+    def test_action_context_is_not_promoted_to_the_singular_query_subject(self) -> None:
+        plan = _normalize_plan(
+            {
+                "video_inventory_phrases": ["knife", "beef steak"],
+                "query_subject_phrases": ["knife", "beef steak"],
+                "must_track_phrases": ["knife", "beef steak"],
+            },
+            "The knife while it is cutting the beef steak.",
+        )
+
+        self.assertEqual(plan["primary_subject_phrases"], ["knife"])
+        self.assertEqual(plan["query_subject_phrases"], ["knife"])
+        self.assertEqual(plan["detector_phrases"], ["knife"])
+        self.assertEqual(plan["must_track_phrases"], ["knife"])
+
+    def test_explicit_multi_target_query_preserves_all_requested_subjects(self) -> None:
+        plan = _normalize_plan(
+            {
+                "video_inventory_phrases": ["red block", "blue block"],
+                "primary_subject_phrases": ["red block", "blue block"],
+                "query_subject_phrases": ["red block", "blue block"],
+            },
+            "Both the red block and the blue block while they are moving.",
+        )
+
+        self.assertEqual(plan["primary_subject_phrases"], ["red block", "blue block"])
+        self.assertEqual(plan["query_subject_phrases"], ["red block", "blue block"])
 
 
 if __name__ == "__main__":

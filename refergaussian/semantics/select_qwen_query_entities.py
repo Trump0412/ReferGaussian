@@ -55,7 +55,8 @@ Rules:
 - candidate aliases must come from the candidate entities only.
 - Prefer query_subject_phrases from the query plan.
 - Ignore optional context objects unless the query directly asks for them.
-- For action queries, the subject phrases should be the directly interacting objects.
+- For action queries, select only the grammatical query referent or an explicitly requested entity set.
+  Do not add an interaction partner solely because it participates in the action.
 - If a successor object is present, put it in successor_phrases rather than subject_phrases.
 - Keep alias choices and notes in English only.
 - Output valid JSON only.
