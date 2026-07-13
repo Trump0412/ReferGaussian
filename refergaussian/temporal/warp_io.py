@@ -37,6 +37,14 @@ def build_temporal_warp_optimizer(warp, lr: float):
     return torch.optim.Adam(parameters, lr=lr, eps=1.0e-15)
 
 
+def set_temporal_warp_learning_rate(optimizer, lr: float) -> None:
+    """Apply the shared temporal schedule to the learned warp."""
+    if optimizer is None:
+        return
+    for parameter_group in optimizer.param_groups:
+        parameter_group["lr"] = float(lr)
+
+
 def attach_temporal_warp(gaussians, warp) -> None:
     gaussians.temporal_warp = warp
 

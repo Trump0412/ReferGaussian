@@ -98,6 +98,9 @@ apply_4dgs_patch \
   "${ROOT_DIR}/patches/4dgaussians_seed_order.patch" \
   "seed-order reproducibility patch"
 apply_4dgs_patch \
+  "${ROOT_DIR}/patches/4dgaussians_temporal_warp_schedule.patch" \
+  "temporal warp learning-rate schedule patch"
+apply_4dgs_patch \
   "${ROOT_DIR}/patches/4dgaussians_metrics_cache.patch" \
   "LPIPS metric-cache patch" \
   "1"

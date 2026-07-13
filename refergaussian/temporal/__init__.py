@@ -8,6 +8,7 @@ from .warp_io import (
     load_temporal_warp_checkpoint,
     save_temporal_warp,
     save_temporal_warp_checkpoint,
+    set_temporal_warp_learning_rate,
 )
 
 __all__ = [
@@ -23,4 +24,5 @@ __all__ = [
     "load_temporal_warp_checkpoint",
     "save_temporal_warp",
     "save_temporal_warp_checkpoint",
+    "set_temporal_warp_learning_rate",
 ]

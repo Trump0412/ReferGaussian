@@ -49,6 +49,7 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/train_baseline.sh",
     "scripts/eval_baseline.sh",
     "patches/4dgaussians_seed_order.patch",
+    "patches/4dgaussians_temporal_warp_schedule.patch",
     "patches/4dgaussians_metrics_cache.patch",
 )
 REQUIRED_RUNTIME_TOKENS = {
@@ -67,6 +68,7 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/validate_refergaussian_run.py": "validate_refergaussian_run",
     "scripts/eval_baseline.sh": "external/4DGaussians/render.py",
     "scripts/bootstrap_external.sh": "4dgaussians_metrics_cache.patch",
+    "patches/4dgaussians_temporal_warp_schedule.patch": "set_temporal_warp_learning_rate",
 }
 ENGLISH_RUNTIME_FILES = (
     "refergaussian/semantics/qwen_query_planner.py",
@@ -232,6 +234,13 @@ def check_runtime_release_guards() -> list[str]:
     )
     if "LPIPS(net_type='vgg').cuda()" not in metrics_patch_text:
         errors.append("4DGaussians metric patch must cache the VGG LPIPS network")
+    warp_schedule_patch_text = (
+        ROOT / "patches" / "4dgaussians_temporal_warp_schedule.patch"
+    ).read_text(encoding="utf-8", errors="replace")
+    if "opt.temporal_lr_init" not in warp_schedule_patch_text:
+        errors.append("Temporal warp patch must use the configured temporal learning rate")
+    if "gaussians.temporal_scheduler_args(iteration)" not in warp_schedule_patch_text:
+        errors.append("Temporal warp patch must apply the configured temporal schedule")
     for relative_path in ("scripts/train.sh", "scripts/train_baseline.sh"):
         train_text = (ROOT / relative_path).read_text(encoding="utf-8", errors="replace")
         if "REFERGAUSSIAN_SEED" not in train_text or "--seed" not in train_text:

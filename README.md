@@ -283,6 +283,9 @@ bash scripts/train.sh dynerf coffee_martini
 ```
 
 Output is written to `runs/refergaussian/hypernerf/keyboard/`.
+The temporal learning-rate schedule is shared by the Gaussian time primitives
+and the learned temporal warp, so the recorded `temporal_lr_*` settings fully
+define the temporal optimization schedule.
 
 ## Evaluation
 
