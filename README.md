@@ -175,8 +175,8 @@ gsam2_python scripts/check_query_runtime.py --require-qwen
 
 ### SAM2 and Grounding DINO (Grounded-SAM2 pipeline)
 
-Downloaded automatically during `bash scripts/setup_grounded_sam2.sh` at the
-pinned revisions below:
+The setup script first verifies the local pinned cache and downloads missing
+weights only when needed, at the pinned revisions below:
 - `facebook/sam2-hiera-large @ e6a8e8809b8f1bfa2238b6d080f3d05cc76bd251`
 - `IDEA-Research/grounding-dino-base @ 12bdfa3120f3e7ec7b434d90674b3396eccf88eb`
 
@@ -187,6 +187,8 @@ After setup, query inference loads these exact pinned snapshots from the local
 cache by default and does not issue a runtime Hub request. If a snapshot is
 missing, rerun `bash scripts/setup_grounded_sam2.sh`; set
 `GSAM2_LOCAL_FILES_ONLY=0` only when an explicit recovery download is intended.
+Set `GSAM2_DOWNLOAD_WEIGHTS=0` when setting up an offline machine and you want
+the setup command to fail immediately instead of attempting a download.
 The setup command installs the pinned checkout editably by default and verifies
 that both `sam2` and its optional extension resolve from this repository rather
 than another project's Grounded-SAM2 installation.

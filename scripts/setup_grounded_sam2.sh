@@ -20,6 +20,9 @@ GDINO_MODEL_REVISION="${GSAM2_GROUNDING_MODEL_REVISION:-12bdfa3120f3e7ec7b434d90
 # The query scripts must import the pinned checkout below, not an editable SAM2
 # package left by another project in the same conda environment.
 INSTALL_EDITABLE="${GSAM2_INSTALL_EDITABLE:-1}"
+# Prefer a fully pinned local cache. Set this to 0 for an explicitly offline
+# setup that should fail rather than attempting a first-time download.
+DOWNLOAD_WEIGHTS="${GSAM2_DOWNLOAD_WEIGHTS:-1}"
 
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY ftp_proxy FTP_PROXY
 export HF_ENDPOINT="${HF_MIRROR}"
@@ -70,32 +73,45 @@ gdino_model_id = "${GDINO_MODEL_ID}"
 sam2_model_id = "${SAM2_MODEL_ID}"
 gdino_model_revision = "${GDINO_MODEL_REVISION}"
 sam2_model_revision = "${SAM2_MODEL_REVISION}"
+allow_download = "${DOWNLOAD_WEIGHTS}" == "1"
 
-processor = AutoProcessor.from_pretrained(
-    gdino_model_id, revision=gdino_model_revision, use_fast=True
-)
-grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(gdino_model_id, revision=gdino_model_revision)
 config_name, checkpoint_name = HF_MODEL_ID_TO_FILENAMES[sam2_model_id]
-checkpoint_path = hf_hub_download(
-    repo_id=sam2_model_id,
-    filename=checkpoint_name,
-    revision=sam2_model_revision,
-)
-predictor = build_sam2_video_predictor(config_file=config_name, ckpt_path=checkpoint_path)
 
-# Verify that inference can use the fully pinned local cache without a Hub call.
-AutoProcessor.from_pretrained(
-    gdino_model_id, revision=gdino_model_revision, use_fast=True, local_files_only=True
-)
-AutoModelForZeroShotObjectDetection.from_pretrained(
-    gdino_model_id, revision=gdino_model_revision, local_files_only=True
-)
-hf_hub_download(
-    repo_id=sam2_model_id,
-    filename=checkpoint_name,
-    revision=sam2_model_revision,
-    local_files_only=True,
-)
+def load_pinned_assets(*, local_files_only: bool):
+    processor = AutoProcessor.from_pretrained(
+        gdino_model_id,
+        revision=gdino_model_revision,
+        use_fast=True,
+        local_files_only=local_files_only,
+    )
+    grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(
+        gdino_model_id,
+        revision=gdino_model_revision,
+        local_files_only=local_files_only,
+    )
+    checkpoint_path = hf_hub_download(
+        repo_id=sam2_model_id,
+        filename=checkpoint_name,
+        revision=sam2_model_revision,
+        local_files_only=local_files_only,
+    )
+    return processor, grounding_model, checkpoint_path
+
+# Avoid a network lookup when an exact local snapshot already exists. Besides
+# making setup reliable on clusters, this sidesteps optional upstream files that
+# newer Transformers versions may probe even though inference does not need them.
+try:
+    processor, grounding_model, checkpoint_path = load_pinned_assets(local_files_only=True)
+except Exception as offline_error:
+    if not allow_download:
+        raise RuntimeError(
+            "Pinned Grounded-SAM2 weights are missing from the local cache. "
+            "Set GSAM2_DOWNLOAD_WEIGHTS=1 on a machine with Hub access."
+        ) from offline_error
+    print("[info] pinned Grounded-SAM2 cache incomplete; downloading required files")
+    processor, grounding_model, checkpoint_path = load_pinned_assets(local_files_only=False)
+
+predictor = build_sam2_video_predictor(config_file=config_name, ckpt_path=checkpoint_path)
 
 from pathlib import Path
 import importlib.util
