@@ -157,6 +157,39 @@ class QueryPlannerPhraseTest(unittest.TestCase):
             }
         ])
 
+    def test_progressive_relation_uses_planner_confirmed_action_window(self) -> None:
+        candidates = [
+            {
+                "id": 7,
+                "proposal_phrase": "operator",
+                "proposal_variant": "main",
+                "quality": 1.0,
+                "support_segments_test": [[0, 9]],
+                "query_relevant_segments_test": [],
+                "moving_segments_test": [],
+            }
+        ]
+        with patch(
+            "refergaussian.semantics.select_qwen_query_entities._track_state_segments_test",
+            return_value=([[2, 5]], {"state_mode": "action"}),
+        ):
+            payload = _compose_phrase_grounded_selection(
+                query="The operator moving the device.",
+                query_plan_payload={
+                    "query_subject_phrases": ["operator"],
+                    "relation_context_phrases": ["device"],
+                    "action_window_hint": "during the device movement",
+                },
+                candidates=candidates,
+                pair_candidates=[],
+                test_times=np.linspace(0.0, 1.0, num=10),
+                tracks_payload=None,
+                raw_phrase_payload={"subject_phrases": ["operator"], "successor_phrases": []},
+            )
+
+        self.assertEqual(payload["selected"][0]["segments"], [[2, 5]])
+        self.assertIn("action support", payload["selected"][0]["reason"])
+
     def test_explicit_multi_target_query_preserves_all_requested_subjects(self) -> None:
         plan = _normalize_plan(
             {

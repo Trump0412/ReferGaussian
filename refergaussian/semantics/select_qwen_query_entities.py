@@ -1371,6 +1371,36 @@ def _query_state_mode(query_norm: str) -> str | None:
     return None
 
 
+def _plan_confirms_progressive_relation_action(
+    query_norm: str,
+    query_plan_payload: dict[str, Any],
+) -> bool:
+    """Recognize a planner-confirmed English progressive action structurally.
+
+    The planner already distinguishes query subjects from relational context and
+    emits an action-window hint.  A progressive verb in the original query is
+    enough to use that evidence when the compact keyword state parser has no
+    explicit mode.  Requiring all three signals avoids treating a static noun
+    phrase such as a ``cutting board`` as an action query.
+    """
+    action_hint = str(query_plan_payload.get("action_window_hint", "")).strip()
+    relation_context = [
+        str(value).strip()
+        for value in query_plan_payload.get("relation_context_phrases", [])
+        if str(value).strip()
+    ]
+    if not action_hint or not relation_context:
+        return False
+    excluded_progressive_tokens = {"anything", "during", "nothing", "something", "thing"}
+    tokens = re.findall(r"[a-z]+", query_norm)
+    return any(
+        len(token) >= 5
+        and token.endswith("ing")
+        and token not in excluded_progressive_tokens
+        for token in tokens
+    )
+
+
 def _track_state_series(
     query_plan_payload: dict[str, Any],
     tracks_payload: dict[str, Any] | None,
@@ -2105,6 +2135,11 @@ def _compose_phrase_grounded_selection(
         plan_state_mode = str(query_plan_payload.get("query_state_mode") or "").strip()
         if plan_state_mode:
             query_state_mode = plan_state_mode
+    if query_state_mode is None and _plan_confirms_progressive_relation_action(
+        query_norm,
+        query_plan_payload,
+    ):
+        query_state_mode = "action"
     if query_state_mode is not None and len(plan_subjects) >= 2 and len(qwen_subjects) < len(plan_subjects):
         subject_phrases = plan_subjects
     elif qwen_ran and not qwen_subjects and not is_exclusion_query:
