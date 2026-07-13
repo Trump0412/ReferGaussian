@@ -183,6 +183,12 @@ def check_runtime_release_guards() -> list[str]:
         errors.append("Published profiles must not enable sparse-candidate fallback")
     if "QUERY_SKIP_QWEN_EXPORT=1" in profile_text or "QUERY_SKIP_QWEN_SELECTION=1" in profile_text:
         errors.append("Published profiles must not bypass Qwen semantic assignment or selection")
+    if "QUERY_LIFT_BOOTSTRAP_PROXY_EVIDENCE_ONLY=1" in profile_text:
+        errors.append("Published profiles must not use proxy-only Gaussian membership selection")
+    if "QUERY_LIFT_BOOTSTRAP_FINAL_RENDER_METRICS=0" in profile_text:
+        errors.append("Published profiles must compute final rendered Gaussian overlap metrics")
+    if "QUERY_STATIC_SELECT_WITHOUT_QWEN=1" in profile_text:
+        errors.append("Published profiles must not bypass Qwen during static entity selection")
 
     pipeline_text = (ROOT / "scripts/run_query_specific_worldtube_pipeline.sh").read_text(
         encoding="utf-8", errors="replace"
