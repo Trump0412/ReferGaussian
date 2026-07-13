@@ -78,9 +78,18 @@ OBJECT_SPECIFIC_ALIAS_TERMS = (
 
 
 def tracked_files() -> list[Path]:
-    output = subprocess.check_output(
-        ["git", "ls-files"], cwd=ROOT, text=True
-    )
+    """Return release source files from a Git checkout or GitHub archive."""
+    try:
+        output = subprocess.check_output(
+            ["git", "ls-files"], cwd=ROOT, text=True, stderr=subprocess.DEVNULL
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        excluded_parts = {".git", "__pycache__", "data", "external", "models", "runs"}
+        return [
+            path
+            for path in ROOT.rglob("*")
+            if path.is_file() and not any(part in excluded_parts for part in path.relative_to(ROOT).parts)
+        ]
     return [ROOT / line for line in output.splitlines() if line.strip()]
 
 
