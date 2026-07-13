@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -18,7 +19,11 @@ def main() -> None:
     parser.add_argument("--fps", type=int, default=12)
     parser.add_argument("--stride", type=int, default=1)
     parser.add_argument("--background-mode", choices=["render", "source"], default="render")
+    parser.add_argument("--eval-profile", default=None, help="Query render evaluation profile (e.g. viou_boost_v1).")
     args = parser.parse_args()
+
+    if args.eval_profile:
+        os.environ["REFERGAUSSIAN_QUERY_EVAL_PROFILE"] = str(args.eval_profile).strip()
 
     output_dir = render_hypernerf_query_video(
         run_dir=Path(args.run_dir),
@@ -28,6 +33,7 @@ def main() -> None:
         fps=args.fps,
         stride=args.stride,
         background_mode=args.background_mode,
+        eval_profile=args.eval_profile,
     )
     print(output_dir)
 

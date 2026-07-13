@@ -238,6 +238,7 @@ def _fusion_options_for_profile(eval_profile: str) -> dict[str, Any]:
         # Final binary masks should remain 3D-entity grounded unless a legacy
         # 2D-track fallback is explicitly re-enabled for debugging.
         "allow_direct_query_track": _env_flag("GS_QUERY_ALLOW_DIRECT_2D_MASKS", False),
+        "final_erode_kernel": _odd_kernel(_env_int("GS_QUERY_FINAL_ERODE_KERNEL", 1, minimum=1)),
     }
     if normalized == "viou_boost_v1":
         # Keep defaults from environment if user already pinned them.
@@ -292,7 +293,7 @@ def _fusion_options_for_profile(eval_profile: str) -> dict[str, Any]:
         options["align_query_track_to_cloud"] = _env_flag("GS_QUERY_ALIGN_TRACK_TO_CLOUD", False)
         options["allow_cloud_only_with_query"] = _env_flag("GS_QUERY_ALLOW_CLOUD_ONLY_WITH_QUERY", True)
         options["strict_gaussian_projection"] = _env_flag("GS_QUERY_STRICT_GAUSSIAN_PROJECTION", True)
-    if normalized in {"public_time_shape_v3", "mask_coverage_refine_v3", "public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall"}:
+    if normalized in {"public_time_shape_v3", "mask_coverage_refine_v3", "public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall", "r4d_shape_v4_recall", "r4d_time_shape_v4_recall"}:
         options["support_kernel"] = _odd_kernel(_env_int("GS_QUERY_FUSE_SUPPORT_KERNEL", 7))
         options["state_kernel"] = _odd_kernel(_env_int("GS_QUERY_FUSE_STATE_KERNEL", 9))
         options["expand_kernel"] = _odd_kernel(_env_int("GS_QUERY_FUSE_EXPAND_KERNEL", 11))
@@ -321,9 +322,9 @@ def _apply_render_profile_env_defaults(eval_profile: str) -> None:
     if normalized not in {"boundary_refine_v1", "public_boundary_v1", "mask_boundary_refine",
                           "boundary_shape_v2", "mask_shape_refine_v2",
                           "public_time_shape_v3", "mask_coverage_refine_v3",
-                          "public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall"}:
+                          "public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall", "r4d_shape_v4_recall", "r4d_time_shape_v4_recall"}:
         return
-    if normalized in {"public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall"}:
+    if normalized in {"public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall", "r4d_shape_v4_recall", "r4d_time_shape_v4_recall"}:
         defaults = {
             "REFERGAUSSIAN_QUERY_EVAL_PROFILE": "public_time_shape_v4_recall",
             "GS_QUERY_TRACK_FALLBACK_SCALE": "1.0",
@@ -834,6 +835,9 @@ def _dilate_binary_mask(mask: np.ndarray, kernel_size: int = 9) -> np.ndarray:
         return binary > 0
     if kernel_size % 2 == 0:
         kernel_size += 1
+    torch_result = _torch_binary_rank_filter(binary, kernel_size=kernel_size, mode="max")
+    if torch_result is not None:
+        return torch_result
     image = Image.fromarray(binary * 255, mode="L")
     dilated = image.filter(ImageFilter.MaxFilter(kernel_size))
     return np.asarray(dilated, dtype=np.uint8) > 0
@@ -847,9 +851,43 @@ def _erode_binary_mask(mask: np.ndarray, kernel_size: int = 3) -> np.ndarray:
         return binary > 0
     if kernel_size % 2 == 0:
         kernel_size += 1
+    torch_result = _torch_binary_rank_filter(binary, kernel_size=kernel_size, mode="min")
+    if torch_result is not None:
+        return torch_result
     image = Image.fromarray(binary * 255, mode="L")
     eroded = image.filter(ImageFilter.MinFilter(kernel_size))
     return np.asarray(eroded, dtype=np.uint8) > 0
+
+
+def _torch_binary_rank_filter(mask: np.ndarray, kernel_size: int, mode: str) -> np.ndarray | None:
+    """Optional torch implementation of PIL MaxFilter/MinFilter for binary masks."""
+    if torch is None or not _env_flag("QUERY_RENDER_TORCH_MORPHOLOGY", False):
+        return None
+    binary = np.asarray(mask, dtype=np.uint8)
+    if binary.ndim != 2:
+        raise ValueError(f"Expected 2D mask, got shape {binary.shape}")
+    if kernel_size <= 1:
+        return binary > 0
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    if mode not in {"max", "min"}:
+        raise ValueError(f"Unsupported binary rank filter mode: {mode}")
+    device_name = os.environ.get("QUERY_RENDER_TORCH_MORPHOLOGY_DEVICE", "").strip()
+    if not device_name:
+        device_name = "cuda" if bool(getattr(torch, "cuda", None)) and torch.cuda.is_available() else "cpu"
+    if device_name.startswith("cuda") and (not bool(getattr(torch, "cuda", None)) or not torch.cuda.is_available()):
+        return None
+    try:
+        tensor = torch.from_numpy((binary > 0).astype(np.float32))[None, None].to(device_name)
+        if mode == "max":
+            filtered = torch.nn.functional.max_pool2d(tensor, kernel_size, stride=1, padding=kernel_size // 2)
+        else:
+            filtered = -torch.nn.functional.max_pool2d(-tensor, kernel_size, stride=1, padding=kernel_size // 2)
+        return (filtered[0, 0].detach().cpu().numpy() > 0.5)
+    except Exception as exc:
+        if _env_flag("QUERY_RENDER_TORCH_MORPHOLOGY_WARN", False):
+            print(f"[warn] torch morphology failed; falling back to PIL: {exc}", file=sys.stderr)
+        return None
 
 
 def _close_binary_mask(mask: np.ndarray, kernel_size: int) -> np.ndarray:
@@ -1478,9 +1516,7 @@ def _project_entity_cloud_mask(
                 if mask is not None and mask.any():
                     postfilter_kernel = _odd_kernel(_env_int("GS_QUERY_ALPHA_POSTFILTER_KERNEL", 1, minimum=1))
                     if postfilter_kernel > 1:
-                        image = Image.fromarray(np.asarray(mask, dtype=np.uint8) * 255, mode="L")
-                        image = image.filter(ImageFilter.MaxFilter(postfilter_kernel))
-                        mask = np.asarray(image, dtype=np.uint8) > 0
+                        mask = _dilate_binary_mask(mask, kernel_size=postfilter_kernel)
                     bbox = _entity_mask_bbox(mask)
                     if bbox is not None:
                         return mask, bbox
@@ -1521,9 +1557,9 @@ def _project_entity_cloud_mask(
     focal = float(camera.focal_length) * 0.5 * (float(scale_x) + float(scale_y))
     resolved_profile = _resolve_eval_profile(eval_profile)
     boundary_profile = resolved_profile in {"boundary_refine_v1", "public_boundary_v1", "mask_boundary_refine"}
-    coverage_profile = resolved_profile in {"public_time_shape_v3", "mask_coverage_refine_v3", "public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall"}
+    coverage_profile = resolved_profile in {"public_time_shape_v3", "mask_coverage_refine_v3", "public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall", "r4d_shape_v4_recall", "r4d_time_shape_v4_recall"}
     strict_projection = (boundary_profile or coverage_profile) and _env_flag("GS_QUERY_STRICT_GAUSSIAN_PROJECTION", True)
-    radius_scale = _env_float("GS_QUERY_CLOUD_POINT_RADIUS_SCALE", 0.42 if boundary_profile else (0.95 if resolved_profile in {"public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall"} else 0.75), minimum=0.05)
+    radius_scale = _env_float("GS_QUERY_CLOUD_POINT_RADIUS_SCALE", 0.42 if boundary_profile else (0.95 if resolved_profile in {"public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall", "r4d_shape_v4_recall", "r4d_time_shape_v4_recall"} else 0.75), minimum=0.05)
     if (boundary_profile or coverage_profile) and not strict_projection and not bool(stage1_boundary_available):
         radius_scale *= _env_float("GS_QUERY_CLOUD_NO_STAGE1_RADIUS_MULT", 0.35, minimum=0.05, maximum=2.0)
     radius_min = _env_int("GS_QUERY_CLOUD_POINT_RADIUS_MIN", 1 if (boundary_profile or coverage_profile) else 3, minimum=1)
@@ -1633,8 +1669,8 @@ def _project_entity_cloud_mask(
                 mask_image = Image.fromarray((base_mask | hull_result).astype(np.uint8) * 255, mode="L")
 
                 if comp_close_kernel > 1:
-                    mask_image = mask_image.filter(ImageFilter.MaxFilter(comp_close_kernel))
-                    mask_image = mask_image.filter(ImageFilter.MinFilter(comp_close_kernel))
+                    closed = _close_binary_mask(np.asarray(mask_image, dtype=np.uint8) > 0, kernel_size=comp_close_kernel)
+                    mask_image = Image.fromarray(closed.astype(np.uint8) * 255, mode="L")
 
                 if comp_fill_holes:
                     mask_np = np.asarray(mask_image, dtype=np.uint8) > 0
@@ -1658,9 +1694,9 @@ def _project_entity_cloud_mask(
                 if hull_area > 0 and hull_area <= int(max_area_multiplier * max(base_area, 1)):
                     mask_image = Image.fromarray((base_mask | hull_mask).astype(np.uint8) * 255, mode="L")
 
-    if postfilter_kernel > 1:
-        mask_image = mask_image.filter(ImageFilter.MaxFilter(postfilter_kernel))
     mask = np.asarray(mask_image, dtype=np.uint8) > 0
+    if postfilter_kernel > 1:
+        mask = _dilate_binary_mask(mask, kernel_size=postfilter_kernel)
     bbox = _entity_mask_bbox(mask)
     if bbox is None:
         return None, None
@@ -1819,6 +1855,8 @@ def render_hypernerf_query_video(
     skip_video_export = fast_validation_only or os.environ.get("QUERY_SKIP_VIDEO_EXPORT", "0").strip().lower() in {"1", "true", "yes", "on"}
     save_overlay_frames = not _env_flag("QUERY_SKIP_OVERLAY_FRAME_EXPORT", fast_validation_only)
     save_key_frames = _env_flag("QUERY_SAVE_KEY_FRAMES", not fast_validation_only)
+    save_inactive_binary_masks = not _env_flag("QUERY_RENDER_ACTIVE_MASKS_ONLY", fast_validation_only)
+    binary_png_compress_level = int(np.clip(_env_int("QUERY_RENDER_MASK_PNG_COMPRESS_LEVEL", 6, minimum=0), 0, 9))
 
     if background_mode not in {"render", "source"}:
         raise ValueError(f"Unsupported background_mode: {background_mode}")
@@ -1879,21 +1917,22 @@ def render_hypernerf_query_video(
         # Produce all-inactive (all-black) binary masks so evaluator can score correctly.
         frame_records = []
         for frame_index, (test_id, _t) in enumerate(zip(test_ids, test_times)):
-            bg_file = (
-                render_files[frame_index]
-                if frame_index < len(render_files)
-                else (render_files[-1] if render_files else None)
-            )
-            with Image.open(bg_file) as bg_img:
-                W, H = bg_img.size
-            black_mask = Image.fromarray(np.zeros((H, W), dtype=np.uint8))
-            mask_fname = f"{str(test_id).zfill(6)}.png"
-            overlay_fname = f"{str(test_id).zfill(6)}.png"
-            black_mask.save(binary_mask_dir / mask_fname)
-            # Save overlay as the background frame (no highlight)
-            bg_file_copy = render_files[frame_index] if render_files else None
-            if bg_file_copy is not None:
-                shutil.copy2(bg_file_copy, overlay_frame_dir / overlay_fname)
+            if save_inactive_binary_masks:
+                bg_file = (
+                    render_files[frame_index]
+                    if frame_index < len(render_files)
+                    else (render_files[-1] if render_files else None)
+                )
+                with Image.open(bg_file) as bg_img:
+                    W, H = bg_img.size
+                black_mask = Image.fromarray(np.zeros((H, W), dtype=np.uint8))
+                mask_fname = f"{str(test_id).zfill(6)}.png"
+                overlay_fname = f"{str(test_id).zfill(6)}.png"
+                black_mask.save(binary_mask_dir / mask_fname, compress_level=binary_png_compress_level)
+                # Save overlay as the background frame (no highlight)
+                bg_file_copy = render_files[frame_index] if render_files else None
+                if save_overlay_frames and bg_file_copy is not None:
+                    shutil.copy2(bg_file_copy, overlay_frame_dir / overlay_fname)
             frame_records.append({
                 "frame_index": frame_index,
                 "image_id": str(test_id),
@@ -1926,7 +1965,7 @@ def render_hypernerf_query_video(
     query_tracks = _resolve_query_tracks(selection_path)
     require_query_tracks = _env_flag(
         "GS_QUERY_REQUIRE_STAGE1_TRACKS",
-        resolved_eval_profile in {"public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall"},
+        resolved_eval_profile in {"public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall", "r4d_shape_v4_recall", "r4d_time_shape_v4_recall"},
     )
     if require_query_tracks and not query_tracks:
         raise FileNotFoundError(
@@ -2028,6 +2067,35 @@ def render_hypernerf_query_video(
         for frame_index, (frame_path, image_id, time_value) in enumerate(zip(render_files, test_ids, test_times)):
             if frame_index % max(stride, 1) != 0:
                 continue
+            query_active = bool(active_mask[frame_index])
+            if fast_validation_only and not query_active:
+                frame_records.append(
+                    {
+                        "frame_index": int(frame_index),
+                        "image_id": image_id,
+                        "time_value": float(time_value),
+                        "query_active": False,
+                        "contact_active": False,
+                        "proximity_contact_active": False,
+                        "contact_distance_world": None,
+                        "stage1_area_fraction": 0.0,
+                        "cloud_projection_area_fraction": 0.0,
+                        "final_mask_area_fraction": 0.0,
+                        "fusion_sources": [],
+                        "final_grounding_sources": [],
+                        "used_direct_stage1_mask": False,
+                        "final_to_cloud_iou": 1.0,
+                        "cloud_to_stage1_iou": 1.0,
+                        "cloud_to_stage1_precision": 1.0,
+                        "cloud_to_stage1_recall": 1.0,
+                        "final_to_stage1_iou": 1.0,
+                        "final_to_stage1_precision": 1.0,
+                        "final_to_stage1_recall": 1.0,
+                        "lifecycle_frame": None,
+                        "roles": [],
+                    }
+                )
+                continue
             if fast_validation_only:
                 frame = Image.new("RGB", target_size, color=(0, 0, 0))
             elif background_mode == "source":
@@ -2045,7 +2113,6 @@ def render_hypernerf_query_video(
             lifecycle_cloud_union = np.zeros_like(binary_union_mask, dtype=bool)
             frame_fusion_sources: list[str] = []
             overlay_draw = ImageDraw.Draw(overlay, "RGBA")
-            query_active = bool(active_mask[frame_index])
 
             camera = Camera.from_json(dataset_dir / "camera" / f"{image_id}.json")
             frame_roles = []
@@ -2246,6 +2313,10 @@ def render_hypernerf_query_video(
                             color,
                         )
 
+            final_erode_kernel = int(fusion_options.get("final_erode_kernel", 1) or 1)
+            if final_erode_kernel > 1 and binary_union_mask.any():
+                binary_union_mask = _erode_binary_mask(binary_union_mask, kernel_size=_odd_kernel(final_erode_kernel))
+
             patient_role = next((record for record in frame_roles if record["role"] == "patient"), None)
             tool_role = next((record for record in frame_roles if record["role"] == "tool"), None)
             is_contact = bool(contact_mask[frame_index]) if frame_index < contact_mask.shape[0] else False
@@ -2280,7 +2351,10 @@ def render_hypernerf_query_video(
             mask_writer.append_data(mask_np)
             if save_overlay_frames:
                 overlay_rgb.save(overlay_frame_dir / f"{frame_index:05d}.png")
-            Image.fromarray(mask_uint8, mode="L").save(binary_mask_dir / f"{frame_index:05d}.png")
+            Image.fromarray(mask_uint8, mode="L").save(
+                binary_mask_dir / f"{frame_index:05d}.png",
+                compress_level=binary_png_compress_level,
+            )
             lifecycle_path = None
             if export_lifecycle:
                 source_names = sorted(set(frame_fusion_sources)) if frame_fusion_sources else ["none"]

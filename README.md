@@ -157,6 +157,10 @@ Prepare a single scene:
 
 ```bash
 bash scripts/prepare_hypernerf.sh misc keyboard
+
+# Canonical R4D-Bench-QA interpolation scenes
+bash scripts/prepare_hypernerf.sh interp cut-lemon1
+bash scripts/prepare_hypernerf.sh interp torchocolate
 ```
 
 Register a local scene:
@@ -304,7 +308,7 @@ This prevents unrequested protocol queries from appearing as missing results.
 ```bash
 # Optional: profile switch for reproducible ablation
 # export QUERY_EVAL_PROFILE=default
-# export QUERY_EVAL_PROFILE=public_time_shape_v4_recall
+# export QUERY_EVAL_PROFILE=r4d_shape_v4_recall
 
 # 1) Build a manifest with official query ids.
 source scripts/common.sh
@@ -325,7 +329,7 @@ gs_python scripts/preflight_query_batch.py \
 # 2) Run the query pipeline.
 gs_python scripts/run_query_batch_two_gpu.py \
   --manifest "${RUN_ROOT}/manifest.jsonl" \
-  --profile public_time_shape_v4_recall \
+  --profile r4d_shape_v4_recall \
   --gpu 0 1 2 \
   --force-rerun \
   --timeout 10800
@@ -335,6 +339,7 @@ gs_python scripts/evaluate_ours_benchmark.py \
   --benchmark data/benchmarks/r4d_bench_qa/benchmark_all_queries.json \
   --query-root-map "${RUN_ROOT}/query_root_map.json" \
   --dataset-dir-map "${RUN_ROOT}/dataset_dir_map.json" \
+  --query-manifest "${RUN_ROOT}/manifest.jsonl" \
   --output-json "${RUN_ROOT}/official_eval.json" \
   --output-md "${RUN_ROOT}/official_eval.md" \
   --skip-missing
@@ -372,7 +377,7 @@ gs_python scripts/filter_r4d_benchmark_queries.py \
                    cut_lemon espresso keyboard split_cookie torchchocolate
 ```
 
-This produces the canonical 8-scene / 58-query release set. Scene selection is fixed before evaluation.
+This produces the canonical 8-scene / 58-query release set. Scene selection is fixed before evaluation; pass the same manifest to the evaluator so an 89-query source file cannot silently become a partial 58/89 report.
 
 ## Repository Layout
 

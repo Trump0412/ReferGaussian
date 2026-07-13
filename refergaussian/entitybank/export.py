@@ -820,6 +820,359 @@ def _proposal_labels(
     return _remap_labels(remapped)
 
 
+def _weighted_average(values: np.ndarray, weights: np.ndarray | None = None) -> np.ndarray:
+    array = np.asarray(values, dtype=np.float32)
+    if array.shape[0] == 0:
+        raise ValueError("Cannot compute weighted average of an empty array.")
+    if weights is None:
+        return array.mean(axis=0).astype(np.float32)
+    weight_array = np.asarray(weights, dtype=np.float32).reshape(-1)
+    if weight_array.size != array.shape[0]:
+        return array.mean(axis=0).astype(np.float32)
+    weight_array = np.clip(weight_array, 0.0, None)
+    weight_sum = float(weight_array.sum())
+    if not np.isfinite(weight_sum) or weight_sum <= 1.0e-6:
+        return array.mean(axis=0).astype(np.float32)
+    norm = weight_array / weight_sum
+    expand_shape = (norm.shape[0],) + (1,) * (array.ndim - 1)
+    return np.sum(array * norm.reshape(expand_shape), axis=0).astype(np.float32)
+
+
+def _vector_window_iou(
+    starts: np.ndarray,
+    ends: np.ndarray,
+    target_start: int,
+    target_end: int,
+) -> np.ndarray:
+    start_array = np.asarray(starts, dtype=np.int32).reshape(-1)
+    end_array = np.asarray(ends, dtype=np.int32).reshape(-1)
+    inter = np.maximum(0, np.minimum(end_array, int(target_end)) - np.maximum(start_array, int(target_start)))
+    union = np.maximum(np.maximum(end_array, int(target_end)) - np.minimum(start_array, int(target_start)), 1)
+    return (inter.astype(np.float32) / union.astype(np.float32)).astype(np.float32)
+
+
+def _vector_window_gap(
+    starts: np.ndarray,
+    ends: np.ndarray,
+    target_start: int,
+    target_end: int,
+) -> np.ndarray:
+    start_array = np.asarray(starts, dtype=np.int32).reshape(-1)
+    end_array = np.asarray(ends, dtype=np.int32).reshape(-1)
+    gap = np.zeros_like(start_array, dtype=np.float32)
+    gap[end_array < int(target_start)] = (int(target_start) - end_array[end_array < int(target_start)]).astype(np.float32)
+    gap[int(target_end) < start_array] = (start_array[int(target_end) < start_array] - int(target_end)).astype(np.float32)
+    return gap.astype(np.float32)
+
+
+def _safe_percentile(values: np.ndarray, percentile: float, default: float) -> float:
+    array = np.asarray(values, dtype=np.float32).reshape(-1)
+    array = array[np.isfinite(array)]
+    if array.size == 0:
+        return float(default)
+    return float(np.percentile(array, float(percentile)))
+
+
+def _proposal_seed_statistics(
+    proposal: dict[str, Any],
+    inputs: dict[str, np.ndarray],
+    bank: dict[str, np.ndarray],
+) -> dict[str, Any] | None:
+    seed_ids = np.asarray(proposal.get("gaussian_ids", []), dtype=np.int64).reshape(-1)
+    num_gaussians = inputs["cluster_features"].shape[0]
+    seed_ids = seed_ids[(seed_ids >= 0) & (seed_ids < num_gaussians)]
+    if seed_ids.size == 0:
+        return None
+    seed_ids = np.unique(seed_ids)
+    seed_scores = np.asarray(proposal.get("gaussian_scores", []), dtype=np.float32).reshape(-1)
+    if seed_scores.size != seed_ids.size:
+        seed_scores = np.ones((seed_ids.size,), dtype=np.float32)
+    seed_weights = np.clip(seed_scores, 1.0e-4, None)
+    time_values = np.asarray(bank["time_values"], dtype=np.float32).reshape(-1)
+    center_valid = np.asarray(proposal.get("center_valid", []), dtype=bool).reshape(-1)
+    bbox_valid = np.asarray(proposal.get("bbox_valid", []), dtype=bool).reshape(-1)
+    proposal_valid = np.logical_or(center_valid, bbox_valid)
+
+    if proposal_valid.any():
+        valid_indices = np.flatnonzero(proposal_valid)
+        support_start = int(valid_indices[0])
+        support_end = int(valid_indices[-1]) + 1
+        support_span = float(valid_indices.size / max(time_values.size, 1))
+        support_center = float(time_values[proposal_valid].mean())
+    else:
+        support_start = int(np.round(_weighted_average(inputs["support_start"][seed_ids], seed_weights)))
+        support_end = int(np.round(_weighted_average(inputs["support_end"][seed_ids], seed_weights)))
+        support_center = float(_weighted_average(inputs["support_center"][seed_ids], seed_weights))
+        support_span = float(_weighted_average(inputs["support_span"][seed_ids], seed_weights))
+
+    mean_spatial_extent = float(_weighted_average(inputs["spatial_extent"][seed_ids], seed_weights))
+    mean_extent = float(max(float(proposal.get("mean_extent", 0.02)), mean_spatial_extent, 0.02))
+    bbox_margin = float(max(0.20 * mean_extent, 1.25 * mean_spatial_extent, 0.015))
+
+    return {
+        "seed_ids": seed_ids.astype(np.int64),
+        "seed_weights": seed_weights.astype(np.float32),
+        "feature_center": _weighted_average(inputs["cluster_features"][seed_ids], seed_weights),
+        "merge_center": _weighted_average(inputs["merge_features"][seed_ids], seed_weights),
+        "trajectory_mean": _weighted_average(inputs["trajectory_mean"][seed_ids], seed_weights),
+        "velocity_mean": _weighted_average(inputs["velocity"][seed_ids], seed_weights),
+        "rgb_mean": _weighted_average(inputs["rgb"][seed_ids], seed_weights),
+        "support_start": int(max(support_start, 0)),
+        "support_end": int(max(support_end, support_start + 1)),
+        "support_center": float(support_center),
+        "support_span": float(np.clip(support_span, 0.0, 1.0)),
+        "center_world": np.asarray(proposal.get("center_world"), dtype=np.float32),
+        "center_valid": center_valid.astype(bool),
+        "bbox_world": np.asarray(proposal.get("bbox_world"), dtype=np.float32),
+        "bbox_valid": bbox_valid.astype(bool),
+        "mean_extent": mean_extent,
+        "bbox_margin": bbox_margin,
+        "priority": float(proposal.get("priority", 0.0)),
+    }
+
+
+def _proposal_supervised_labels(
+    state: GaussianState,
+    bank: dict[str, np.ndarray],
+    proposals: list[dict[str, Any]],
+    min_gaussians_per_entity: int,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    inputs = _build_cluster_inputs(state, bank)
+    num_gaussians = inputs["cluster_features"].shape[0]
+    num_frames = int(np.asarray(bank["time_values"], dtype=np.float32).reshape(-1).shape[0])
+    trajectories = np.asarray(bank["trajectories"], dtype=np.float32)
+    gate = np.asarray(bank["gate"], dtype=np.float32).reshape(num_gaussians, -1)
+    gate_peak = gate.max(axis=1, keepdims=True)
+    gate_active = gate >= np.maximum(0.18, gate_peak * 0.35)
+
+    proposal_stats: list[dict[str, Any]] = []
+    for proposal_index, proposal in enumerate(proposals):
+        stats = _proposal_seed_statistics(proposal, inputs=inputs, bank=bank)
+        if stats is not None:
+            stats["proposal_index"] = int(proposal_index)
+            proposal_stats.append(stats)
+    if not proposal_stats:
+        return -np.ones((num_gaussians,), dtype=np.int32), {
+            "method": "trase_proposal_supervised_worldtube",
+            "proposal_supervision_mode": "guided",
+            "raw_cluster_count": 0,
+        }
+
+    score_matrix = np.full((len(proposal_stats), num_gaussians), -np.inf, dtype=np.float32)
+    feature_gap_matrix = np.full((len(proposal_stats), num_gaussians), np.inf, dtype=np.float32)
+    track_cost_matrix = np.full((len(proposal_stats), num_gaussians), np.inf, dtype=np.float32)
+    overlap_matrix = np.zeros((len(proposal_stats), num_gaussians), dtype=np.float32)
+    bbox_hit_matrix = np.zeros((len(proposal_stats), num_gaussians), dtype=np.float32)
+    candidate_matrix = np.zeros((len(proposal_stats), num_gaussians), dtype=bool)
+
+    support_starts = np.asarray(inputs["support_start"], dtype=np.int32).reshape(-1)
+    support_ends = np.asarray(inputs["support_end"], dtype=np.int32).reshape(-1)
+    active_counts = np.clip(gate_active.sum(axis=1).astype(np.float32), 1.0, None)
+    chunk_size = 2048
+
+    for proposal_index, stats in enumerate(proposal_stats):
+        feature_gap = np.linalg.norm(inputs["cluster_features"] - stats["feature_center"][None, :], axis=1).astype(np.float32)
+        merge_gap = np.linalg.norm(inputs["merge_features"] - stats["merge_center"][None, :], axis=1).astype(np.float32)
+        rgb_gap = np.linalg.norm(inputs["rgb"] - stats["rgb_mean"][None, :], axis=1).astype(np.float32)
+        velocity_gap = np.linalg.norm(inputs["velocity"] - stats["velocity_mean"][None, :], axis=1).astype(np.float32)
+        support_iou = _vector_window_iou(support_starts, support_ends, stats["support_start"], stats["support_end"])
+        support_gap = _vector_window_gap(support_starts, support_ends, stats["support_start"], stats["support_end"])
+        support_gap = (support_gap / max(float(num_frames), 1.0)).astype(np.float32)
+        base_score = (
+            0.10 * float(stats["priority"])
+            + 0.14 * support_iou
+            - 0.06 * support_gap
+            - 0.22 * feature_gap
+            - 0.10 * merge_gap
+            - 0.06 * rgb_gap
+            - 0.04 * velocity_gap
+        ).astype(np.float32)
+        feature_gap_matrix[proposal_index] = feature_gap
+
+        proposal_valid = np.logical_or(stats["center_valid"], stats["bbox_valid"])
+        proposal_center = np.asarray(stats["center_world"], dtype=np.float32)
+        proposal_bbox = np.asarray(stats["bbox_world"], dtype=np.float32)
+        bbox_mins = proposal_bbox[:, :3] - float(stats["bbox_margin"])
+        bbox_maxs = proposal_bbox[:, 3:] + float(stats["bbox_margin"])
+        track_extent = float(max(stats["mean_extent"] * 1.20, stats["bbox_margin"], 0.03))
+
+        for start in range(0, num_gaussians, chunk_size):
+            end = min(start + chunk_size, num_gaussians)
+            chunk_traj = trajectories[start:end, :, :]
+            weights = gate[start:end] * proposal_valid[None, :]
+            weight_sum = weights.sum(axis=1)
+            distance = np.linalg.norm(chunk_traj - proposal_center[None, :, :], axis=2).astype(np.float32)
+            distance = distance / max(track_extent, 1.0e-4)
+            track_cost = np.where(
+                weight_sum > 1.0e-6,
+                (distance * weights).sum(axis=1) / np.clip(weight_sum, 1.0e-6, None),
+                1.0e6,
+            ).astype(np.float32)
+            overlap = (
+                (gate_active[start:end] & proposal_valid[None, :]).sum(axis=1).astype(np.float32) / active_counts[start:end]
+            ).astype(np.float32)
+
+            if proposal_valid.any():
+                inside = np.all(
+                    (chunk_traj >= bbox_mins[None, :, :]) & (chunk_traj <= bbox_maxs[None, :, :]),
+                    axis=2,
+                ) & proposal_valid[None, :]
+                bbox_hit = np.where(
+                    weight_sum > 1.0e-6,
+                    (weights * inside.astype(np.float32)).sum(axis=1) / np.clip(weight_sum, 1.0e-6, None),
+                    0.0,
+                ).astype(np.float32)
+            else:
+                bbox_hit = np.zeros((end - start,), dtype=np.float32)
+
+            score_chunk = (
+                base_score[start:end]
+                + 0.28 * overlap
+                + 0.24 * bbox_hit
+                - 0.40 * track_cost
+            ).astype(np.float32)
+
+            score_matrix[proposal_index, start:end] = score_chunk
+            track_cost_matrix[proposal_index, start:end] = track_cost
+            overlap_matrix[proposal_index, start:end] = overlap
+            bbox_hit_matrix[proposal_index, start:end] = bbox_hit
+
+        seed_ids = stats["seed_ids"]
+        seed_scores = score_matrix[proposal_index, seed_ids]
+        seed_feature_gap = feature_gap_matrix[proposal_index, seed_ids]
+        seed_track = track_cost_matrix[proposal_index, seed_ids]
+        seed_overlap = overlap_matrix[proposal_index, seed_ids]
+        seed_bbox = bbox_hit_matrix[proposal_index, seed_ids]
+
+        score_floor = _safe_percentile(seed_scores, 10.0, -1.8)
+        score_span = max(
+            _safe_percentile(seed_scores, 90.0, score_floor) - _safe_percentile(seed_scores, 10.0, score_floor),
+            0.05,
+        )
+        feature_cap = max(2.60, _safe_percentile(seed_feature_gap, 90.0, 2.60) * 1.65)
+        track_cap = max(2.25, _safe_percentile(seed_track, 90.0, 2.25) * 1.75)
+        overlap_floor = max(0.01, min(0.20, _safe_percentile(seed_overlap, 10.0, 0.02) * 0.60))
+        bbox_floor = max(0.01, min(0.25, _safe_percentile(seed_bbox, 10.0, 0.02) * 0.60))
+        score_threshold = float(score_floor - 0.20 * score_span)
+        fill_score_threshold = float(score_floor - 0.45 * score_span)
+
+        candidate = (
+            (score_matrix[proposal_index] >= score_threshold)
+            & (feature_gap_matrix[proposal_index] <= feature_cap)
+            & (track_cost_matrix[proposal_index] <= track_cap)
+            & (
+                (overlap_matrix[proposal_index] >= overlap_floor)
+                | (bbox_hit_matrix[proposal_index] >= bbox_floor)
+                | (track_cost_matrix[proposal_index] <= min(track_cap * 0.55, 1.35))
+            )
+        )
+        candidate[seed_ids] = True
+        candidate_matrix[proposal_index] = candidate
+        stats["feature_cap"] = float(feature_cap)
+        stats["track_cap"] = float(track_cap)
+        stats["score_threshold"] = float(score_threshold)
+        stats["fill_score_threshold"] = float(fill_score_threshold)
+
+    proposal_count = int(len(proposals))
+    labels = -np.ones((num_gaussians,), dtype=np.int32)
+    best_scores = np.full((num_gaussians,), -np.inf, dtype=np.float32)
+    seed_owner = -np.ones((num_gaussians,), dtype=np.int32)
+    seed_owner_score = np.full((num_gaussians,), -np.inf, dtype=np.float32)
+
+    for row_index, stats in enumerate(proposal_stats):
+        proposal_index = int(stats["proposal_index"])
+        seed_ids = stats["seed_ids"]
+        seed_bonus = score_matrix[row_index, seed_ids] + 5.0 + 0.01 * stats["seed_weights"]
+        better_seed = seed_bonus > seed_owner_score[seed_ids]
+        if np.any(better_seed):
+            chosen = seed_ids[better_seed]
+            seed_owner[chosen] = int(proposal_index)
+            seed_owner_score[chosen] = seed_bonus[better_seed]
+
+    for row_index, stats in enumerate(proposal_stats):
+        proposal_index = int(stats["proposal_index"])
+        better = candidate_matrix[row_index] & (score_matrix[row_index] > best_scores)
+        labels[better] = int(proposal_index)
+        best_scores[better] = score_matrix[row_index, better]
+
+    owned_seed_ids = np.where(seed_owner >= 0)[0]
+    if owned_seed_ids.size > 0:
+        owned_seed_labels = seed_owner[owned_seed_ids]
+        labels[owned_seed_ids] = owned_seed_labels.astype(np.int32)
+        best_scores[owned_seed_ids] = 1.0e6
+    locked_seed = seed_owner >= 0
+
+    counts = np.bincount(labels[labels >= 0], minlength=proposal_count).astype(np.int32)
+    for row_index, stats in enumerate(proposal_stats):
+        proposal_index = int(stats["proposal_index"])
+        min_count = max(int(min_gaussians_per_entity), int(stats["seed_ids"].size))
+        if counts[proposal_index] >= min_count:
+            continue
+        candidate_ids = np.where(
+            (score_matrix[row_index] >= float(stats["fill_score_threshold"]))
+            & (track_cost_matrix[row_index] <= float(stats["track_cap"]) * 1.15)
+            & (
+                (labels < 0)
+                | (
+                    (labels != proposal_index)
+                    & (~locked_seed)
+                    & (score_matrix[row_index] > best_scores + 0.04)
+                )
+            )
+        )[0]
+        if candidate_ids.size == 0:
+            continue
+        ordered = candidate_ids[np.argsort(-score_matrix[row_index, candidate_ids], kind="mergesort")]
+        for gaussian_id in ordered.tolist():
+            current_label = int(labels[gaussian_id])
+            if current_label == int(proposal_index):
+                continue
+            if locked_seed[gaussian_id] and seed_owner[gaussian_id] != int(proposal_index):
+                continue
+            if current_label >= 0 and counts[current_label] <= int(min_gaussians_per_entity) and not locked_seed[gaussian_id]:
+                continue
+            if current_label >= 0:
+                counts[current_label] -= 1
+            labels[gaussian_id] = int(proposal_index)
+            best_scores[gaussian_id] = score_matrix[row_index, gaussian_id]
+            counts[proposal_index] += 1
+            if counts[proposal_index] >= min_count:
+                break
+
+    for row_index, stats in enumerate(proposal_stats):
+        proposal_index = int(stats["proposal_index"])
+        member_ids = np.where(labels == int(proposal_index))[0]
+        if member_ids.size == 0:
+            continue
+        seed_ids = stats["seed_ids"]
+        soft_cap = int(max(seed_ids.size * 4, int(min_gaussians_per_entity) * 8, 1024))
+        if member_ids.size <= soft_cap:
+            continue
+        seed_mask = locked_seed[member_ids] & (seed_owner[member_ids] == int(proposal_index))
+        protected_ids = member_ids[seed_mask]
+        removable_ids = member_ids[~seed_mask]
+        keep_budget = max(soft_cap - protected_ids.size, 0)
+        if keep_budget >= removable_ids.size:
+            continue
+        ranked_removable = removable_ids[np.argsort(-score_matrix[row_index, removable_ids], kind="mergesort")]
+        keep_removable = ranked_removable[:keep_budget]
+        drop_removable = ranked_removable[keep_budget:]
+        labels[drop_removable] = -1
+        best_scores[drop_removable] = -np.inf
+        if keep_removable.size or protected_ids.size:
+            counts[proposal_index] = int(keep_removable.size + protected_ids.size)
+
+    guided_count = int(len([proposal_index for proposal_index in range(proposal_count) if np.any(labels == proposal_index)]))
+    candidate_sizes = [int(mask.sum()) for mask in candidate_matrix]
+    return labels, {
+        "method": "trase_proposal_supervised_worldtube",
+        "proposal_supervision_mode": "guided",
+        "raw_cluster_count": int(guided_count),
+        "guided_candidate_mean": float(np.mean(candidate_sizes)) if candidate_sizes else 0.0,
+        "guided_candidate_max": int(max(candidate_sizes)) if candidate_sizes else 0,
+    }
+
+
 def export_entitybank(
     run_dir: str | Path,
     num_frames: int = 64,
@@ -829,6 +1182,7 @@ def export_entitybank(
     max_entities: int = 30,
     proposal_dir: str | Path | None = None,
     proposal_strict: bool = False,
+    proposal_supervision_mode: str = "guided",
     output_dir: str | Path | None = None,
 ) -> Path:
     run_dir = Path(run_dir)
@@ -859,20 +1213,47 @@ def export_entitybank(
             target_time_values=np.asarray(bank["time_values"], dtype=np.float32),
             max_entities=max_entities,
         )
-        if not proposal_strict:
+        if proposal_strict and str(proposal_supervision_mode).strip().lower() == "guided":
+            labels, guided_meta = _proposal_supervised_labels(
+                state=state,
+                bank=bank,
+                proposals=proposal_entities,
+                min_gaussians_per_entity=min_gaussians_per_entity,
+            )
+            cluster_meta = {
+                "method": "trase_proposal_supervised_worldtube",
+                "proposal_dir": str(proposal_dir),
+                "proposal_count": int(len(proposal_entities)),
+                "raw_cluster_count": int(guided_meta.get("raw_cluster_count", len(proposal_entities))),
+                "proposal_strict": bool(proposal_strict),
+                "proposal_supervision_mode": "guided",
+                "guided_candidate_mean": guided_meta.get("guided_candidate_mean"),
+                "guided_candidate_max": guided_meta.get("guided_candidate_max"),
+            }
+        elif not proposal_strict:
             labels = _proposal_labels(
                 bank=bank,
                 proposals=proposal_entities,
                 min_gaussians_per_entity=min_gaussians_per_entity,
                 strict_proposals=False,
             )
-        cluster_meta = {
-            "method": "trase_proposal_worldtube_strict" if proposal_strict else "trase_proposal_worldtube_reassignment",
-            "proposal_dir": str(proposal_dir),
-            "proposal_count": int(len(proposal_entities)),
-            "raw_cluster_count": int(len(proposal_entities)) if proposal_strict else int(len([cluster_id for cluster_id in np.unique(labels) if cluster_id >= 0])),
-            "proposal_strict": bool(proposal_strict),
-        }
+            cluster_meta = {
+                "method": "trase_proposal_worldtube_reassignment",
+                "proposal_dir": str(proposal_dir),
+                "proposal_count": int(len(proposal_entities)),
+                "raw_cluster_count": int(len([cluster_id for cluster_id in np.unique(labels) if cluster_id >= 0])),
+                "proposal_strict": bool(proposal_strict),
+                "proposal_supervision_mode": "reassignment",
+            }
+        else:
+            cluster_meta = {
+                "method": "trase_proposal_worldtube_strict",
+                "proposal_dir": str(proposal_dir),
+                "proposal_count": int(len(proposal_entities)),
+                "raw_cluster_count": int(len(proposal_entities)),
+                "proposal_strict": bool(proposal_strict),
+                "proposal_supervision_mode": "raw",
+            }
     else:
         labels, cluster_meta = _support_aware_cluster(
             state,
@@ -883,14 +1264,19 @@ def export_entitybank(
             max_entities=max_entities,
         )
     if proposal_entities is not None and proposal_strict:
-        raw_cluster_ids = []
-        for proposal_index, proposal in enumerate(proposal_entities):
-            gaussian_ids = np.asarray(proposal.get("gaussian_ids", []), dtype=np.int64).reshape(-1)
-            gaussian_ids = gaussian_ids[(gaussian_ids >= 0) & (gaussian_ids < state.xyz.shape[0])]
-            if gaussian_ids.size >= int(min_gaussians_per_entity):
-                raw_cluster_ids.append(int(proposal_index))
-        if not raw_cluster_ids and proposal_entities:
-            raw_cluster_ids = [int(np.argmax([float(item.get("priority", 0.0)) for item in proposal_entities]))]
+        if str(proposal_supervision_mode).strip().lower() == "guided":
+            raw_cluster_ids = [int(cluster_id) for cluster_id in range(len(proposal_entities)) if np.any(labels == cluster_id)]
+            if not raw_cluster_ids and proposal_entities:
+                raw_cluster_ids = [int(np.argmax([float(item.get("priority", 0.0)) for item in proposal_entities]))]
+        else:
+            raw_cluster_ids = []
+            for proposal_index, proposal in enumerate(proposal_entities):
+                gaussian_ids = np.asarray(proposal.get("gaussian_ids", []), dtype=np.int64).reshape(-1)
+                gaussian_ids = gaussian_ids[(gaussian_ids >= 0) & (gaussian_ids < state.xyz.shape[0])]
+                if gaussian_ids.size >= int(min_gaussians_per_entity):
+                    raw_cluster_ids.append(int(proposal_index))
+            if not raw_cluster_ids and proposal_entities:
+                raw_cluster_ids = [int(np.argmax([float(item.get("priority", 0.0)) for item in proposal_entities]))]
     else:
         raw_cluster_ids = sorted(cluster_id for cluster_id in np.unique(labels) if cluster_id >= 0)
 
@@ -901,7 +1287,7 @@ def export_entitybank(
         if proposal_entities is not None and cluster_id < len(proposal_entities):
             proposal_entity = proposal_entities[cluster_id]["entity"]
 
-        if proposal_entity is not None and proposal_strict:
+        if proposal_entity is not None and proposal_strict and str(proposal_supervision_mode).strip().lower() != "guided":
             gaussian_ids = np.asarray(proposal_entity.get("gaussian_ids", []), dtype=np.int64).reshape(-1)
             gaussian_ids = gaussian_ids[(gaussian_ids >= 0) & (gaussian_ids < state.xyz.shape[0])]
             gaussian_ids = np.unique(gaussian_ids)
@@ -999,7 +1385,14 @@ def export_entitybank(
                 "entity_type": proposal_entity.get("entity_type", temporal_mode) if proposal_entity is not None else temporal_mode,
                 "temporal_mode": temporal_mode,
                 "role_hints": proposal_entity.get("role_hints", role_hints) if proposal_entity is not None else role_hints,
-                "mask_refine_source": "worldtube_reassigned_trase_proposal" if proposal_entity is not None else "refergaussian_tube_bank",
+                "active_segments": proposal_entity.get("active_segments", proposal_entity.get("segments", segments)) if proposal_entity is not None else segments,
+                "support_stats": proposal_entity.get("support_stats", {}) if proposal_entity is not None else {},
+                "rendered_diagnostics": proposal_entity.get("rendered_diagnostics", {}) if proposal_entity is not None else {},
+                "mask_refine_source": (
+                    "proposal_guided_worldtube_supervision"
+                    if proposal_entity is not None and proposal_strict and str(proposal_supervision_mode).strip().lower() == "guided"
+                    else ("worldtube_reassigned_trase_proposal" if proposal_entity is not None else "refergaussian_tube_bank")
+                ),
                 "bbox_image_pt_key": "bbox_image",
             }
         )
@@ -1019,6 +1412,7 @@ def export_entitybank(
             "seed_count": int(cluster_meta.get("seed_count", 0)),
             "proposal_dir": cluster_meta.get("proposal_dir"),
             "proposal_count": cluster_meta.get("proposal_count"),
+            "proposal_supervision_mode": cluster_meta.get("proposal_supervision_mode"),
             "merge_cosine_threshold": None,
             "merge_iou_threshold": None,
         },
@@ -1035,7 +1429,11 @@ def export_entitybank(
         "time_values": bank["time_values"].astype(float).tolist(),
         "num_entities": int(len(entities)),
         "decomposition": {
-            "mode": "proposal_worldtube_reassignment" if proposal_entities is not None else "support_aware_worldtube",
+            "mode": (
+                "proposal_guided_worldtube_supervision"
+                if proposal_entities is not None and proposal_strict and str(proposal_supervision_mode).strip().lower() == "guided"
+                else ("proposal_worldtube_reassignment" if proposal_entities is not None else "support_aware_worldtube")
+            ),
             "primitive": "refergaussian_tube_bank",
         },
         "entities": entities,

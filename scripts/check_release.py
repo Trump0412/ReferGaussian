@@ -28,6 +28,23 @@ FORBIDDEN_PATTERNS = {
     "temporary fix label": re.compile(r"\bhotfix\b", re.IGNORECASE),
 }
 TEXT_SUFFIXES = {".cff", ".html", ".json", ".md", ".py", ".sh", ".toml", ".yaml", ".yml"}
+REQUIRED_RUNTIME_FILES = (
+    "refergaussian/semantics/semantic_renderer.py",
+    "refergaussian/semantics/surface_mask_field.py",
+    "refergaussian/semantics/mask_supported_lifting.py",
+    "scripts/build_joint_query_proposal_dir.py",
+    "scripts/export_entitybank.py",
+    "scripts/render_query_video.py",
+    "scripts/run_query_specific_worldtube_pipeline.sh",
+    "scripts/evaluate_ours_benchmark.py",
+)
+REQUIRED_RUNTIME_TOKENS = {
+    "scripts/build_joint_query_proposal_dir.py": "mask_supported_lifting",
+    "scripts/export_entitybank.py": "--proposal-supervision-mode",
+    "scripts/render_query_video.py": "--eval-profile",
+    "scripts/run_query_specific_worldtube_pipeline.sh": "QUERY_ALLOW_FULLSCENE_FALLBACK",
+    "scripts/evaluate_ours_benchmark.py": "--query-manifest",
+}
 
 
 def tracked_files() -> list[Path]:
@@ -68,6 +85,29 @@ def check_release_queries() -> list[str]:
         errors.append(f"R4D release scene counts differ: expected={RELEASE_SCENES}, actual={actual}")
     if sum(actual.values()) != 58:
         errors.append(f"R4D release query count is {sum(actual.values())}, expected 58")
+    non_english = [
+        str(query_id)
+        for query_id, query_text in payload.items()
+        if re.search(r"[\u4e00-\u9fff]", str(query_text))
+    ]
+    if non_english:
+        errors.append(
+            "R4D release query text must be English; found CJK text for: "
+            + ", ".join(sorted(non_english)[:10])
+        )
+    return errors
+
+
+def check_runtime_contracts() -> list[str]:
+    """Catch deleted dependencies and CLI drift in the documented query path."""
+    errors: list[str] = []
+    for relative_path in REQUIRED_RUNTIME_FILES:
+        if not (ROOT / relative_path).is_file():
+            errors.append(f"Required query runtime file is missing: {relative_path}")
+    for relative_path, token in REQUIRED_RUNTIME_TOKENS.items():
+        path = ROOT / relative_path
+        if path.is_file() and token not in path.read_text(encoding="utf-8", errors="replace"):
+            errors.append(f"Required query runtime contract is missing: {relative_path} -> {token}")
     return errors
 
 
@@ -75,6 +115,7 @@ def main() -> int:
     errors = check_forbidden_text(tracked_files())
     errors.extend(check_readme_scripts())
     errors.extend(check_release_queries())
+    errors.extend(check_runtime_contracts())
     if errors:
         for error in errors:
             print(f"[error] {error}")

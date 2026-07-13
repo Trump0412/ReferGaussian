@@ -206,6 +206,83 @@ def _detect_dataset_type(dataset_dir: Path) -> str:
     return "hypernerf"
 
 
+def _load_camera_image_size(dataset_dir: Path | None) -> tuple[int, int] | None:
+    """Return the dataset camera canvas as ``(height, width)`` when available."""
+    if dataset_dir is None:
+        return None
+    for relative_path in (
+        Path("camera") / "0000.json",
+        Path("camera") / "00000.json",
+        Path("camera") / "camera_0000.json",
+    ):
+        path = dataset_dir / relative_path
+        if not path.exists():
+            continue
+        try:
+            payload = _read_json(path)
+        except Exception:
+            continue
+        image_size = payload.get("image_size") or payload.get("size")
+        if (
+            isinstance(image_size, (list, tuple))
+            and len(image_size) >= 2
+            and float(image_size[0]) > 0
+            and float(image_size[1]) > 0
+        ):
+            # Camera JSON stores [width, height]; masks use [height, width].
+            return int(round(float(image_size[1]))), int(round(float(image_size[0])))
+    return None
+
+
+def _infer_annotation_image_size(
+    gt_frames: list[dict],
+    dataset_dir: Path | None,
+    pred_image_size: tuple[int, int] | None,
+) -> tuple[int, int] | None:
+    """Infer the correct canvas for R4D polygon and RLE annotations.
+
+    Dense masks may use an explicit RLE canvas, while polygon entries often do
+    not. Decoding those polygons on a full-resolution prediction canvas can
+    shift a valid target into the top-left corner. Prefer annotation metadata,
+    then dataset camera metadata, and only then prediction size.
+    """
+    for gt_frame in gt_frames:
+        for mask_item in gt_frame.get("masks", []):
+            segmentation = mask_item.get("segmentation")
+            if not isinstance(segmentation, dict):
+                continue
+            size = segmentation.get("size")
+            if (
+                isinstance(size, (list, tuple))
+                and len(size) >= 2
+                and int(size[0]) > 0
+                and int(size[1]) > 0
+            ):
+                return int(size[0]), int(size[1])
+    return _load_camera_image_size(dataset_dir) or pred_image_size
+
+
+def _load_manifest_query_ids(path: Path) -> set[str]:
+    """Read official query ids from a JSONL batch manifest."""
+    query_ids: set[str] = set()
+    with open(path, "r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                row = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid query manifest line {line_number}: {exc}") from exc
+            query_id = str(row.get("query_id", "")).strip()
+            if not query_id:
+                raise ValueError(f"Query manifest line {line_number} has no query_id")
+            query_ids.add(query_id)
+    if not query_ids:
+        raise ValueError(f"Query manifest is empty: {path}")
+    return query_ids
+
+
 def _infer_dataset_info_from_query_output(query_output_dir: Path) -> tuple[str | None, Path | None]:
     """Infer dataset type and dataset_dir from query output path.
 
@@ -491,6 +568,11 @@ def evaluate_query(
             with Image.open(sample_masks[0]) as _img:
                 _arr = np.asarray(_img)
                 pred_image_size = (_arr.shape[0], _arr.shape[1])  # (H, W)
+    annotation_image_size = _infer_annotation_image_size(
+        gt_frames,
+        dataset_dir,
+        pred_image_size,
+    )
 
     # Build frame_id → GT masks
     gt_frame_masks: dict[int, np.ndarray] = {}
@@ -500,7 +582,7 @@ def evaluate_query(
         for mask_item in gt_frame.get("masks", []):
             seg = mask_item.get("segmentation")
             if seg:
-                mask_arr = _decode_segmentation(seg, image_size=pred_image_size)
+                mask_arr = _decode_segmentation(seg, image_size=annotation_image_size)
                 if mask_arr is not None:
                     masks_in_frame.append(mask_arr)
         if masks_in_frame:
@@ -640,11 +722,27 @@ def main() -> None:
                         help="JSON file mapping query_id or scene_name → dataset_dir (optional)")
     parser.add_argument("--output-json", required=True)
     parser.add_argument("--output-md", default=None)
+    parser.add_argument(
+        "--query-manifest",
+        default=None,
+        help="Optional JSONL manifest; evaluate exactly its official query ids.",
+    )
     parser.add_argument("--skip-missing", action="store_true",
                         help="Skip queries with missing validation (don't fail)")
     args = parser.parse_args()
 
     benchmark = json.loads(Path(args.benchmark).read_text(encoding="utf-8"))
+    if args.query_manifest:
+        manifest_path = Path(args.query_manifest)
+        manifest_ids = _load_manifest_query_ids(manifest_path)
+        benchmark_ids = {str(item.get("query_id", "")) for item in benchmark}
+        unknown_ids = sorted(manifest_ids - benchmark_ids)
+        if unknown_ids:
+            raise ValueError(
+                "Query manifest contains ids absent from the benchmark: "
+                + ", ".join(unknown_ids[:10])
+            )
+        benchmark = [item for item in benchmark if str(item.get("query_id", "")) in manifest_ids]
     query_root_map: dict[str, str] = json.loads(
         Path(args.query_root_map).read_text(encoding="utf-8")
     )
@@ -711,6 +809,7 @@ def main() -> None:
 
     payload = {
         "benchmark": str(args.benchmark),
+        "query_manifest": str(args.query_manifest) if args.query_manifest else None,
         "summary": summary,
         "per_query": per_query,
     }

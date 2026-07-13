@@ -8,6 +8,71 @@
 apply_query_eval_profile() {
   local profile="${1:-${QUERY_EVAL_PROFILE:-default}}"
 
+  # Keep profiles order-independent. R4D's numeric-only/action-window knobs are
+  # direct overrides; clear them before applying any profile so a later public
+  # run in the same shell cannot inherit R4D behavior.
+  unset QUERY_ENABLE_ACTION_WINDOW_VARIANTS
+  unset QUERY_ACTION_TEMPORAL_USE_SUPPORT
+  unset QUERY_ACTION_TEMPORAL_LIFECYCLE_HULL
+  unset QUERY_ACTION_SELECT_PRIMARY_SUBJECT
+  unset QUERY_ACTION_WINDOW_START_FRACTION
+  unset QUERY_ACTION_WINDOW_END_FRACTION
+  unset QUERY_ACTION_WINDOW_MIN_FRAMES
+  unset QUERY_LIFT_GEOMETRY_THIN_RELAXED_GATE
+  unset QUERY_LIFT_FILTER_QUERY_PLAN_PHRASES
+  unset QUERY_LIFT_FILTER_SUBJECT_ONLY
+  unset QUERY_EMPTY_PLAN_NEGATIVE_NOTES
+  unset QUERY_STRICT_ATTRIBUTE_EMPTY_ON_MISMATCH
+  unset QUERY_REORDER_PRIMARY_TARGET
+  unset QUERY_STATIC_SELECT_WITHOUT_QWEN
+  unset QUERY_LIFT_GEOMETRY_THIN_ASPECT_MIN
+  unset QUERY_LIFT_GEOMETRY_THIN_FILL_MAX
+  unset QUERY_LIFT_GEOMETRY_THIN_AREA_MAX
+  unset QUERY_LIFT_GEOMETRY_THIN_VOTE_FRACTION
+  unset QUERY_LIFT_THIN_MIN_PRECISION
+  unset QUERY_LIFT_THIN_MAX_OUTER_LEAKAGE
+  unset QUERY_LIFT_THIN_MIN_RENDERED_IOU_STAGE1
+  unset QUERY_LIFT_THIN_MIN_RECALL
+  unset QUERY_FAST_VALIDATION_ONLY
+  unset QUERY_RENDER_ACTIVE_MASKS_ONLY
+  unset QUERY_RENDER_MASK_PNG_COMPRESS_LEVEL
+  unset QUERY_RENDER_TORCH_MORPHOLOGY
+  unset QUERY_RENDER_TORCH_MORPHOLOGY_DEVICE
+  unset QUERY_SKIP_VIDEO_EXPORT
+  unset QUERY_SKIP_OVERLAY_FRAME_EXPORT
+  unset QUERY_ALLOW_FULLSCENE_FALLBACK
+  unset QUERY_RETRY_RELAXED_GSAM2
+  unset QUERY_PROPOSAL_STAGE_TIMEOUT
+  unset QUERY_RENDER_STAGE_TIMEOUT
+  unset QUERY_STAGE_TIMEOUT_KILL_AFTER
+  unset QUERY_SKIP_ENTITY_LIBRARY
+  unset QUERY_SKIP_QWEN_EXPORT
+  unset QUERY_SKIP_QWEN_SELECTION
+  unset QUERY_SAVE_KEY_FRAMES
+  unset QUERY_LIFT_MAX_PHASE_VARIANTS
+  unset QUERY_LIFT_BOOTSTRAP_MAX_ITER
+  unset QUERY_LIFT_BOOTSTRAP_TIMEOUT
+  unset QUERY_LIFT_BOOTSTRAP_PROXY_EVIDENCE_ONLY
+  unset QUERY_LIFT_BOOTSTRAP_FINAL_RENDER_METRICS
+  unset QUERY_LIFT_BOOTSTRAP_REFINED_ONLY
+  unset QUERY_LIFT_BOOTSTRAP_MAX_SEED_SIZE
+  unset QUERY_LIFT_BOOTSTRAP_PROXY_MAX_GAUSSIANS
+  unset QUERY_LIFT_METRIC_MAX_FRAMES
+  unset QUERY_LIFT_CANDIDATE_TIMEOUT
+  unset QUERY_LIFT_VARIANT_TIMEOUT
+  unset QUERY_LIFT_TOTAL_TIMEOUT
+  unset QUERY_LIFT_BOOTSTRAP_MIN_AREA_RATIO
+  unset QUERY_LIFT_BOOTSTRAP_MIN_PRECISION
+  unset QUERY_LIFT_BOOTSTRAP_MAX_OUTER_LEAKAGE
+  unset QUERY_LIFT_MIN_RENDERED_IOU_STAGE1
+  unset QUERY_LIFT_MIN_RECALL
+  unset QUERY_LIFT_MIN_ACTIVE_FRAME_COVERAGE
+  unset QUERY_LIFT_ALLOW_SPARSE_FALLBACK
+  unset GS_QUERY_CLOUD_POINT_RADIUS_SCALE
+  unset GS_QUERY_CLOUD_POINT_RADIUS_MAX
+  unset GS_QUERY_FUSE_RECOVERY_MIN_QUERY_RECALL
+  unset GS_QUERY_FINAL_ERODE_KERNEL
+
   case "${profile}" in
     ""|default|paper_default)
       export QUERY_EVAL_PROFILE="default"
@@ -335,8 +400,85 @@ apply_query_eval_profile() {
       export GS_QUERY_FUSE_QUERY_WEIGHT="${GS_QUERY_FUSE_QUERY_WEIGHT:-0.58}"
       export GS_QUERY_FUSE_CLOUD_WEIGHT="${GS_QUERY_FUSE_CLOUD_WEIGHT:-0.18}"
       ;;
+    r4d_shape_v4_recall|r4d_time_shape_v4_recall)
+      apply_query_eval_profile public_time_shape_v4_recall
+      export QUERY_EVAL_PROFILE="r4d_shape_v4_recall"
+      export REFERGAUSSIAN_QUERY_EVAL_PROFILE="r4d_shape_v4_recall"
+
+      # R4D uses the same training-free lifting path as public v4, but enables
+      # geometry-driven action support and relaxed sparse/thin gates. This is
+      # profile-level, not scene-level: no object or scene names are special-cased.
+      export QUERY_ENABLE_ACTION_WINDOW_VARIANTS=1
+      export QUERY_ACTION_TEMPORAL_USE_SUPPORT=1
+      export QUERY_ACTION_TEMPORAL_LIFECYCLE_HULL=1
+      export QUERY_ACTION_SELECT_PRIMARY_SUBJECT=1
+      export QUERY_ACTION_WINDOW_START_FRACTION=0.18
+      export QUERY_ACTION_WINDOW_END_FRACTION=0.86
+      export QUERY_ACTION_WINDOW_MIN_FRAMES=8
+      export QUERY_LIFT_GEOMETRY_THIN_RELAXED_GATE=1
+      export QUERY_LIFT_FILTER_QUERY_PLAN_PHRASES=1
+      export QUERY_LIFT_FILTER_SUBJECT_ONLY=1
+      export QUERY_EMPTY_PLAN_NEGATIVE_NOTES=1
+      export QUERY_STRICT_ATTRIBUTE_EMPTY_ON_MISMATCH=1
+      export QUERY_REORDER_PRIMARY_TARGET=1
+      export QUERY_STATIC_SELECT_WITHOUT_QWEN=1
+      export QUERY_LIFT_GEOMETRY_THIN_ASPECT_MIN=3.0
+      export QUERY_LIFT_GEOMETRY_THIN_FILL_MAX=0.42
+      export QUERY_LIFT_GEOMETRY_THIN_AREA_MAX=0.045
+      export QUERY_LIFT_GEOMETRY_THIN_VOTE_FRACTION=0.45
+
+      export QUERY_LIFT_MAX_PHASE_VARIANTS=1
+      export QUERY_LIFT_BOOTSTRAP_MAX_ITER=6
+      export QUERY_LIFT_BOOTSTRAP_TIMEOUT=60
+      export QUERY_LIFT_BOOTSTRAP_PROXY_EVIDENCE_ONLY=1
+      export QUERY_LIFT_BOOTSTRAP_FINAL_RENDER_METRICS=0
+      export QUERY_LIFT_BOOTSTRAP_REFINED_ONLY=1
+      export QUERY_LIFT_BOOTSTRAP_MAX_SEED_SIZE=1536
+      export QUERY_LIFT_BOOTSTRAP_PROXY_MAX_GAUSSIANS=4096
+      export QUERY_LIFT_METRIC_MAX_FRAMES=4
+      export QUERY_LIFT_CANDIDATE_TIMEOUT=150
+      export QUERY_LIFT_VARIANT_TIMEOUT=360
+      export QUERY_LIFT_TOTAL_TIMEOUT=900
+      export QUERY_LIFT_BOOTSTRAP_MIN_AREA_RATIO=0.22
+      export QUERY_LIFT_BOOTSTRAP_MIN_PRECISION=0.24
+      export QUERY_LIFT_BOOTSTRAP_MAX_OUTER_LEAKAGE=0.30
+      export QUERY_LIFT_MIN_RENDERED_IOU_STAGE1=0.12
+      export QUERY_LIFT_MIN_RECALL=0.22
+      export QUERY_LIFT_MIN_ACTIVE_FRAME_COVERAGE=0.35
+      export QUERY_LIFT_THIN_MIN_PRECISION=0.22
+      export QUERY_LIFT_THIN_MAX_OUTER_LEAKAGE=0.32
+      export QUERY_LIFT_THIN_MIN_RENDERED_IOU_STAGE1=0.08
+      export QUERY_LIFT_THIN_MIN_RECALL=0.08
+      export QUERY_LIFT_ALLOW_SPARSE_FALLBACK=1
+      export GS_QUERY_CLOUD_POINT_RADIUS_SCALE=2.40
+      export GS_QUERY_CLOUD_POINT_RADIUS_MAX=72
+      export GS_QUERY_FUSE_RECOVERY_MIN_QUERY_RECALL=0.08
+      export GS_QUERY_FINAL_ERODE_KERNEL=9
+      # The published benchmark path remains a single training-free lifting
+      # chain. Recovery is opt-in and must be reported separately.
+      export QUERY_ALLOW_FULLSCENE_FALLBACK="${QUERY_ENABLE_FULLSCENE_FALLBACK:-0}"
+      export QUERY_RETRY_RELAXED_GSAM2=0
+      export QUERY_PROPOSAL_STAGE_TIMEOUT=1200
+      export QUERY_RENDER_STAGE_TIMEOUT=1200
+      export QUERY_STAGE_TIMEOUT_KILL_AFTER=30
+
+      # Numeric-only rebuttal/evaluation mode: keep masks/validation, skip heavy
+      # qualitative exports. Public profile keeps its visual evidence behavior.
+      export QUERY_SKIP_ENTITY_LIBRARY=1
+      export QUERY_SKIP_QWEN_EXPORT=1
+      export QUERY_SKIP_QWEN_SELECTION=1
+      export QUERY_FAST_VALIDATION_ONLY=1
+      export QUERY_SKIP_VIDEO_EXPORT=1
+      export QUERY_SKIP_OVERLAY_FRAME_EXPORT=1
+      export QUERY_RENDER_ACTIVE_MASKS_ONLY=1
+      export QUERY_RENDER_MASK_PNG_COMPRESS_LEVEL=1
+      export QUERY_RENDER_TORCH_MORPHOLOGY=1
+      export QUERY_RENDER_TORCH_MORPHOLOGY_DEVICE=cuda
+      export QUERY_SAVE_KEY_FRAMES=0
+      export GS_QUERY_EXPORT_ENTITY_LIFECYCLE=0
+      ;;
     *)
-      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall)" >&2
+      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, r4d_shape_v4_recall)" >&2
       return 2
       ;;
   esac

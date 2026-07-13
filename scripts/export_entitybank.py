@@ -22,6 +22,7 @@ def main() -> None:
     parser.add_argument("--max-entities", type=int, default=30)
     parser.add_argument("--proposal-dir", default=None)
     parser.add_argument("--proposal-strict", action="store_true")
+    parser.add_argument("--proposal-supervision-mode", choices=["guided", "raw"], default="guided")
     parser.add_argument("--output-dir", default=None)
     args = parser.parse_args()
 
@@ -34,6 +35,7 @@ def main() -> None:
         max_entities=args.max_entities,
         proposal_dir=args.proposal_dir,
         proposal_strict=bool(args.proposal_strict),
+        proposal_supervision_mode=str(args.proposal_supervision_mode),
         output_dir=args.output_dir,
     )
     print(out_dir)

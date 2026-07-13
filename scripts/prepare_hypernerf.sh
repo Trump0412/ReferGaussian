@@ -18,8 +18,8 @@ declare -A PAPER_SCENES=(
   ["misc/espresso"]="misc_espresso.zip"
   ["misc/americano"]="misc_americano.zip"
   ["misc/split-cookie"]="misc_split-cookie.zip"
-  ["misc/cut-lemon1"]="misc_cut-lemon1.zip"
-  ["misc/torchocolate"]="misc_torchocolate.zip"
+  ["interp/cut-lemon1"]="interp_cut-lemon.zip"
+  ["interp/torchocolate"]="interp_torchocolate.zip"
 )
 
 prepare_scene() {
@@ -44,7 +44,13 @@ prepare_scene() {
   fi
 
   echo "[extract] ${asset_name} -> ${target_dir}"
-  ${PYTHON_FOR_EXTRACTION:-$(command -v python3 || command -v python)} - <<PY "${zip_path}" "${target_dir}"
+  local extraction_python="${PYTHON_FOR_EXTRACTION:-${GS_ENV_PATH}/bin/python}"
+  if [[ ! -x "${extraction_python}" ]]; then
+    echo "Missing Python interpreter for archive extraction: ${extraction_python}" >&2
+    echo "Set PYTHON_FOR_EXTRACTION or run the environment setup first." >&2
+    return 2
+  fi
+  "${extraction_python}" - <<PY "${zip_path}" "${target_dir}"
 import os, shutil, sys, tempfile, zipfile
 zip_path, target_dir = sys.argv[1], sys.argv[2]
 temp_dir = tempfile.mkdtemp(prefix="hypernerf_extract_", dir=os.path.dirname(target_dir))
@@ -83,7 +89,12 @@ PY
 if [[ $# -ge 2 ]]; then
   GROUP="$1"
   SCENE="$2"
-  ASSET="${HYPERNERF_ASSET:-${GROUP}_${SCENE}.zip}"
+  GROUP_SCENE="${GROUP}/${SCENE}"
+  DEFAULT_ASSET="${GROUP}_${SCENE}.zip"
+  if [[ -n "${PAPER_SCENES[${GROUP_SCENE}]:-}" ]]; then
+    DEFAULT_ASSET="${PAPER_SCENES[${GROUP_SCENE}]}"
+  fi
+  ASSET="${HYPERNERF_ASSET:-${DEFAULT_ASSET}}"
   prepare_scene "${GROUP}/${SCENE}" "${ASSET}"
   exit 0
 fi

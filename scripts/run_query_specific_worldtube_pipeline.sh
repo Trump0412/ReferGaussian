@@ -23,7 +23,6 @@ fi
 TRACK_DIR="${OUTPUT_ROOT}/grounded_sam2"
 TRACKS_PATH="${TRACK_DIR}/grounded_sam2_query_tracks.json"
 PROPOSAL_DIR="${OUTPUT_ROOT}/proposal_dir"
-SURFACE_FIELD_DIR="${OUTPUT_ROOT}/surface_mask_field"
 QUERY_ENTITYBANK_DIR="${OUTPUT_ROOT}/query_entitybank"
 QUERY_RUN_DIR="${OUTPUT_ROOT}/query_worldtube_run"
 ENTITY_LIBRARY_DIR="${OUTPUT_ROOT}/entity_library_qwen_sourcebg"
@@ -102,7 +101,8 @@ run_final_render_and_summary() {
   # Release GPU lock before final rendering to overlap with next query's GPU phase.
   release_gpu_lock
 
-  gs_python "${GS_ROOT}/scripts/render_query_video.py" \
+  run_gs_python_with_timeout "${QUERY_RENDER_STAGE_TIMEOUT:-0}" \
+    "${GS_ROOT}/scripts/render_query_video.py" \
     --run-dir "${QUERY_RUN_DIR}" \
     --dataset-dir "${DATASET_DIR}" \
     --selection-path "${QWEN_SELECTION_PATH}" \
@@ -131,14 +131,33 @@ echo "[profile] QUERY_EVAL_PROFILE=${QUERY_EVAL_PROFILE}"
 QUERY_PROPOSAL_BUILDER="${QUERY_PROPOSAL_BUILDER:-mask_supported_lifting}"
 LEGACY_ENTITYBANK_FALLBACK_DISABLED="${DISABLE_LEGACY_ENTITYBANK_FALLBACK:-0}"
 
+if [[ "${QUERY_PROPOSAL_BUILDER}" == "surface_mask_field" ]]; then
+  echo "[error] surface_mask_field is not part of the public training-free release; use mask_supported_lifting." >&2
+  exit 2
+fi
+
 legacy_entitybank_fallback_disabled() {
   if [[ "${LEGACY_ENTITYBANK_FALLBACK_DISABLED}" == "1" ]]; then
     return 0
   fi
-  if [[ "${QUERY_PROPOSAL_BUILDER}" == "surface_mask_field" ]]; then
-    return 0
-  fi
   return 1
+}
+
+run_gs_python_with_timeout() {
+  local timeout_s="$1"
+  shift
+  if [[ "${timeout_s}" =~ ^[0-9]+$ && "${timeout_s}" -gt 0 ]] && command -v timeout >/dev/null 2>&1; then
+    if [[ "${CONDA_PREFIX:-}" == "${GS_ENV_PATH}" ]]; then
+      timeout --foreground --kill-after="${QUERY_STAGE_TIMEOUT_KILL_AFTER:-30}s" "${timeout_s}s" python "$@"
+      return $?
+    fi
+    require_conda_bin
+    timeout --foreground --kill-after="${QUERY_STAGE_TIMEOUT_KILL_AFTER:-30}s" "${timeout_s}s" \
+      env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 XDG_CACHE_HOME="${GS_CACHE_ROOT}" TORCH_HOME="${GS_TORCH_HOME}" MPLCONFIGDIR="${GS_MPLCONFIGDIR}" CONDA_PKGS_DIRS="${GS_CONDA_PKGS_DIRS}" PIP_CACHE_DIR="${GS_PIP_CACHE_DIR}" \
+      "${GS_CONDA_BIN}" run --no-capture-output -p "${GS_ENV_PATH}" python "$@"
+    return $?
+  fi
+  gs_python "$@"
 }
 
 # Serialize GPU-heavy phase across parallel query workers, but let final rendering overlap.
@@ -201,6 +220,7 @@ if gs_python "${GS_ROOT}/scripts/write_empty_query_selection.py" \
   ln -sfn "${RUN_DIR}/config.yaml" "${QUERY_RUN_DIR}/config.yaml"
   ln -sfn "${RUN_DIR}/point_cloud" "${QUERY_RUN_DIR}/point_cloud"
   ln -sfn "${RUN_DIR}/test" "${QUERY_RUN_DIR}/test"
+  rm -rf "${QUERY_RUN_DIR}/entitybank"
   mkdir -p "${QUERY_RUN_DIR}/entitybank"
   gs_python "${GS_ROOT}/scripts/write_empty_query_selection.py" \
     --query "${QUERY_TEXT}" \
@@ -222,7 +242,8 @@ run_build_query_proposal() {
   fi
   case "${builder}" in
     mask_supported_lifting)
-      gs_python "${GS_ROOT}/scripts/build_joint_query_proposal_dir.py" \
+      run_gs_python_with_timeout "${QUERY_PROPOSAL_STAGE_TIMEOUT:-0}" \
+        "${GS_ROOT}/scripts/build_joint_query_proposal_dir.py" \
         --run-dir "${RUN_DIR}" \
         --dataset-dir "${DATASET_DIR}" \
         --tracks-path "${TRACKS_PATH}" \
@@ -237,7 +258,8 @@ run_build_query_proposal() {
         --graph-radius-scale "${QUERY_LIFT_GRAPH_RADIUS_SCALE:-1.35}"
       ;;
     seeded_local_graph|joint|joint_embedding|joint_worldtube_embedding|mask_supervised_joint)
-      gs_python "${GS_ROOT}/scripts/build_joint_query_proposal_dir.py" \
+      run_gs_python_with_timeout "${QUERY_PROPOSAL_STAGE_TIMEOUT:-0}" \
+        "${GS_ROOT}/scripts/build_joint_query_proposal_dir.py" \
         --run-dir "${RUN_DIR}" \
         --dataset-dir "${DATASET_DIR}" \
         --tracks-path "${TRACKS_PATH}" \
@@ -256,7 +278,8 @@ run_build_query_proposal() {
         --graph-min-component-size "${QUERY_GRAPH_MIN_COMPONENT_SIZE:-24}"
       ;;
     support_only|worldtube_consistency|legacy_support)
-      gs_python "${GS_ROOT}/scripts/build_query_proposal_dir.py" \
+      run_gs_python_with_timeout "${QUERY_PROPOSAL_STAGE_TIMEOUT:-0}" \
+        "${GS_ROOT}/scripts/build_query_proposal_dir.py" \
         --run-dir "${RUN_DIR}" \
         --dataset-dir "${DATASET_DIR}" \
         --tracks-path "${TRACKS_PATH}" \
@@ -275,63 +298,6 @@ run_build_query_proposal() {
       return 2
       ;;
   esac
-}
-
-run_surface_mask_field_entitybank() {
-  gs_python "${GS_ROOT}/scripts/train_surface_mask_field.py" \
-    --run-dir "${RUN_DIR}" \
-    --dataset-dir "${DATASET_DIR}" \
-    --stage1-root "${TRACK_DIR}" \
-    --output-dir "${SURFACE_FIELD_DIR}" \
-    --num-steps "${QUERY_SURFACE_NUM_STEPS:-2000}" \
-    --lr "${QUERY_SURFACE_LR:-0.05}" \
-    --feature-dim "${QUERY_SURFACE_FEATURE_DIM:-32}" \
-    --render-res-scale "${QUERY_SURFACE_RENDER_RES_SCALE:-1.0}" \
-    --train-frame-stride "${QUERY_SURFACE_TRAIN_FRAME_STRIDE:-2}" \
-    --val-frame-stride "${QUERY_SURFACE_VAL_FRAME_STRIDE:-8}" \
-    --val-interval "${QUERY_SURFACE_VAL_INTERVAL:-100}" \
-    --log-interval "${QUERY_SURFACE_LOG_INTERVAL:-20}" \
-    --max-gaussians-per-frame "${QUERY_SURFACE_MAX_GAUSSIANS_PER_FRAME:-16000}" \
-    --gate-threshold "${QUERY_SURFACE_GATE_THRESHOLD:-0.01}" \
-    --core-kernel "${QUERY_SURFACE_CORE_KERNEL:-3}" \
-    --outer-kernel "${QUERY_SURFACE_OUTER_KERNEL:-15}" \
-    --knn-k "${QUERY_SURFACE_KNN_K:-8}" \
-    --knn-radius "${QUERY_SURFACE_KNN_RADIUS:-0.08}" \
-    --knn-max-pairs "${QUERY_SURFACE_KNN_MAX_PAIRS:-128}" \
-    --relative-threshold "${QUERY_SURFACE_RELATIVE_THRESHOLD:-0.12}" \
-    --absolute-threshold "${QUERY_SURFACE_ABSOLUTE_THRESHOLD:-0.008}" \
-    --full-positive-weight "${QUERY_SURFACE_FULL_POSITIVE_WEIGHT:-1.5}" \
-    --support-loss-weight "${QUERY_SURFACE_SUPPORT_LOSS_WEIGHT:-0.8}" \
-    --temporal-consistency-weight "${QUERY_SURFACE_TEMPORAL_CONSISTENCY_WEIGHT:-0.55}" \
-    --graph-same-weight "${QUERY_SURFACE_GRAPH_SAME_WEIGHT:-0.10}" \
-    --graph-contrast-weight "${QUERY_SURFACE_GRAPH_CONTRAST_WEIGHT:-0.18}" \
-    --feature-contrast-weight "${QUERY_SURFACE_FEATURE_CONTRAST_WEIGHT:-0.12}" \
-    --contrast-temperature "${QUERY_SURFACE_CONTRAST_TEMPERATURE:-0.18}" \
-    --device "${QUERY_SURFACE_DEVICE:-cuda}"
-  if [[ ! -f "${SURFACE_FIELD_DIR}/field_best.pt" ]]; then
-    echo "[error] Surface-Mask Field is required; legacy fallback is disabled." >&2
-    return 2
-  fi
-
-  gs_python "${GS_ROOT}/scripts/export_surface_entitybank.py" \
-    --run-dir "${RUN_DIR}" \
-    --dataset-dir "${DATASET_DIR}" \
-    --surface-field-dir "${SURFACE_FIELD_DIR}" \
-    --stage1-root "${TRACK_DIR}" \
-    --output-dir "${QUERY_ENTITYBANK_DIR}" \
-    --threshold-search \
-    --component-prune \
-    --min-render-iou "${QUERY_SURFACE_MIN_RENDER_IOU:-0.10}" \
-    --min-render-recall "${QUERY_SURFACE_MIN_RENDER_RECALL:-0.10}" \
-    --min-render-precision "${QUERY_SURFACE_MIN_RENDER_PRECISION:-0.55}" \
-    --max-area-ratio "${QUERY_SURFACE_MAX_AREA_RATIO:-1.20}" \
-    --max-gaussians-per-frame "${QUERY_SURFACE_MAX_GAUSSIANS_PER_FRAME:-16000}" \
-    --gate-threshold "${QUERY_SURFACE_GATE_THRESHOLD:-0.01}" \
-    --knn-k "${QUERY_SURFACE_COMPONENT_KNN_K:-8}" \
-    --component-radius-scale "${QUERY_SURFACE_COMPONENT_RADIUS_SCALE:-4.0}" \
-    --graph-knn "${QUERY_SURFACE_EXPORT_GRAPH_KNN:-24}" \
-    --graph-min-votes "${QUERY_SURFACE_EXPORT_GRAPH_MIN_VOTES:-4}" \
-    --device "${QUERY_SURFACE_DEVICE:-cuda}"
 }
 
 run_build_query_proposal_with_fallback() {
@@ -372,7 +338,8 @@ run_build_query_proposal_with_relaxed_retry() {
 }
 
 run_build_query_proposal_legacy() {
-  gs_python "${GS_ROOT}/scripts/build_query_proposal_dir.py" \
+  run_gs_python_with_timeout "${QUERY_PROPOSAL_STAGE_TIMEOUT:-0}" \
+    "${GS_ROOT}/scripts/build_query_proposal_dir.py" \
     --run-dir "${RUN_DIR}" \
     --dataset-dir "${DATASET_DIR}" \
     --tracks-path "${TRACKS_PATH}" \
@@ -388,6 +355,12 @@ run_build_query_proposal_legacy() {
 }
 
 run_export_entitybank_with_proposal() {
+  local min_gaussians_per_entity="${QUERY_MIN_GAUSSIANS_PER_ENTITY:-32}"
+  if query_requires_dual_hands; then
+    min_gaussians_per_entity="${QUERY_DUAL_HAND_MIN_GAUSSIANS_PER_ENTITY:-4}"
+  elif query_is_static_set; then
+    min_gaussians_per_entity="${QUERY_STATIC_SET_MIN_GAUSSIANS_PER_ENTITY:-4}"
+  fi
   gs_python "${GS_ROOT}/scripts/export_entitybank.py" \
     --run-dir "${RUN_DIR}" \
     --proposal-dir "${PROPOSAL_DIR}" \
@@ -395,15 +368,21 @@ run_export_entitybank_with_proposal() {
     --proposal-supervision-mode "${QUERY_PROPOSAL_SUPERVISION_MODE:-guided}" \
     --output-dir "${QUERY_ENTITYBANK_DIR}" \
     --max-entities "${QUERY_MAX_ENTITIES:-12}" \
-    --min-gaussians-per-entity "${QUERY_MIN_GAUSSIANS_PER_ENTITY:-32}"
+    --min-gaussians-per-entity "${min_gaussians_per_entity}"
 }
 
 run_export_entitybank_fallback() {
+  local min_gaussians_per_entity="${QUERY_MIN_GAUSSIANS_PER_ENTITY:-32}"
+  if query_requires_dual_hands; then
+    min_gaussians_per_entity="${QUERY_DUAL_HAND_MIN_GAUSSIANS_PER_ENTITY:-4}"
+  elif query_is_static_set; then
+    min_gaussians_per_entity="${QUERY_STATIC_SET_MIN_GAUSSIANS_PER_ENTITY:-4}"
+  fi
   gs_python "${GS_ROOT}/scripts/export_entitybank.py" \
     --run-dir "${RUN_DIR}" \
     --output-dir "${QUERY_ENTITYBANK_DIR}" \
     --max-entities "${QUERY_MAX_ENTITIES:-12}" \
-    --min-gaussians-per-entity "${QUERY_MIN_GAUSSIANS_PER_ENTITY:-32}"
+    --min-gaussians-per-entity "${min_gaussians_per_entity}"
 }
 
 query_requires_dual_hands() {
@@ -412,7 +391,13 @@ query_requires_dual_hands() {
   if [[ "${q_lc}" == *"both hands"* || "${q_lc}" == *"two hands"* || "${q_lc}" == *"left hand and right hand"* || "${q_lc}" == *"right hand and left hand"* ]]; then
     return 0
   fi
-  if [[ "${QUERY_TEXT}" == *"双手"* || "${QUERY_TEXT}" == *"两只手"* || "${QUERY_TEXT}" == *"两手"* || "${QUERY_TEXT}" == *"左右手"* ]]; then
+  return 1
+}
+
+query_is_static_set() {
+  local q_lc
+  q_lc="$(printf '%s' "${QUERY_TEXT}" | tr '[:upper:]' '[:lower:]')"
+  if [[ "${q_lc}" == *"stationary"* || "${q_lc}" == *"static"* || "${q_lc}" == *"not moving"* || "${q_lc}" == *"never move"* ]]; then
     return 0
   fi
   return 1
@@ -443,44 +428,62 @@ print(len(rows))
 PY
 }
 
-proposal_ready=0
-if [[ "${QUERY_PROPOSAL_BUILDER}" == "surface_mask_field" ]]; then
-  run_surface_mask_field_entitybank
-else
-  if run_build_query_proposal_with_relaxed_retry; then
-    proposal_ready=1
-  fi
+proposal_dir_ready() {
+  [[ -f "${PROPOSAL_DIR}/entities.json" && -f "${PROPOSAL_DIR}/query_proposal_summary.json" ]]
+}
 
-  if [[ "${proposal_ready}" == "1" ]]; then
+query_entitybank_ready() {
+  [[ -f "${QUERY_ENTITYBANK_DIR}/entities.json" ]]
+}
+
+replace_query_run_link() {
+  local target="$1"
+  local destination="$2"
+  rm -rf "${destination}"
+  ln -sfn "${target}" "${destination}"
+}
+
+proposal_ready=0
+if [[ "${QUERY_REUSE_PROPOSAL_DIR:-0}" == "1" ]] && proposal_dir_ready; then
+  echo "[reuse] existing query proposal dir: ${PROPOSAL_DIR}"
+  proposal_ready=1
+elif run_build_query_proposal_with_relaxed_retry; then
+  proposal_ready=1
+fi
+
+if [[ "${proposal_ready}" == "1" ]]; then
+  if [[ "${QUERY_REUSE_ENTITYBANK:-0}" == "1" ]] && query_entitybank_ready; then
+    echo "[reuse] existing query entitybank: ${QUERY_ENTITYBANK_DIR}"
+  else
     run_export_entitybank_with_proposal
-    if query_requires_dual_hands; then
-      entity_count="$(query_entitybank_size)"
-      if [[ "${entity_count}" -lt 2 ]]; then
-        if [[ "${QUERY_ALLOW_FULLSCENE_FALLBACK:-0}" == "1" ]] && ! legacy_entitybank_fallback_disabled; then
-          echo "[warn] dual-hand query but proposal entitybank has ${entity_count} entities; switching to full-scene entitybank fallback" >&2
-          run_export_entitybank_fallback
-        else
-          echo "[error] dual-hand query but proposal entitybank has only ${entity_count} entities; fallback is disabled" >&2
-          exit 3
-        fi
+  fi
+  if query_requires_dual_hands; then
+    entity_count="$(query_entitybank_size)"
+    if [[ "${entity_count}" -lt 2 ]]; then
+      if [[ "${QUERY_ALLOW_FULLSCENE_FALLBACK:-0}" == "1" ]] && ! legacy_entitybank_fallback_disabled; then
+        echo "[warn] dual-hand query but proposal entitybank has ${entity_count} entities; switching to full-scene entitybank fallback" >&2
+        run_export_entitybank_fallback
+      else
+        echo "[error] dual-hand query but proposal entitybank has only ${entity_count} entities; fallback is disabled" >&2
+        exit 3
       fi
     fi
+  fi
+else
+  if [[ "${QUERY_ALLOW_FULLSCENE_FALLBACK:-0}" == "1" ]] && ! legacy_entitybank_fallback_disabled; then
+    echo "[warn] proposal path unavailable for ${QUERY_NAME}; using full-scene entitybank fallback" >&2
+    run_export_entitybank_fallback
   else
-    if [[ "${QUERY_ALLOW_FULLSCENE_FALLBACK:-0}" == "1" ]] && ! legacy_entitybank_fallback_disabled; then
-      echo "[warn] proposal path unavailable for ${QUERY_NAME}; using full-scene entitybank fallback" >&2
-      run_export_entitybank_fallback
-    else
-      echo "[error] proposal path unavailable for ${QUERY_NAME}; full-scene fallback is disabled" >&2
-      exit 2
-    fi
+    echo "[error] proposal path unavailable for ${QUERY_NAME}; full-scene fallback is disabled" >&2
+    exit 2
   fi
 fi
 
 mkdir -p "${QUERY_RUN_DIR}"
-ln -sfn "${RUN_DIR}/config.yaml" "${QUERY_RUN_DIR}/config.yaml"
-ln -sfn "${RUN_DIR}/point_cloud" "${QUERY_RUN_DIR}/point_cloud"
-ln -sfn "${RUN_DIR}/test" "${QUERY_RUN_DIR}/test"
-ln -sfn "${QUERY_ENTITYBANK_DIR}" "${QUERY_RUN_DIR}/entitybank"
+replace_query_run_link "${RUN_DIR}/config.yaml" "${QUERY_RUN_DIR}/config.yaml"
+replace_query_run_link "${RUN_DIR}/point_cloud" "${QUERY_RUN_DIR}/point_cloud"
+replace_query_run_link "${RUN_DIR}/test" "${QUERY_RUN_DIR}/test"
+replace_query_run_link "${QUERY_ENTITYBANK_DIR}" "${QUERY_RUN_DIR}/entitybank"
 
 gs_python "${GS_ROOT}/scripts/export_semantic_slots.py" --run-dir "${QUERY_RUN_DIR}"
 gs_python "${GS_ROOT}/scripts/export_semantic_tracks.py" --run-dir "${QUERY_RUN_DIR}"
