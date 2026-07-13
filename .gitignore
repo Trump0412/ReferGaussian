@@ -1,6 +1,8 @@
 # Large experiment outputs
 runs/
-data/
+# Match both directories and shared-data symlinks used by the documented setup.
+/data
+/models
 logs/
 reports/
 docs/reproducibility/
