@@ -1978,10 +1978,13 @@ def _compose_phrase_grounded_selection(
                 if action_end < action_start and split_frame is not None:
                     action_end = int(min(len(test_times) - 1, max(action_start, int(split_frame))))
                 target_segments = [[int(action_start), int(action_end)]]
-                selected_rows = _select_rows_for_target_segments(
-                    target_segments,
-                    f"Selected from track-derived action support for subject phrase '{subject_phrases[0]}'.",
-                )
+            # A non-empty track-derived action interval is the normal case. It
+            # must be materialized into the selected entity just like the
+            # plan-window interval used when tracking is unavailable.
+            selected_rows = _select_rows_for_target_segments(
+                target_segments,
+                f"Selected from track-derived action support for subject phrase '{subject_phrases[0]}'.",
+            )
             selection_source = "single_subject_track_action"
         elif query_state_mode in {"opened", "closed", "full", "empty", "above_midpoint", "dark", "light"} and track_state_segments:
             state_mode = (track_state_meta or {}).get("state_mode", query_state_mode)

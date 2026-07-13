@@ -435,11 +435,14 @@ def _query_semantic_profile(query: str) -> dict[str, Any]:
             "excluding the",
         )
     )
+    action_context_markers = ("while", "during", "in the process of")
     return {
         "query_norm": query_norm,
         "asks_before_state": bool(tokens & intact_keywords),
         "asks_after_state": bool(tokens & changed_keywords),
-        "asks_action_window": bool(tokens & action_keywords),
+        "asks_action_window": bool(tokens & action_keywords) or any(
+            marker in query_norm for marker in action_context_markers
+        ),
         "asks_set": asks_set,
     }
 

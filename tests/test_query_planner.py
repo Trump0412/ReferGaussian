@@ -6,16 +6,20 @@ import os
 import unittest
 from unittest.mock import patch
 
+import numpy as np
+
 from refergaussian.semantics.qwen_query_planner import (
     _canonicalize_phrase,
     _count_neutral_detector_phrases,
     _normalize_plan,
     _qwen_gpu_memory_budget_gib,
     _qwen_max_new_tokens,
+    _query_semantic_profile,
     _state_detector_phrase_additions,
 )
 from refergaussian.semantics.select_qwen_query_entities import (
     _candidate_phrase_score,
+    _compose_phrase_grounded_selection,
     _expand_counted_subject_phrases,
     _select_phrase_ids,
 )
@@ -60,6 +64,46 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         self.assertEqual(plan["query_subject_phrases"], ["knife"])
         self.assertEqual(plan["detector_phrases"], ["knife"])
         self.assertEqual(plan["must_track_phrases"], ["knife"])
+
+    def test_while_clause_is_an_action_window_without_action_specific_vocabulary(self) -> None:
+        profile = _query_semantic_profile("The object while it is moving.")
+        self.assertTrue(profile["asks_action_window"])
+
+    def test_action_track_segments_are_written_to_the_entity_selection(self) -> None:
+        candidates = [
+            {
+                "id": 7,
+                "proposal_phrase": "object",
+                "proposal_variant": "main",
+                "quality": 1.0,
+                "support_segments_test": [[0, 9]],
+                "query_relevant_segments_test": [],
+                "moving_segments_test": [],
+            }
+        ]
+        with patch(
+            "refergaussian.semantics.select_qwen_query_entities._track_state_segments_test",
+            return_value=([[2, 5]], {"state_mode": "action"}),
+        ):
+            payload = _compose_phrase_grounded_selection(
+                query="The object while it is moving.",
+                query_plan_payload={"query_subject_phrases": ["object"]},
+                candidates=candidates,
+                pair_candidates=[],
+                test_times=np.linspace(0.0, 1.0, num=10),
+                tracks_payload=None,
+                raw_phrase_payload={"subject_phrases": ["object"], "successor_phrases": []},
+            )
+
+        self.assertEqual(payload["selected"], [
+            {
+                "id": 7,
+                "role": "entity",
+                "confidence": 1.0,
+                "reason": "Selected from track-derived action support for subject phrase 'object'.",
+                "segments": [[2, 5]],
+            }
+        ])
 
     def test_explicit_multi_target_query_preserves_all_requested_subjects(self) -> None:
         plan = _normalize_plan(
