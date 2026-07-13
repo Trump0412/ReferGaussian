@@ -190,7 +190,12 @@ def _singularize_instance_head_token(token: str) -> str:
     return token
 
 
-def _instance_candidate_head_phrase(phrase: str, *, requested_instance_count: int = 1) -> str:
+def _instance_candidate_head_phrase(
+    phrase: str,
+    *,
+    requested_instance_count: int = 1,
+    allow_singleton: bool = False,
+) -> str:
     """Return a broad noun-head detector phrase for a compositional referent.
 
     This is intentionally grammar-level rather than category-level.  It lets
@@ -203,7 +208,11 @@ def _instance_candidate_head_phrase(phrase: str, *, requested_instance_count: in
     while tokens and tokens[0] in {"a", "an", "the", "both", "two", "three"}:
         removed_count_prefix = removed_count_prefix or tokens[0] in {"both", "two", "three"}
         tokens.pop(0)
-    if len(tokens) == 1 and (removed_count_prefix or int(requested_instance_count) > 1):
+    if len(tokens) == 1 and (
+        removed_count_prefix
+        or int(requested_instance_count) > 1
+        or bool(allow_singleton)
+    ):
         return _singularize_instance_head_token(str(tokens[0]))
     if len(tokens) < 2:
         return ""
@@ -621,6 +630,11 @@ def run_grounded_sam2_query(
     must_track_phrases = [str(item).strip() for item in query_plan.get("must_track_phrases", []) if str(item).strip()]
     successor_phrases = [str(item).strip() for item in query_plan.get("query_successor_phrases", []) if str(item).strip()]
     subject_phrases = [str(item).strip() for item in query_plan.get("query_subject_phrases", []) if str(item).strip()]
+    relation_context_phrases = [
+        str(item).strip()
+        for item in query_plan.get("relation_context_phrases", [])
+        if str(item).strip()
+    ]
     try:
         requested_instance_count = max(1, int(query_plan.get("requested_instance_count", 1)))
     except (TypeError, ValueError):
@@ -637,14 +651,28 @@ def run_grounded_sam2_query(
     # enumerate multiple visual instances without changing a set-query's
     # intended cardinality.  The original phrase remains the semantic label.
     candidate_head_by_phrase: dict[str, str] = {}
+    candidate_policy_by_phrase: dict[str, str] = {}
+    relation_disambiguation = bool(
+        enable_instance_candidates
+        and len(subject_phrases) == 1
+        and int(requested_instance_count) == 1
+        and relation_context_phrases
+    )
     if enable_instance_candidates and len(subject_phrases) == 1:
         subject_phrase = subject_phrases[0]
         candidate_head = _instance_candidate_head_phrase(
             subject_phrase,
             requested_instance_count=requested_instance_count,
+            allow_singleton=relation_disambiguation,
         )
-        if candidate_head and candidate_head != _normalize_query_text(subject_phrase).rstrip("."):
+        if candidate_head and (
+            candidate_head != _normalize_query_text(subject_phrase).rstrip(".")
+            or relation_disambiguation
+        ):
             candidate_head_by_phrase[subject_phrase] = candidate_head
+            candidate_policy_by_phrase[subject_phrase] = (
+                "relation_disambiguation" if relation_disambiguation else instance_policy
+            )
 
     image_entries = resolve_dataset_image_entries(dataset_dir)
     image_entries = image_entries[:: max(int(frame_subsample_stride), 1)]
@@ -672,6 +700,7 @@ def run_grounded_sam2_query(
             "track_window_radius": int(track_window_radius),
             "num_anchor_seeds": int(num_anchor_seeds),
             "instance_candidate_mode": bool(enable_instance_candidates),
+            "instance_relation_disambiguation": bool(relation_disambiguation),
             "instance_full_sequence_tracks": bool(instance_full_sequence_tracks),
             "instance_candidate_groups": [],
             "phrases": [],
@@ -767,6 +796,7 @@ def run_grounded_sam2_query(
         )
         if len(candidate_anchors) >= 2:
             group_index = len(instance_candidate_groups)
+            group_policy = candidate_policy_by_phrase.get(phrase, instance_policy)
             object_ids: list[int] = []
             for instance_index, anchor in enumerate(candidate_anchors):
                 object_id = int(len(track_specs) + 1)
@@ -781,6 +811,7 @@ def run_grounded_sam2_query(
                         "object_id": object_id,
                         "instance_group_id": f"instance_group_{group_index:03d}",
                         "instance_index": int(instance_index),
+                        "instance_selection_policy": group_policy,
                         "semantic_detections": semantic_detections,
                     }
                 )
@@ -790,7 +821,7 @@ def run_grounded_sam2_query(
                     "semantic_phrase": phrase,
                     "candidate_detector_phrase": candidate_head,
                     "object_ids": object_ids,
-                    "selection_policy": instance_policy,
+                    "selection_policy": group_policy,
                     "anchor_frame_index": int(candidate_anchors[0]["frame_index"]),
                 }
             )
@@ -829,6 +860,7 @@ def run_grounded_sam2_query(
                 "object_id": int(len(track_specs) + 1),
                 "instance_group_id": None,
                 "instance_index": None,
+                "instance_selection_policy": None,
                 "semantic_detections": semantic_detections,
             }
         )
@@ -1077,6 +1109,7 @@ def run_grounded_sam2_query(
                 "object_id": object_id,
                 "instance_group_id": spec.get("instance_group_id"),
                 "instance_index": spec.get("instance_index"),
+                "instance_selection_policy": spec.get("instance_selection_policy"),
                 "status": "seeded",
                 "anchor_frame_index": int(best["frame_index"]),
                 "anchor_image_id": best["image_id"],
@@ -1123,6 +1156,7 @@ def run_grounded_sam2_query(
                 "object_id": object_id,
                 "instance_group_id": spec.get("instance_group_id"),
                 "instance_index": spec.get("instance_index"),
+                "instance_selection_policy": spec.get("instance_selection_policy"),
                 "status": "seeded",
                 "anchor_frame_index": anchor_frame_index,
                 "split_frames": split_frames,
@@ -1147,6 +1181,7 @@ def run_grounded_sam2_query(
         "track_window_radius": int(track_window_radius),
         "num_anchor_seeds": int(num_anchor_seeds),
         "instance_candidate_mode": bool(enable_instance_candidates),
+        "instance_relation_disambiguation": bool(relation_disambiguation),
         "instance_full_sequence_tracks": bool(instance_full_sequence_tracks),
         "instance_candidate_groups": instance_candidate_groups,
         "suppressed_instance_variant_phrases": suppressed_instance_variant_phrases,

@@ -56,6 +56,10 @@ Return exactly one JSON object with keys:
 
 Rules:
 - candidate aliases must come from the candidate entities only.
+- If a candidate alias ends in "instance N", it denotes one separately tracked
+  same-category object. For a relational singular query, choose the exact
+  instance alias supported by the visual evidence; do not return the bare
+  category or combine all instances.
 - Prefer query_subject_phrases from the query plan.
 - Ignore optional context objects unless the query directly asks for them.
 - For action queries, select only the grammatical query referent or an explicitly requested entity set.
@@ -402,14 +406,18 @@ def _build_candidate_visual_evidence(
             continue
 
     candidate_tracks: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    seen_object_ids: set[int] = set()
     for candidate in candidates:
         try:
             object_id = int(candidate.get("stage1_object_id"))
         except (TypeError, ValueError):
             continue
+        if object_id in seen_object_ids:
+            continue
         track = tracks_by_object_id.get(object_id)
         if track is not None:
             candidate_tracks.append((candidate, track))
+            seen_object_ids.add(object_id)
     if not candidate_tracks:
         return [], []
 
@@ -477,6 +485,62 @@ def _build_candidate_visual_evidence(
             )
             evidence_images.append(image)
     return evidence_images, evidence_rows
+
+
+def _decorate_relation_disambiguation_candidates(
+    candidates: list[dict[str, Any]],
+    tracks_payload: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Expose stable aliases for separately tracked relational instances.
+
+    Entitybank rows intentionally retain their physical base phrase for lifting
+    and temporal reasoning. The selector needs a distinct alias, however, when
+    two visually separate tracks share that phrase and only one satisfies the
+    query's relational context.
+    """
+    if not tracks_payload:
+        return candidates
+    policy_by_object_id: dict[int, str] = {}
+    for group in tracks_payload.get("instance_candidate_groups", []):
+        if not isinstance(group, dict):
+            continue
+        policy = str(group.get("selection_policy", "")).strip().lower()
+        if policy != "relation_disambiguation":
+            continue
+        for value in group.get("object_ids", []):
+            try:
+                policy_by_object_id[int(value)] = policy
+            except (TypeError, ValueError):
+                continue
+    if not policy_by_object_id:
+        return candidates
+
+    decorated: list[dict[str, Any]] = []
+    for candidate in candidates:
+        row = dict(candidate)
+        try:
+            object_id = int(row.get("stage1_object_id"))
+        except (TypeError, ValueError):
+            object_id = -1
+        if policy_by_object_id.get(object_id) != "relation_disambiguation":
+            decorated.append(row)
+            continue
+        try:
+            instance_index = int(row.get("stage1_instance_index"))
+        except (TypeError, ValueError):
+            decorated.append(row)
+            continue
+        base_alias = str(
+            row.get("proposal_alias")
+            or row.get("proposal_phrase")
+            or row.get("static_text")
+            or "entity"
+        ).strip()
+        row["instance_selection_policy"] = "relation_disambiguation"
+        row["relation_instance_alias"] = f"{base_alias} instance {instance_index + 1}"
+        row["proposal_alias"] = row["relation_instance_alias"]
+        decorated.append(row)
+    return decorated
 
 
 def _singularize_match_token(token: str) -> str:
@@ -658,6 +722,7 @@ def _select_phrase_ids(
             selected_by_phrase[f"__fallback_missing_phrase__:{target}"] = [int(matches[0]["id"])]
         matches.sort(
             key=lambda item: (
+                -_candidate_phrase_score(target, item),
                 -float(item.get("quality", 0.0)),
                 _first_range_start(item.get("query_relevant_segments_test", [])),
                 int(item.get("id", -1)),
@@ -2122,6 +2187,19 @@ def _compose_phrase_grounded_selection(
             for candidate in candidates
             if _normalize_phrase(candidate.get("proposal_phrase", "") or candidate.get("static_text", "")) == family_phrase
         ]
+        if str(subject_row.get("instance_selection_policy", "")).strip().lower() == "relation_disambiguation":
+            instance_group_id = subject_row.get("stage1_instance_group_id")
+            instance_index = subject_row.get("stage1_instance_index")
+            instance_rows = [
+                candidate
+                for candidate in family_rows
+                if candidate.get("stage1_instance_group_id") == instance_group_id
+                and candidate.get("stage1_instance_index") == instance_index
+            ]
+            if instance_rows:
+                # The selector chose one visual instance. Keep its temporal
+                # variants, but never merge a sibling with the same noun head.
+                family_rows = instance_rows
         if family_rows:
             matched_rows = family_rows
 
@@ -2824,9 +2902,10 @@ def main() -> None:
     run_dir = assignments_path.parents[1]
     assignments_payload = _read_json(assignments_path)
     candidates, pair_candidates = _build_candidates(assignments_payload, run_dir=run_dir)
-    valid_ids = {int(item["id"]) for item in candidates}
     query_plan_payload = _read_json(Path(args.query_plan_path)) if args.query_plan_path else {}
     tracks_payload = _resolve_query_tracks_payload(Path(args.query_plan_path)) if args.query_plan_path else None
+    candidates = _decorate_relation_disambiguation_candidates(candidates, tracks_payload)
+    valid_ids = {int(item["id"]) for item in candidates}
     test_times = _test_time_values(run_dir)
     query = str(args.query).strip()
     visual_evidence_images, visual_evidence_rows = _build_candidate_visual_evidence(

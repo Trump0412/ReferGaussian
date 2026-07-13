@@ -24,6 +24,7 @@ from refergaussian.semantics.select_qwen_query_entities import (
     _candidate_phrase_score,
     _build_candidate_visual_evidence,
     _compose_phrase_grounded_selection,
+    _decorate_relation_disambiguation_candidates,
     _expand_counted_subject_phrases,
     _select_phrase_ids,
 )
@@ -112,7 +113,8 @@ class QueryPlannerPhraseTest(unittest.TestCase):
 
         self.assertEqual(plan["primary_subject_phrases"], ["operator"])
         self.assertEqual(plan["query_subject_phrases"], ["operator"])
-        self.assertEqual(plan["detector_phrases"], ["operator"])
+        self.assertEqual(plan["relation_context_phrases"], ["device", "material"])
+        self.assertEqual(plan["detector_phrases"], ["operator", "device", "material"])
         self.assertEqual(plan["must_track_phrases"], ["operator"])
 
     def test_while_clause_is_an_action_window_without_action_specific_vocabulary(self) -> None:
@@ -262,6 +264,90 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         self.assertEqual(payload["selection_mode"], "stage1_multi_hypothesis")
         self.assertEqual([item["id"] for item in payload["selected"]], [3, 4])
         self.assertTrue(all(item["segments"] == [[0, 9]] for item in payload["selected"]))
+
+    def test_relation_disambiguation_keeps_only_the_visually_selected_instance_family(self) -> None:
+        candidates = [
+            {
+                "id": 3,
+                "stage1_object_id": 11,
+                "stage1_instance_group_id": "instance_group_000",
+                "stage1_instance_index": 0,
+                "instance_selection_policy": "relation_disambiguation",
+                "proposal_alias": "part instance 1",
+                "proposal_phrase": "part",
+                "static_text": "part",
+                "quality": 0.99,
+                "support_segments_test": [[0, 9]],
+                "query_relevant_segments_test": [[0, 9]],
+            },
+            {
+                "id": 4,
+                "stage1_object_id": 12,
+                "stage1_instance_group_id": "instance_group_000",
+                "stage1_instance_index": 1,
+                "instance_selection_policy": "relation_disambiguation",
+                "proposal_alias": "part instance 2",
+                "proposal_phrase": "part",
+                "static_text": "part",
+                "quality": 0.10,
+                "support_segments_test": [[0, 9]],
+                "query_relevant_segments_test": [[0, 9]],
+            },
+        ]
+        payload = _compose_phrase_grounded_selection(
+            query="The part moving the device.",
+            query_plan_payload={"query_subject_phrases": ["part"]},
+            candidates=candidates,
+            pair_candidates=[],
+            test_times=np.linspace(0.0, 1.0, num=10),
+            tracks_payload={
+                "instance_candidate_groups": [
+                    {
+                        "semantic_phrase": "part",
+                        "object_ids": [11, 12],
+                        "selection_policy": "relation_disambiguation",
+                    }
+                ]
+            },
+            raw_phrase_payload={"subject_phrases": ["part instance 2"], "successor_phrases": []},
+        )
+
+        self.assertEqual([item["id"] for item in payload["selected"]], [4])
+
+    def test_relation_disambiguation_exposes_stable_instance_aliases(self) -> None:
+        candidates = [
+            {
+                "id": 3,
+                "stage1_object_id": 11,
+                "stage1_instance_index": 0,
+                "proposal_alias": "part",
+                "proposal_phrase": "part",
+            },
+            {
+                "id": 4,
+                "stage1_object_id": 12,
+                "stage1_instance_index": 1,
+                "proposal_alias": "part",
+                "proposal_phrase": "part",
+            },
+        ]
+        decorated = _decorate_relation_disambiguation_candidates(
+            candidates,
+            {
+                "instance_candidate_groups": [
+                    {
+                        "object_ids": [11, 12],
+                        "selection_policy": "relation_disambiguation",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(
+            [row["proposal_alias"] for row in decorated],
+            ["part instance 1", "part instance 2"],
+        )
+        self.assertTrue(all(row["instance_selection_policy"] == "relation_disambiguation" for row in decorated))
 
     def test_multi_hypothesis_uses_each_instance_synchronized_stage1_support(self) -> None:
         test_times = np.linspace(0.0, 1.0, num=10)

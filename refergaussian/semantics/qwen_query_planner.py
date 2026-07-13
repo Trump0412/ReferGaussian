@@ -737,6 +737,49 @@ def _leading_query_subject_phrases(query: str, candidates: list[str]) -> list[st
     return [matches[0][1]]
 
 
+def _phrases_overlap_as_one_referent(first: str, second: str) -> bool:
+    """Avoid treating a shortened or extended subject phrase as relation context."""
+    first_tokens = {
+        _singularize_counted_token(token)
+        for token in re.findall(r"[a-z0-9]+", _canonicalize_phrase(first))
+    }
+    second_tokens = {
+        _singularize_counted_token(token)
+        for token in re.findall(r"[a-z0-9]+", _canonicalize_phrase(second))
+    }
+    if not first_tokens or not second_tokens:
+        return False
+    return first_tokens.issubset(second_tokens) or second_tokens.issubset(first_tokens)
+
+
+def _relation_context_phrases(
+    query: str,
+    *,
+    query_subject_phrases: list[str],
+    raw_primary_subject_phrases: list[str],
+) -> list[str]:
+    """Retain explicitly named interaction context without promoting it to a subject.
+
+    A vision planner may initially list the agent, tool, and acted-on object as
+    ``primary_subject_phrases``.  The grammatical normalizer correctly narrows a
+    singular query to its leading referent, but the discarded entities are still
+    useful for deciding between visually distinct instances of that referent.
+    This keeps only terms stated in the query itself; it never adds a scene or
+    benchmark-specific vocabulary.
+    """
+    if len(query_subject_phrases) != 1 or len(raw_primary_subject_phrases) < 2:
+        return []
+    subject = query_subject_phrases[0]
+    context: list[str] = []
+    for phrase in raw_primary_subject_phrases:
+        if _phrases_overlap_as_one_referent(phrase, subject):
+            continue
+        if _phrase_token_span(query, phrase) is None:
+            continue
+        context.append(phrase)
+    return _normalize_phrase_list(context)
+
+
 def _leading_counted_subject_spec(query: str) -> tuple[str, int] | None:
     """Recover a leading English counted subject that a planner may simplify.
 
@@ -916,6 +959,7 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
     video_inventory_phrases = _normalize_phrase_list(raw_payload.get("video_inventory_phrases", []))[:8]
     query_subject_phrases = _normalize_phrase_list(raw_payload.get("query_subject_phrases", []))[:3]
     primary_subject_phrases = _normalize_phrase_list(raw_payload.get("primary_subject_phrases", []))[:3]
+    raw_primary_subject_phrases = primary_subject_phrases[:]
     query_successor_phrases = _normalize_phrase_list(raw_payload.get("query_successor_phrases", []))[:2]
     raw_optional_phrases = _normalize_phrase_list(raw_payload.get("optional_phrases", []))[:6]
     must_track_phrases = _normalize_phrase_list(raw_payload.get("must_track_phrases", []))[:3]
@@ -963,13 +1007,22 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         if _counted_subject_matches_plan(counted_subject_phrase, query_subject_phrases):
             query_subject_phrases = [counted_subject_phrase]
     primary_subject_phrases = query_subject_phrases[:]
+    relation_context_phrases = _relation_context_phrases(
+        query,
+        query_subject_phrases=query_subject_phrases,
+        raw_primary_subject_phrases=raw_primary_subject_phrases,
+    )
 
     state_detector_phrases = _state_detector_phrase_additions(
         query,
         _merge_unique_phrases(query_subject_phrases, query_successor_phrases),
     )
     detector_base_phrases = _count_neutral_detector_phrases(
-        _merge_unique_phrases(query_subject_phrases, query_successor_phrases),
+        _merge_unique_phrases(
+            query_subject_phrases,
+            relation_context_phrases,
+            query_successor_phrases,
+        ),
         limit=6,
     )
     detector_phrases = _merge_unique_phrases(detector_base_phrases, state_detector_phrases)[:6]
@@ -1023,6 +1076,7 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         "video_inventory_phrases": video_inventory_phrases,
         "primary_subject_phrases": primary_subject_phrases,
         "query_subject_phrases": query_subject_phrases,
+        "relation_context_phrases": relation_context_phrases,
         "query_successor_phrases": query_successor_phrases,
         "detector_phrases": detector_phrases,
         "optional_phrases": optional_phrases,
