@@ -214,7 +214,7 @@ fi
 if gs_python "${GS_ROOT}/scripts/write_empty_query_selection.py" \
   --query "${QUERY_TEXT}" \
   --query-plan-path "${OUTPUT_ROOT}/query_plan.json" \
-  --check-only; then
+  --check-only >/dev/null 2>&1; then
   echo "[empty-query] query plan is explicitly empty; skipping proposal/entitybank stages for ${QUERY_NAME}"
   mkdir -p "${QUERY_RUN_DIR}"
   ln -sfn "${RUN_DIR}/config.yaml" "${QUERY_RUN_DIR}/config.yaml"
