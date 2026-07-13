@@ -450,8 +450,14 @@ query_entitybank_ready() {
 replace_query_run_link() {
   local target="$1"
   local destination="$2"
+  local resolved_target
+  if [[ ! -e "${target}" ]]; then
+    echo "[error] cannot link missing query-run target: ${target}" >&2
+    return 2
+  fi
+  resolved_target="$(realpath -e "${target}")"
   rm -rf "${destination}"
-  ln -sfn "${target}" "${destination}"
+  ln -sfn "${resolved_target}" "${destination}"
 }
 
 proposal_ready=0
