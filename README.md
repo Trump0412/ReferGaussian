@@ -575,6 +575,14 @@ not change the public
 `public_time_boundary_gated_v5` protocol or substitute a Stage-1 mask for a
 Gaussian render.
 
+Qwen planning remains mandatory for this profile. When, and only when, a
+single planned subject exactly matches a declared `multi_hypothesis` Stage-1
+group with two or more separately lifted entitybank members and no successor
+subject, the downstream member set is already deterministic. In that narrow
+structural case, v6 uses native assignment metadata and the planned phrase
+instead of repeating post-lifting Qwen assignment and phrase selection. Every
+other query, including all public and v5 R4D queries, retains both Qwen calls.
+
 The preflight and query pipeline require `phase: refergaussian`,
 `temporal_warp_type: refergaussian`, and `warp_enabled: true` in each run's
 `config.yaml`. This prevents accidental evaluation of a baseline or legacy

@@ -28,8 +28,10 @@ The release gate and regression suite verify the executable contract:
 - formal v5 outputs are selected-Gaussian projections gated only by synchronized
   Stage-1 boundary neighborhoods; stale boundary matches fail with an auditable
   `validation.json` record rather than contributing a score;
-- Qwen planning, semantic assignment, and entity selection remain enabled in
-  published profiles;
+- Qwen planning remains enabled in published profiles. Semantic assignment and
+  entity selection also remain enabled except for the opt-in v6 declared
+  multi-instance contract, where a fully lifted Stage-1 group deterministically
+  fixes the same member set and avoids duplicate post-lifting Qwen calls;
 - the query entry point checks the configured Qwen checkpoint before Stage-1
   and verifies that SAM2 resolves from the pinned release checkout, preventing
   a shared-environment package from silently changing a released run;

@@ -78,6 +78,13 @@ every final mask on the same boundary-gated Gaussian-rendering contract. Run
 and report it in a distinct output root; it does not alter the public v5
 baseline.
 
+The Qwen query planner remains required in every profile. V6 skips only the
+otherwise redundant post-lifting Qwen assignment and selector calls when a
+deterministic contract is satisfied: one planned subject, no successor phrase,
+an exact matching declared `multi_hypothesis` group with at least two object
+ids, and a separately lifted entitybank member for every id. All other v6
+queries and all v5 profiles run the ordinary Qwen assignment and selector.
+
 ## Reporting Rules
 
 Every final query report must include:
@@ -112,5 +119,6 @@ test renders, and reports an empty Gaussian projection as a failure. It does
 not replace an entity with an all-scene mask, a direct 2D mask, or raw source
 RGB frames. Formal profiles keep the final prediction Gaussian-supported and
 record Stage-1 boundary coverage for every active selected entity. The R4D
-numeric-only profile may skip qualitative video exports, but it does not bypass
-Qwen planning, semantic assignment, or entity selection.
+numeric-only profile may skip qualitative video exports. Qwen planning is
+always required; only the explicitly documented v6 declared-instance contract
+can avoid duplicate post-lifting Qwen assignment and selection work.
