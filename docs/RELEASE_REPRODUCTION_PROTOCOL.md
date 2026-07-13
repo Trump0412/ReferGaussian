@@ -63,6 +63,11 @@ the benchmark to select cameras; it never reads or passes segmentation masks to
 inference. Direct source-camera outputs are preferred by the evaluator over a
 legacy nearest-time test-camera match, which is necessary when the camera moves.
 
+Run the matched `scripts/eval.sh` before beginning a query batch. The query
+renderer requires that ReferGaussian test render grid as its temporal reference
+and deliberately fails when it is missing rather than substituting a proxy
+sequence.
+
 Use `public_time_boundary_gated_v5` for the public protocol and
 `r4d_boundary_gated_v5` for R4D-Bench-QA. Both profiles render the selected
 Gaussian entity first, then apply only a synchronized dilated Stage-1 boundary

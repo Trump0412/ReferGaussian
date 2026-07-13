@@ -334,6 +334,11 @@ scene config, iteration budget, seed, and metric mode for both runs. The wrapper
 write `config.yaml`, `results.json`, and `metrics.json` beside each output for
 audit.
 
+Run the matching `eval.sh` once before a query batch. The query renderer uses
+the resulting ReferGaussian test render grid as its temporal reference and
+will refuse to evaluate a run with no such render instead of substituting a
+proxy image sequence.
+
 For iterative debugging only, set `GS_SKIP_FULL_METRICS=1` to run the uniform
 subset metric path. Do not compare subset metrics with the full-frame paper
 table; omit that variable for any final reconstruction report.
