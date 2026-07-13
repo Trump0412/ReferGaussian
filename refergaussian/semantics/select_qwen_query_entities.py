@@ -945,7 +945,10 @@ def _relation_disambiguation_override(
             if not gaps:
                 continue
             median_gap = float(np.median(np.asarray(gaps, dtype=np.float32)))
-            near_fraction = float(np.mean(np.asarray(gaps, dtype=np.float32) <= 0.40))
+            # A box separated by nearly half an object diagonal is nearby in
+            # image space but is not a reliable physical interaction. Keep
+            # this tight and scale-free so true grasp/contact evidence wins.
+            near_fraction = float(np.mean(np.asarray(gaps, dtype=np.float32) <= 0.10))
             proximity = 0.65 / (1.0 + median_gap) + 0.35 * near_fraction
             context_scores.append(
                 {
