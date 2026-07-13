@@ -70,6 +70,32 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
         disabled = subprocess.check_output(["bash", "-lc", command], text=True)
         self.assertEqual(disabled, "")
 
+    def test_multi_instance_profile_enables_only_the_declared_group_fast_path(self) -> None:
+        profiles = ROOT / "scripts" / "query_eval_profiles.sh"
+        command = (
+            f"source {profiles}; "
+            "apply_query_eval_profile r4d_multi_instance_boundary_v6; "
+            "printf '%s' \"${QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS:-}\""
+        )
+        enabled = subprocess.check_output(["bash", "-lc", command], text=True)
+        self.assertEqual(enabled, "1")
+
+        command = (
+            f"source {profiles}; "
+            "apply_query_eval_profile public_time_boundary_gated_v5; "
+            "printf '%s' \"${QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS:-}\""
+        )
+        disabled = subprocess.check_output(["bash", "-lc", command], text=True)
+        self.assertEqual(disabled, "")
+
+    def test_pipeline_gates_fast_path_on_lifted_instance_contract(self) -> None:
+        text = (ROOT / "scripts" / "run_query_specific_worldtube_pipeline.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("check_declared_multi_instance.py", text)
+        self.assertIn("--entitybank-path", text)
+        self.assertIn("QUERY_SKIP_QWEN_SELECTION=1", text)
+
     def test_counted_instance_variants_are_suppressed_only_after_a_group_exists(self) -> None:
         text = (ROOT / "refergaussian/semantics/grounded_sam2_backend.py").read_text(
             encoding="utf-8"

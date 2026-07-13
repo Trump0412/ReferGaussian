@@ -459,8 +459,23 @@ gs_python "${GS_ROOT}/scripts/export_semantic_slots.py" --run-dir "${QUERY_RUN_D
 gs_python "${GS_ROOT}/scripts/export_semantic_tracks.py" --run-dir "${QUERY_RUN_DIR}"
 gs_python "${GS_ROOT}/scripts/export_semantic_priors.py" --run-dir "${QUERY_RUN_DIR}"
 gs_python "${GS_ROOT}/scripts/export_native_semantics.py" --run-dir "${QUERY_RUN_DIR}"
+
+# A declared Stage-1 multi-instance group already fixes the selected Gaussian
+# members structurally.  Only take this path after every member has been
+# lifted; all other queries retain the normal Qwen assignment/selection path.
+AUTO_DECLARED_MULTI_INSTANCE=0
+if [[ "${QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS:-0}" == "1" ]] && \
+  gs_python "${GS_ROOT}/scripts/check_declared_multi_instance.py" \
+    --query-plan-path "${OUTPUT_ROOT}/query_plan.json" \
+    --tracks-path "${TRACKS_PATH}" \
+    --entitybank-path "${QUERY_RUN_DIR}/entitybank/entities.json" \
+    --quiet; then
+  AUTO_DECLARED_MULTI_INSTANCE=1
+  echo "[semantic-fast-path] using declared Stage-1 multi-instance membership"
+fi
+
 ASSIGNMENTS_PATH="${QWEN_ASSIGNMENTS_PATH}"
-if [[ "${QUERY_SKIP_QWEN_EXPORT:-0}" == "1" ]]; then
+if [[ "${QUERY_SKIP_QWEN_EXPORT:-0}" == "1" || "${AUTO_DECLARED_MULTI_INSTANCE}" == "1" ]]; then
   ASSIGNMENTS_PATH="${QUERY_RUN_DIR}/entitybank/native_semantic_assignments.json"
 elif [[ "${QUERY_REUSE_QWEN_EXPORT:-0}" == "1" && -f "${QWEN_ASSIGNMENTS_PATH}" ]]; then
   echo "Reusing existing Qwen assignments: ${QWEN_ASSIGNMENTS_PATH}"
@@ -485,11 +500,19 @@ fi
 if [[ "${QUERY_REUSE_QWEN_SELECTION:-0}" == "1" && -f "${QWEN_SELECTION_PATH}" ]]; then
   echo "Reusing existing Qwen selection: ${QWEN_SELECTION_PATH}"
 else
-  gsam2_python "${GS_ROOT}/scripts/select_qwen_query_entities.py" \
-    --assignments-path "${ASSIGNMENTS_PATH}" \
-    --query "${QUERY_TEXT}" \
-    --query-plan-path "${OUTPUT_ROOT}/query_plan.json" \
-    --output-path "${QWEN_SELECTION_PATH}"
+  if [[ "${AUTO_DECLARED_MULTI_INSTANCE}" == "1" ]]; then
+    QUERY_SKIP_QWEN_SELECTION=1 gsam2_python "${GS_ROOT}/scripts/select_qwen_query_entities.py" \
+      --assignments-path "${ASSIGNMENTS_PATH}" \
+      --query "${QUERY_TEXT}" \
+      --query-plan-path "${OUTPUT_ROOT}/query_plan.json" \
+      --output-path "${QWEN_SELECTION_PATH}"
+  else
+    gsam2_python "${GS_ROOT}/scripts/select_qwen_query_entities.py" \
+      --assignments-path "${ASSIGNMENTS_PATH}" \
+      --query "${QUERY_TEXT}" \
+      --query-plan-path "${OUTPUT_ROOT}/query_plan.json" \
+      --output-path "${QWEN_SELECTION_PATH}"
+  fi
 fi
 
 run_final_render_and_summary

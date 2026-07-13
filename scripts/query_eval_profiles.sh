@@ -47,6 +47,7 @@ apply_query_eval_profile() {
   unset QUERY_SKIP_ENTITY_LIBRARY
   unset QUERY_SKIP_QWEN_EXPORT
   unset QUERY_SKIP_QWEN_SELECTION
+  unset QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS
   unset QUERY_SAVE_KEY_FRAMES
   unset GSAM2_ENABLE_INSTANCE_CANDIDATES
   unset GSAM2_INSTANCE_MAX_CANDIDATES
@@ -557,6 +558,7 @@ apply_query_eval_profile() {
       export GSAM2_INSTANCE_MAX_CANDIDATES=2
       export GSAM2_INSTANCE_RESOLUTION_POLICY=multi_hypothesis
       export GSAM2_INSTANCE_FULL_SEQUENCE_TRACKS=1
+      export QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS=1
       ;;
     *)
       echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, public_time_boundary_gated_v5, r4d_shape_v4_recall, r4d_boundary_gated_v5, r4d_multi_instance_boundary_v6)" >&2
