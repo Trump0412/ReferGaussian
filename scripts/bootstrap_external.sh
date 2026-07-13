@@ -56,10 +56,10 @@ FOURD_TARGET="${EXTERNAL_DIR}/4DGaussians"
 apply_4dgs_patch() {
   local patch_path="$1"
   local label="$2"
-  if git -C "${FOURD_TARGET}" apply --check --whitespace=nowarn "${patch_path}"; then
+  if git -C "${FOURD_TARGET}" apply --check --whitespace=nowarn "${patch_path}" >/dev/null 2>&1; then
     git -C "${FOURD_TARGET}" apply --whitespace=nowarn "${patch_path}"
     echo "[done] applied ${label} to 4DGaussians"
-  elif git -C "${FOURD_TARGET}" apply --reverse --check "${patch_path}"; then
+  elif git -C "${FOURD_TARGET}" apply --reverse --check "${patch_path}" >/dev/null 2>&1; then
     echo "[ok] ${label} already applied"
   else
     echo "[error] 4DGaussians checkout does not match ${label}." >&2
