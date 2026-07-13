@@ -61,8 +61,11 @@ if [[ "${INSTALL_EDITABLE}" == "1" ]]; then
   popd >/dev/null
 fi
 
-env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 HF_ENDPOINT="${HF_MIRROR}" \
-  "${GS_CONDA_BIN}" run --no-capture-output -p "${GSAM2_ENV_PATH}" python - <<PY
+validate_pinned_assets() {
+  local local_only="$1"
+  env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 HF_ENDPOINT="${HF_MIRROR}" \
+    HF_HUB_OFFLINE="${local_only}" TRANSFORMERS_OFFLINE="${local_only}" \
+    "${GS_CONDA_BIN}" run --no-capture-output -p "${GSAM2_ENV_PATH}" python - "${local_only}" <<PY
 import sys
 from huggingface_hub import hf_hub_download
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
@@ -73,43 +76,27 @@ gdino_model_id = "${GDINO_MODEL_ID}"
 sam2_model_id = "${SAM2_MODEL_ID}"
 gdino_model_revision = "${GDINO_MODEL_REVISION}"
 sam2_model_revision = "${SAM2_MODEL_REVISION}"
-allow_download = "${DOWNLOAD_WEIGHTS}" == "1"
+local_files_only = sys.argv[1] == "1"
 
 config_name, checkpoint_name = HF_MODEL_ID_TO_FILENAMES[sam2_model_id]
 
-def load_pinned_assets(*, local_files_only: bool):
-    processor = AutoProcessor.from_pretrained(
-        gdino_model_id,
-        revision=gdino_model_revision,
-        use_fast=True,
-        local_files_only=local_files_only,
-    )
-    grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(
-        gdino_model_id,
-        revision=gdino_model_revision,
-        local_files_only=local_files_only,
-    )
-    checkpoint_path = hf_hub_download(
-        repo_id=sam2_model_id,
-        filename=checkpoint_name,
-        revision=sam2_model_revision,
-        local_files_only=local_files_only,
-    )
-    return processor, grounding_model, checkpoint_path
-
-# Avoid a network lookup when an exact local snapshot already exists. Besides
-# making setup reliable on clusters, this sidesteps optional upstream files that
-# newer Transformers versions may probe even though inference does not need them.
-try:
-    processor, grounding_model, checkpoint_path = load_pinned_assets(local_files_only=True)
-except Exception as offline_error:
-    if not allow_download:
-        raise RuntimeError(
-            "Pinned Grounded-SAM2 weights are missing from the local cache. "
-            "Set GSAM2_DOWNLOAD_WEIGHTS=1 on a machine with Hub access."
-        ) from offline_error
-    print("[info] pinned Grounded-SAM2 cache incomplete; downloading required files")
-    processor, grounding_model, checkpoint_path = load_pinned_assets(local_files_only=False)
+processor = AutoProcessor.from_pretrained(
+    gdino_model_id,
+    revision=gdino_model_revision,
+    use_fast=True,
+    local_files_only=local_files_only,
+)
+grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(
+    gdino_model_id,
+    revision=gdino_model_revision,
+    local_files_only=local_files_only,
+)
+checkpoint_path = hf_hub_download(
+    repo_id=sam2_model_id,
+    filename=checkpoint_name,
+    revision=sam2_model_revision,
+    local_files_only=local_files_only,
+)
 
 predictor = build_sam2_video_predictor(config_file=config_name, ckpt_path=checkpoint_path)
 
@@ -130,3 +117,16 @@ print("grounding model", type(grounding_model).__name__)
 print("sam2 predictor", type(predictor).__name__)
 print("gsam2 env ready:", "${GSAM2_ENV_PATH}")
 PY
+}
+
+# Keep strict offline mode active before importing Transformers: recent versions
+# may otherwise probe an optional processor file even with local_files_only.
+if ! validate_pinned_assets 1; then
+  if [[ "${DOWNLOAD_WEIGHTS}" != "1" ]]; then
+    echo "Pinned Grounded-SAM2 weights are missing from the local cache." >&2
+    echo "Set GSAM2_DOWNLOAD_WEIGHTS=1 on a machine with Hub access." >&2
+    exit 3
+  fi
+  echo "[info] pinned Grounded-SAM2 cache incomplete; downloading required files"
+  validate_pinned_assets 0
+fi

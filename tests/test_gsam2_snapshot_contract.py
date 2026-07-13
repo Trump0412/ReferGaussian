@@ -33,10 +33,11 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
         text = (ROOT / "scripts" / "setup_grounded_sam2.sh").read_text(encoding="utf-8")
         self.assertIn("hf_hub_download(", text)
         self.assertIn("revision=sam2_model_revision", text)
-        self.assertIn("local_files_only=True", text)
+        self.assertIn("local_files_only=local_files_only", text)
         self.assertIn("GSAM2_INSTALL_EDITABLE:-1", text)
         self.assertIn("GSAM2_DOWNLOAD_WEIGHTS", text)
-        self.assertIn("load_pinned_assets(local_files_only=True)", text)
+        self.assertIn("HF_HUB_OFFLINE=\"${local_only}\"", text)
+        self.assertIn("validate_pinned_assets 1", text)
         self.assertIn("sam2 imported from another checkout", text)
 
     def test_query_pipeline_checks_external_model_and_sam2_provenance_first(self) -> None:
