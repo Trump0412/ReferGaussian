@@ -21,6 +21,7 @@ from refergaussian.semantics.query_proposal_bridge import (
     _write_json,
 )
 from refergaussian.semantics.query_proposal_bridge import Camera
+from refergaussian.semantics.renderer_geometry import RendererGeometryCache, load_renderer_geometry_cache
 from refergaussian.semantics.semantic_renderer import (
     PreparedSemanticFrame,
     alignment_metrics,
@@ -106,6 +107,7 @@ def _lifting_mode() -> str:
                 "boundary_gated_gaussian_v5",
                 "r4d_boundary_gated_v5",
                 "r4d_multi_instance_boundary_v6",
+                "r4d_renderer_geometry_v7",
             }:
                 return "mask_bootstrap_refine"
             return normalized
@@ -305,6 +307,7 @@ def _collect_support(
     max_gaussians_per_frame: int,
     gate_threshold: float,
     device: str,
+    renderer_geometry: RendererGeometryCache | None = None,
 ) -> LiftingSupport:
     trajectories = np.asarray(bank["trajectories"], dtype=np.float32)
     gate = np.asarray(bank["gate"], dtype=np.float32).reshape(trajectories.shape[0], trajectories.shape[1])
@@ -338,15 +341,40 @@ def _collect_support(
         mask = _load_mask(frame["mask_path"], width=width, height=height)
         regions = build_mask_regions(mask, core_kernel=5, outer_kernel=17)
         distance_region = _build_distance_regions(mask, thin_mode=_is_geometrically_thin_mask(mask))
+        points = trajectories[:, int(bank_index), :]
+        opacity = np.asarray(state.opacity, dtype=np.float32)
+        visibility_gate = gate[:, int(bank_index)]
+        covariance_world = None
+        if renderer_geometry is not None:
+            geometry_frame = renderer_geometry.resolve(
+                image_id=image_id,
+                time_value=float(frame["time_value"]),
+                require_exact_image_id=True,
+            )
+            points = geometry_frame.centers
+            opacity = geometry_frame.opacity_logit
+            visibility_gate = np.ones((num_gaussians,), dtype=np.float32)
+            covariance_world = geometry_frame.covariance_packed
+            if points.shape != (num_gaussians, 3) or opacity.shape != (num_gaussians,):
+                raise ValueError(
+                    "Renderer geometry support cache must contain every run Gaussian in original id order; "
+                    f"got centers={points.shape}, opacity={opacity.shape}, expected ({num_gaussians}, 3)"
+                )
+            if covariance_world is None or covariance_world.shape != (num_gaussians, 6):
+                raise ValueError(
+                    "Renderer geometry support cache must provide packed covariance for every Gaussian; "
+                    f"got {None if covariance_world is None else covariance_world.shape}"
+                )
         prepared = prepare_semantic_frame_inputs(
             camera=camera,
             frame_index=int(frame["frame_index"]),
             image_id=image_id,
             time_value=float(frame["time_value"]),
-            points=trajectories[:, int(bank_index), :],
+            points=points,
             spatial_scale=np.asarray(bank["spatial_scale"], dtype=np.float32),
-            opacity=np.asarray(state.opacity, dtype=np.float32),
-            visibility_gate=gate[:, int(bank_index)],
+            opacity=opacity,
+            visibility_gate=visibility_gate,
+            covariance_world=covariance_world,
             image_scale=1.0,
             max_gaussians=int(max_gaussians_per_frame),
             gate_threshold=float(gate_threshold),
@@ -892,6 +920,11 @@ def _selection_mask_metrics(
             sigma_px=sample.prepared.sigma_px.to(device=device) * resolved_sigma_scale,
             alpha_weight=sample.prepared.alpha_weight.to(device=device),
             depth=sample.prepared.depth.to(device=device),
+            covariance_xy=(
+                None
+                if sample.prepared.covariance_xy is None
+                else sample.prepared.covariance_xy.to(device=device) * (resolved_sigma_scale * resolved_sigma_scale)
+            ),
         )
         local_ids = prepared.gaussian_ids.detach().cpu().numpy().astype(np.int64)
         local_weights = torch.as_tensor(mask[local_ids], dtype=torch.float32, device=device)
@@ -1195,6 +1228,8 @@ def _bootstrap_refine_selection(
             _sp.sigma_px = _sp.sigma_px.to(device)
             _sp.alpha_weight = _sp.alpha_weight.to(device)
             _sp.depth = _sp.depth.to(device)
+            if _sp.covariance_xy is not None:
+                _sp.covariance_xy = _sp.covariance_xy.to(device)
     all_indices = np.arange(frame_count, dtype=np.int32)
     best_ids = seed_ids.copy()
     fast_internal_metrics = _env_flag("QUERY_LIFT_BOOTSTRAP_FAST_INTERNAL_METRICS", True)
@@ -2627,6 +2662,19 @@ def build_mask_supported_lifting_proposal_dir(
     state, _config, _iteration = load_gaussian_state(run_dir)
     bank = _load_bank(run_dir / "entitybank")
     time_values = np.asarray(bank["time_values"], dtype=np.float32).reshape(-1)
+    renderer_geometry_path = os.environ.get("QUERY_RENDERER_GEOMETRY_SUPPORT_PATH", "").strip()
+    renderer_geometry = load_renderer_geometry_cache(renderer_geometry_path or None)
+    require_renderer_geometry = _env_flag("QUERY_REQUIRE_RENDERER_GEOMETRY", False)
+    if require_renderer_geometry and renderer_geometry is None:
+        raise FileNotFoundError(
+            "QUERY_REQUIRE_RENDERER_GEOMETRY=1 but QUERY_RENDERER_GEOMETRY_SUPPORT_PATH is missing or invalid"
+        )
+    if renderer_geometry is not None:
+        expected_ids = np.arange(int(np.asarray(bank["trajectories"]).shape[0]), dtype=np.int64)
+        if not np.array_equal(np.asarray(renderer_geometry.gaussian_ids, dtype=np.int64), expected_ids):
+            raise ValueError(
+                "Renderer geometry support cache must cover every run Gaussian in contiguous original-id order"
+            )
     track_payload = _read_json(tracks_path)
     query_plan_path = tracks_path.parent.parent / "query_plan.json"
     query_plan = _read_json(query_plan_path) if query_plan_path.exists() else None
@@ -2697,6 +2745,7 @@ def build_mask_supported_lifting_proposal_dir(
                 max_gaussians_per_frame=max_gaussians_per_frame,
                 gate_threshold=gate_threshold,
                 device=device,
+                renderer_geometry=renderer_geometry,
             )
             if not support.samples:
                 print(f"[mask_supported_lifting] skip variant='{variant.get('alias')}' no support samples", flush=True)

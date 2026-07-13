@@ -137,6 +137,8 @@ echo "[profile] QUERY_EVAL_PROFILE=${QUERY_EVAL_PROFILE}"
 require_refergaussian_run "${RUN_DIR}"
 
 QUERY_PROPOSAL_BUILDER="${QUERY_PROPOSAL_BUILDER:-mask_supported_lifting}"
+RENDERER_GEOMETRY_SUPPORT_DIR="${OUTPUT_ROOT}/renderer_geometry_support"
+RENDERER_GEOMETRY_FINAL_DIR="${OUTPUT_ROOT}/renderer_geometry_final"
 
 if [[ "${QUERY_PROPOSAL_BUILDER}" == "surface_mask_field" ]]; then
   echo "[error] surface_mask_field is not part of the public training-free release; use mask_supported_lifting." >&2
@@ -229,6 +231,36 @@ if gs_python "${GS_ROOT}/scripts/write_empty_query_selection.py" \
   run_final_render_and_summary
   exit 0
 fi
+
+run_export_renderer_geometry_support() {
+  if [[ "${QUERY_USE_RENDERER_GEOMETRY:-0}" != "1" ]]; then
+    return 0
+  fi
+  _stage_wrapper renderer_geometry_support \
+    run_gs_python_with_timeout "${QUERY_RENDERER_GEOMETRY_SUPPORT_TIMEOUT:-1200}" \
+      "${GS_ROOT}/scripts/export_renderer_geometry.py" \
+      --run-dir "${RUN_DIR}" \
+      --dataset-dir "${DATASET_DIR}" \
+      --tracks-path "${TRACKS_PATH}" \
+      --output-dir "${RENDERER_GEOMETRY_SUPPORT_DIR}"
+  export QUERY_RENDERER_GEOMETRY_SUPPORT_PATH="${RENDERER_GEOMETRY_SUPPORT_DIR}"
+}
+
+run_export_renderer_geometry_final() {
+  if [[ "${QUERY_USE_RENDERER_GEOMETRY:-0}" != "1" ]]; then
+    return 0
+  fi
+  _stage_wrapper renderer_geometry_final \
+    run_gs_python_with_timeout "${QUERY_RENDERER_GEOMETRY_FINAL_TIMEOUT:-1800}" \
+      "${GS_ROOT}/scripts/export_renderer_geometry.py" \
+      --run-dir "${RUN_DIR}" \
+      --dataset-dir "${DATASET_DIR}" \
+      --all-dataset-frames \
+      --entitybank-dir "${QUERY_ENTITYBANK_DIR}" \
+      --output-dir "${RENDERER_GEOMETRY_FINAL_DIR}"
+  rm -f "${QUERY_ENTITYBANK_DIR}/renderer_geometry"
+  ln -s "${RENDERER_GEOMETRY_FINAL_DIR}" "${QUERY_ENTITYBANK_DIR}/renderer_geometry"
+}
 
 run_build_query_proposal() {
   local builder="${QUERY_PROPOSAL_BUILDER}"
@@ -423,6 +455,7 @@ replace_query_run_link() {
 }
 
 proposal_ready=0
+run_export_renderer_geometry_support
 if [[ "${QUERY_REUSE_PROPOSAL_DIR:-0}" == "1" ]] && proposal_dir_ready; then
   echo "[reuse] existing query proposal dir: ${PROPOSAL_DIR}"
   proposal_ready=1
@@ -448,6 +481,8 @@ else
   echo "[error] mask-supported lifting failed for ${QUERY_NAME}; inspect grounded_sam2 and proposal diagnostics" >&2
   exit 2
 fi
+
+run_export_renderer_geometry_final
 
 mkdir -p "${QUERY_RUN_DIR}"
 replace_query_run_link "${RUN_DIR}/config.yaml" "${QUERY_RUN_DIR}/config.yaml"

@@ -16,6 +16,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from .source_images import resolve_dataset_image_entries
+from .renderer_geometry import RendererGeometryCache, load_renderer_geometry_cache
 
 try:
     from scipy import ndimage as _ndimage
@@ -75,6 +76,7 @@ _FORMAL_BOUNDARY_GATED_PROFILES = frozenset(
         "boundary_gated_gaussian_v5",
         "r4d_boundary_gated_v5",
         "r4d_multi_instance_boundary_v6",
+        "r4d_renderer_geometry_v7",
     }
 )
 _COVERAGE_RENDER_PROFILES = frozenset(
@@ -116,6 +118,9 @@ class EntityCloud:
     alpha_absolute_threshold: float | None = None
     alpha_sigma_scale: float | None = None
     alpha_max_splat_radius: int | None = None
+    gaussian_ids: np.ndarray | None = None
+    renderer_geometry: RendererGeometryCache | None = None
+    require_renderer_geometry: bool = False
 
 
 @dataclass
@@ -1404,6 +1409,13 @@ def _load_entity_clouds(run_dir: Path, selected_items: list[dict[str, Any]]) -> 
         trajectory_payload,
         gaussian_count=int(trajectories.shape[0]),
     )
+    require_renderer_geometry = _env_flag("QUERY_REQUIRE_RENDERER_GEOMETRY", False)
+    renderer_geometry = load_renderer_geometry_cache(entitybank_dir / "renderer_geometry")
+    if require_renderer_geometry and renderer_geometry is None:
+        raise FileNotFoundError(
+            "QUERY_REQUIRE_RENDERER_GEOMETRY=1 but entitybank/renderer_geometry is unavailable. "
+            "Run the query renderer-geometry export stage before final projection."
+        )
 
     clouds: dict[int, EntityCloud] = {}
     for item_index, item in enumerate(selected_items):
@@ -1444,6 +1456,8 @@ def _load_entity_clouds(run_dir: Path, selected_items: list[dict[str, Any]]) -> 
         gaussian_ids = np.unique(gaussian_ids)
         if gaussian_ids.size == 0:
             continue
+        if renderer_geometry is not None:
+            renderer_geometry.columns_for_gaussian_ids(gaussian_ids, require_all=True)
         clouds[int(item_index)] = EntityCloud(
             entity_id=int(item.get("id", -1)),
             sample_times=sample_times,
@@ -1457,6 +1471,9 @@ def _load_entity_clouds(run_dir: Path, selected_items: list[dict[str, Any]]) -> 
             alpha_absolute_threshold=absolute_threshold,
             alpha_sigma_scale=sigma_scale,
             alpha_max_splat_radius=max_splat_radius,
+            gaussian_ids=gaussian_ids,
+            renderer_geometry=renderer_geometry,
+            require_renderer_geometry=require_renderer_geometry,
         )
     return clouds
 
@@ -1682,12 +1699,42 @@ def _project_entity_cloud_mask(
     image_size: tuple[int, int],
     cloud: EntityCloud,
     time_value: float,
+    image_id: str | None = None,
     eval_profile: str | None = None,
     stage1_boundary_available: bool = True,
 ) -> tuple[np.ndarray | None, list[int] | None]:
     if cloud.trajectories.size == 0:
         return None, None
     sample_index = int(np.abs(cloud.sample_times - float(time_value)).argmin())
+    points_world_all = np.asarray(cloud.trajectories[:, sample_index, :], dtype=np.float32)
+    gate_values_all = np.asarray(cloud.gate[:, sample_index], dtype=np.float32).reshape(-1)
+    covariance_world_all = None
+    if cloud.renderer_geometry is not None:
+        if cloud.gaussian_ids is None:
+            raise ValueError(f"Renderer geometry has no Gaussian-id map for entity {cloud.entity_id}")
+        renderer_frame = cloud.renderer_geometry.resolve(
+            image_id=image_id,
+            time_value=float(time_value),
+            gaussian_ids=cloud.gaussian_ids,
+            require_exact_image_id=cloud.require_renderer_geometry,
+        )
+        points_world_all = renderer_frame.centers
+        gate_values_all = np.ones((points_world_all.shape[0],), dtype=np.float32)
+        opacity_all = renderer_frame.opacity_logit
+        covariance_world_all = renderer_frame.covariance_packed
+        opacity_source = "renderer_geometry"
+    else:
+        if cloud.require_renderer_geometry:
+            raise FileNotFoundError(
+                f"Renderer geometry is required for entity {cloud.entity_id}, but no geometry cache was loaded"
+            )
+        opacity_all = (
+            np.zeros((points_world_all.shape[0],), dtype=np.float32)
+            if cloud.opacity_logit is None
+            else np.asarray(cloud.opacity_logit, dtype=np.float32).reshape(-1)
+        )
+        opacity_source = cloud.opacity_source
+
     render_mode = " ".join(str(os.environ.get("GS_QUERY_CLOUD_RENDER_MODE", "point_hull")).strip().lower().replace("-", "_").split())
     alpha_modes = {"alpha_splat", "semantic_alpha", "gaussian_alpha"}
     strict_alpha = _env_flag("GS_QUERY_ALPHA_REQUIRE_SUCCESS", False)
@@ -1695,19 +1742,12 @@ def _project_entity_cloud_mask(
         if strict_alpha:
             raise RuntimeError("Gaussian alpha projection is required but semantic rendering dependencies are unavailable")
     if render_mode in alpha_modes and torch is not None and prepare_semantic_frame_inputs is not None and render_selection_mask is not None:
-        points_world_all = np.asarray(cloud.trajectories[:, sample_index, :], dtype=np.float32)
-        gate_values_all = np.asarray(cloud.gate[:, sample_index], dtype=np.float32).reshape(-1)
         if cloud.spatial_scale is not None:
             spatial_scale_all = np.asarray(cloud.spatial_scale, dtype=np.float32)
         else:
             extent = np.asarray(cloud.spatial_extent, dtype=np.float32).reshape(-1)
             spatial_scale_all = np.repeat(np.maximum(extent[:, None], 1.0e-4), 3, axis=1).astype(np.float32)
-        opacity_all = (
-            np.zeros((points_world_all.shape[0],), dtype=np.float32)
-            if cloud.opacity_logit is None
-            else np.asarray(cloud.opacity_logit, dtype=np.float32).reshape(-1)
-        )
-        if cloud.opacity_logit is None and _env_flag("GS_QUERY_ALPHA_REQUIRE_OPACITY", False):
+        if opacity_source == "unavailable" and _env_flag("GS_QUERY_ALPHA_REQUIRE_OPACITY", False):
             raise RuntimeError(f"Gaussian alpha projection requires opacity for entity {cloud.entity_id}")
         if opacity_all.size != points_world_all.shape[0]:
             if strict_alpha:
@@ -1731,6 +1771,7 @@ def _project_entity_cloud_mask(
                 spatial_scale=spatial_scale_all,
                 opacity=opacity_all,
                 visibility_gate=gate_values_all,
+                covariance_world=covariance_world_all,
                 image_scale=image_scale,
                 max_gaussians=_env_int("GS_QUERY_ALPHA_MAX_GAUSSIANS", 20000, minimum=1),
                 gate_threshold=_env_float("GS_QUERY_ALPHA_GATE_THRESHOLD", 0.08, minimum=0.0),
@@ -1751,6 +1792,8 @@ def _project_entity_cloud_mask(
                 max_splat_radius = int(np.clip(max_splat_radius, 1, 64))
                 if sigma_scale != 1.0:
                     prepared.sigma_px = prepared.sigma_px * sigma_scale
+                    if prepared.covariance_xy is not None:
+                        prepared.covariance_xy = prepared.covariance_xy * (sigma_scale * sigma_scale)
                 selected_weights = torch.ones(
                     (int(prepared.gaussian_ids.numel()),),
                     dtype=torch.float32,
@@ -1787,8 +1830,8 @@ def _project_entity_cloud_mask(
         if strict_alpha:
             return None, None
 
-    points_world = np.asarray(cloud.trajectories[:, sample_index, :], dtype=np.float32)
-    gate_values = np.asarray(cloud.gate[:, sample_index], dtype=np.float32).reshape(-1)
+    points_world = points_world_all
+    gate_values = gate_values_all
     active = gate_values >= max(0.08, float(gate_values.max()) * 0.15)
     if not active.any():
         return None, None
@@ -2468,11 +2511,19 @@ def render_hypernerf_query_video(
                         overlay.size,
                         entry["cloud"],
                         float(time_value),
+                        image_id=str(image_id),
                         eval_profile=resolved_eval_profile,
                         stage1_boundary_available=query_track_mask is not None,
                     )
                     if cloud_mask is not None:
                         lifecycle_cloud_union |= np.asarray(cloud_mask, dtype=bool)
+                        # Renderer-consistent geometry is the authoritative
+                        # visibility test for this projection.  The legacy
+                        # entitybank centroid is retained only for overlays.
+                        if entry["cloud"].renderer_geometry is not None:
+                            visible = True
+                            displayable = True
+                            in_bounds = True
                 role_record = {
                     "role": role,
                     "entity_id": int(entry["entity_id"]),

@@ -22,6 +22,7 @@ class PreparedSemanticFrame:
     sigma_px: torch.Tensor
     alpha_weight: torch.Tensor
     depth: torch.Tensor
+    covariance_xy: torch.Tensor | None = None
 
 
 def _camera_image_size(camera: Any) -> tuple[int, int]:
@@ -62,6 +63,69 @@ def _estimate_sigma_pixels(
     return np.clip(sigma * 0.85, 0.75, 16.0).astype(np.float32)
 
 
+def _unpack_world_covariance(covariance: np.ndarray) -> np.ndarray:
+    array = np.asarray(covariance, dtype=np.float32)
+    if array.ndim == 3 and array.shape[1:] == (3, 3):
+        return array
+    if array.ndim != 2 or array.shape[1] != 6:
+        raise ValueError(f"Expected world covariance [N,3,3] or packed [N,6], got {array.shape}")
+    result = np.zeros((array.shape[0], 3, 3), dtype=np.float32)
+    result[:, 0, 0] = array[:, 0]
+    result[:, 0, 1] = result[:, 1, 0] = array[:, 1]
+    result[:, 0, 2] = result[:, 2, 0] = array[:, 2]
+    result[:, 1, 1] = array[:, 3]
+    result[:, 1, 2] = result[:, 2, 1] = array[:, 4]
+    result[:, 2, 2] = array[:, 5]
+    return result
+
+
+def _project_world_covariance(
+    camera: Any,
+    points: np.ndarray,
+    covariance_world: np.ndarray,
+    image_scale: float,
+) -> np.ndarray:
+    """Project 3D Gaussian covariance with a camera-consistent local Jacobian.
+
+    A central finite difference keeps this correct for the distortion model in
+    ``scene.utils.Camera`` without duplicating its lens math in the semantic
+    path.  This is only evaluated for visible selected Gaussians.
+    """
+    points = np.asarray(points, dtype=np.float32)
+    covariance = _unpack_world_covariance(covariance_world)
+    if points.shape[0] != covariance.shape[0]:
+        raise ValueError("points and covariance_world must have the same row count")
+    if points.shape[0] == 0:
+        return np.zeros((0, 2, 2), dtype=np.float32)
+
+    epsilon = np.float32(1.0e-3)
+    jacobian = np.empty((points.shape[0], 2, 3), dtype=np.float32)
+    for axis in range(3):
+        offset = np.zeros((1, 3), dtype=np.float32)
+        offset[0, axis] = epsilon
+        plus = np.asarray(camera.project(points + offset), dtype=np.float32)
+        minus = np.asarray(camera.project(points - offset), dtype=np.float32)
+        jacobian[:, :, axis] = (plus - minus) * (0.5 / float(epsilon)) * float(image_scale)
+
+    projected = np.einsum("nai,nij,nbj->nab", jacobian, covariance, jacobian, optimize=True)
+    projected = 0.5 * (projected + np.swapaxes(projected, 1, 2))
+    # Keep nearly point-like Gaussians numerically stable in alpha splatting.
+    projected[:, 0, 0] += 0.75**2
+    projected[:, 1, 1] += 0.75**2
+    return projected.astype(np.float32)
+
+
+def _covariance_max_sigma(covariance_xy: np.ndarray) -> np.ndarray:
+    covariance = np.asarray(covariance_xy, dtype=np.float32)
+    trace = covariance[:, 0, 0] + covariance[:, 1, 1]
+    determinant_term = np.maximum(
+        (covariance[:, 0, 0] - covariance[:, 1, 1]) ** 2 + 4.0 * covariance[:, 0, 1] ** 2,
+        0.0,
+    )
+    eigen_max = 0.5 * (trace + np.sqrt(determinant_term))
+    return np.sqrt(np.clip(eigen_max, 0.75**2, 64.0**2)).astype(np.float32)
+
+
 def prepare_semantic_frame_inputs(
     camera: Any,
     frame_index: int,
@@ -71,6 +135,7 @@ def prepare_semantic_frame_inputs(
     spatial_scale: np.ndarray,
     opacity: np.ndarray,
     visibility_gate: np.ndarray,
+    covariance_world: np.ndarray | None = None,
     image_scale: float = 1.0,
     max_gaussians: int = 16000,
     gate_threshold: float = 0.01,
@@ -109,6 +174,7 @@ def prepare_semantic_frame_inputs(
             sigma_px=torch.empty((0,), dtype=torch.float32, device=device),
             alpha_weight=torch.empty((0,), dtype=torch.float32, device=device),
             depth=torch.empty((0,), dtype=torch.float32, device=device),
+            covariance_xy=None,
         )
 
     if valid_ids.size > int(max_gaussians):
@@ -116,13 +182,30 @@ def prepare_semantic_frame_inputs(
         order = np.argsort(-support, kind="mergesort")
         valid_ids = valid_ids[order[: int(max_gaussians)]]
 
-    sigma_px = _estimate_sigma_pixels(
-        camera=camera,
-        points=np.asarray(points[valid_ids], dtype=np.float32),
-        spatial_scale=np.asarray(spatial_scale[valid_ids], dtype=np.float32),
-        centers_xy=np.asarray(centers_xy[valid_ids], dtype=np.float32),
-        image_scale=float(image_scale),
-    )
+    covariance_xy = None
+    if covariance_world is not None:
+        covariance = np.asarray(covariance_world, dtype=np.float32)
+        if covariance.shape[0] != points.shape[0]:
+            raise ValueError(
+                "covariance_world row count must match points: "
+                f"{covariance.shape[0]} vs {points.shape[0]}"
+            )
+        covariance_xy_np = _project_world_covariance(
+            camera=camera,
+            points=np.asarray(points[valid_ids], dtype=np.float32),
+            covariance_world=covariance[valid_ids],
+            image_scale=float(image_scale),
+        )
+        sigma_px = _covariance_max_sigma(covariance_xy_np)
+        covariance_xy = torch.as_tensor(covariance_xy_np, dtype=torch.float32, device=device)
+    else:
+        sigma_px = _estimate_sigma_pixels(
+            camera=camera,
+            points=np.asarray(points[valid_ids], dtype=np.float32),
+            spatial_scale=np.asarray(spatial_scale[valid_ids], dtype=np.float32),
+            centers_xy=np.asarray(centers_xy[valid_ids], dtype=np.float32),
+            image_scale=float(image_scale),
+        )
     return PreparedSemanticFrame(
         frame_index=int(frame_index),
         time_value=float(time_value),
@@ -135,6 +218,7 @@ def prepare_semantic_frame_inputs(
         sigma_px=torch.as_tensor(sigma_px, dtype=torch.float32, device=device),
         alpha_weight=torch.as_tensor(alpha_weight[valid_ids], dtype=torch.float32, device=device),
         depth=torch.as_tensor(depth[valid_ids], dtype=torch.float32, device=device),
+        covariance_xy=covariance_xy,
     )
 
 
@@ -159,6 +243,11 @@ def _splat_channel_values(
     centers = prepared.centers_xy.to(device=device, dtype=torch.float32)
     sigma = prepared.sigma_px.to(device=device, dtype=torch.float32).clamp_min(0.75)
     alpha_weight = prepared.alpha_weight.to(device=device, dtype=torch.float32).clamp_min(0.0)
+    covariance_xy = (
+        None
+        if prepared.covariance_xy is None
+        else prepared.covariance_xy.to(device=device, dtype=torch.float32)
+    )
 
     if centers.shape[0] == 0:
         prob_map = torch.zeros((num_channels, height, width), dtype=torch.float32, device=device)
@@ -173,7 +262,19 @@ def _splat_channel_values(
         alpha_chunk = alpha_weight[start:end]
         value_chunk = channel_values[start:end]
 
-        radius_chunk = torch.ceil(sigma_chunk * 3.0).to(dtype=torch.long).clamp(min=1, max=radius_cap)
+        if covariance_xy is None:
+            radius_chunk = torch.ceil(sigma_chunk * 3.0).to(dtype=torch.long).clamp(min=1, max=radius_cap)
+        else:
+            covariance_chunk = covariance_xy[start:end]
+            covariance_trace = covariance_chunk[:, 0, 0] + covariance_chunk[:, 1, 1]
+            covariance_disc = torch.clamp(
+                (covariance_chunk[:, 0, 0] - covariance_chunk[:, 1, 1]).square()
+                + 4.0 * covariance_chunk[:, 0, 1].square(),
+                min=0.0,
+            )
+            covariance_max = 0.5 * (covariance_trace + torch.sqrt(covariance_disc))
+            radius_chunk = torch.ceil(torch.sqrt(covariance_max.clamp_min(0.75**2)) * 3.0).to(dtype=torch.long)
+            radius_chunk = radius_chunk.clamp(min=1, max=radius_cap)
         patch_radius = int(radius_chunk.max().item())
         grid_y, grid_x = torch.meshgrid(
             torch.arange(-patch_radius, patch_radius + 1, device=device, dtype=torch.float32),
@@ -193,9 +294,27 @@ def _splat_channel_values(
             & (px < float(width))
             & (py >= 0.0)
             & (py < float(height))
-            & (patch_dist2 <= (radius_chunk[:, None].to(dtype=torch.float32) + 0.5).square())
         )
-        weights = alpha_chunk[:, None] * torch.exp(-0.5 * patch_dist2 / sigma_chunk[:, None].square().clamp_min(1.0e-4))
+        if covariance_xy is None:
+            support = patch_dist2 <= (radius_chunk[:, None].to(dtype=torch.float32) + 0.5).square()
+            exponent = patch_dist2 / sigma_chunk[:, None].square().clamp_min(1.0e-4)
+        else:
+            covariance_chunk = covariance_xy[start:end]
+            determinant = (
+                covariance_chunk[:, 0, 0] * covariance_chunk[:, 1, 1]
+                - covariance_chunk[:, 0, 1].square()
+            ).clamp_min(1.0e-6)
+            inverse_xx = covariance_chunk[:, 1, 1] / determinant
+            inverse_xy = -covariance_chunk[:, 0, 1] / determinant
+            inverse_yy = covariance_chunk[:, 0, 0] / determinant
+            exponent = (
+                inverse_xx[:, None] * offsets_x.square()
+                + 2.0 * inverse_xy[:, None] * offsets_x * offsets_y
+                + inverse_yy[:, None] * offsets_y.square()
+            )
+            support = exponent <= 9.0
+        patch_valid = patch_valid & support
+        weights = alpha_chunk[:, None] * torch.exp(-0.5 * exponent)
         weights = weights * patch_valid.to(dtype=torch.float32)
 
         flat_indices = (py.to(dtype=torch.long) * int(width) + px.to(dtype=torch.long)).reshape(-1)

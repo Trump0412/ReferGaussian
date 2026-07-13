@@ -79,6 +79,11 @@ apply_query_eval_profile() {
   unset GS_QUERY_FINAL_ERODE_KERNEL
   unset GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY
   unset GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY
+  unset QUERY_USE_RENDERER_GEOMETRY
+  unset QUERY_REQUIRE_RENDERER_GEOMETRY
+  unset QUERY_RENDERER_GEOMETRY_SUPPORT_PATH
+  unset QUERY_RENDERER_GEOMETRY_SUPPORT_TIMEOUT
+  unset QUERY_RENDERER_GEOMETRY_FINAL_TIMEOUT
 
   case "${profile}" in
     ""|default|paper_default)
@@ -560,8 +565,24 @@ apply_query_eval_profile() {
       export GSAM2_INSTANCE_FULL_SEQUENCE_TRACKS=1
       export QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS=1
       ;;
+    r4d_renderer_geometry_v7)
+      apply_query_eval_profile r4d_multi_instance_boundary_v6
+      export QUERY_EVAL_PROFILE="r4d_renderer_geometry_v7"
+      export REFERGAUSSIAN_QUERY_EVAL_PROFILE="r4d_renderer_geometry_v7"
+
+      # The training-free membership update and final cloud projection read
+      # the same fine-stage deformed Gaussian state. Missing geometry is a
+      # hard error: this profile never falls back to the old analytic tube.
+      export QUERY_USE_RENDERER_GEOMETRY=1
+      export QUERY_REQUIRE_RENDERER_GEOMETRY=1
+      export QUERY_RENDERER_GEOMETRY_SUPPORT_TIMEOUT="${QUERY_RENDERER_GEOMETRY_SUPPORT_TIMEOUT:-1200}"
+      export QUERY_RENDERER_GEOMETRY_FINAL_TIMEOUT="${QUERY_RENDERER_GEOMETRY_FINAL_TIMEOUT:-1800}"
+      export GS_QUERY_CLOUD_RENDER_MODE=gaussian_alpha
+      export GS_QUERY_ALPHA_REQUIRE_SUCCESS=1
+      export GS_QUERY_ALPHA_REQUIRE_OPACITY=1
+      ;;
     *)
-      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, public_time_boundary_gated_v5, r4d_shape_v4_recall, r4d_boundary_gated_v5, r4d_multi_instance_boundary_v6)" >&2
+      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, public_time_boundary_gated_v5, r4d_shape_v4_recall, r4d_boundary_gated_v5, r4d_multi_instance_boundary_v6, r4d_renderer_geometry_v7)" >&2
       return 2
       ;;
   esac
