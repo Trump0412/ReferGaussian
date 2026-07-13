@@ -36,6 +36,39 @@ def _write_validation(query_root: Path, frames: list[dict]) -> Path:
 
 
 class BenchmarkEvaluatorTest(unittest.TestCase):
+    def test_summary_separates_empty_target_outcomes(self) -> None:
+        nonempty = {
+            "Acc": 0.25,
+            "vIoU": 0.40,
+            "tIoU": 0.30,
+            "temporal_precision": 0.50,
+            "temporal_recall": 0.20,
+            "temporal_f1": 0.29,
+            "gt_active_count": 4,
+            "pred_active_count": 2,
+            "empty_query_correct": False,
+            "score_warnings": [],
+        }
+        empty = {
+            "Acc": 1.0,
+            "vIoU": 1.0,
+            "tIoU": 1.0,
+            "temporal_precision": 1.0,
+            "temporal_recall": 1.0,
+            "temporal_f1": 1.0,
+            "gt_active_count": 0,
+            "pred_active_count": 0,
+            "empty_query_correct": True,
+            "score_warnings": [],
+        }
+
+        summary = EVALUATOR.summarize_query_results([nonempty, empty], total_queries=2)
+
+        self.assertEqual(summary["zero_target_queries"], 1)
+        self.assertEqual(summary["zero_target_correct"], 1)
+        self.assertEqual(summary["nonempty_queries"], 1)
+        self.assertEqual(summary["nonempty_only"]["vIoU"], 0.40)
+
     def test_empty_query_scores_perfectly_only_when_prediction_is_empty(self) -> None:
         query_item = {
             "query_id": "empty_q1",

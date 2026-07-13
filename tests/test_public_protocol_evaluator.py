@@ -38,6 +38,39 @@ def _validation(mask_dir: Path, active: list[bool]) -> dict:
 
 
 class PublicProtocolEvaluatorTest(unittest.TestCase):
+    def test_summary_separates_empty_target_outcomes(self) -> None:
+        nonempty = {
+            "Acc": 0.25,
+            "vIoU": 0.40,
+            "temporal_tIoU": 0.30,
+            "temporal_precision": 0.50,
+            "temporal_recall": 0.20,
+            "temporal_f1": 0.29,
+            "temporal_gt_active_count": 4,
+            "temporal_pred_active_count": 2,
+            "empty_query_correct": False,
+            "score_warnings": [],
+        }
+        empty = {
+            "Acc": 1.0,
+            "vIoU": 1.0,
+            "temporal_tIoU": 1.0,
+            "temporal_precision": 1.0,
+            "temporal_recall": 1.0,
+            "temporal_f1": 1.0,
+            "temporal_gt_active_count": 0,
+            "temporal_pred_active_count": 0,
+            "empty_query_correct": True,
+            "score_warnings": [],
+        }
+
+        summary = EVALUATOR.summarize_query_results([nonempty, empty], query_count=2)
+
+        self.assertEqual(summary["zero_target_queries"], 1)
+        self.assertEqual(summary["zero_target_correct"], 1)
+        self.assertEqual(summary["nonempty_queries"], 1)
+        self.assertEqual(summary["nonempty_only"]["vIoU"], 0.40)
+
     def test_empty_query_scores_perfectly_only_when_prediction_is_empty(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             result = EVALUATOR.evaluate_query(

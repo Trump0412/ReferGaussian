@@ -320,6 +320,7 @@ def evaluate_query(
         "temporal_f1": temporal_f1,
         "temporal_pred_active_count": int(pred_active_count),
         "temporal_gt_active_count": int(gt_active_count),
+        "empty_query_correct": bool(gt_active_count == 0 and pred_active_count == 0),
         "temporal_inter": int(temporal_inter),
         "temporal_union": int(temporal_union),
         "mask_union_frames": int(union_count),
@@ -330,6 +331,41 @@ def evaluate_query(
         "gt_time_segments": query_item["targets"][0]["target_ranges"],
         "validation_path": validation_payload.get("_validation_path", ""),
         "frame_rows": per_frame_rows,
+    }
+
+
+_METRIC_KEYS = (
+    "Acc",
+    "vIoU",
+    "temporal_tIoU",
+    "temporal_precision",
+    "temporal_recall",
+    "temporal_f1",
+)
+
+
+def _mean_metrics(rows: list[dict]) -> dict[str, float | None]:
+    return {
+        key: float(np.mean([row[key] for row in rows])) if rows else None
+        for key in _METRIC_KEYS
+    }
+
+
+def summarize_query_results(valid: list[dict], query_count: int) -> dict:
+    """Expose empty-target outcomes separately from ordinary referring queries."""
+
+    nonempty = [row for row in valid if int(row.get("temporal_gt_active_count", 0)) > 0]
+    empty = [row for row in valid if int(row.get("temporal_gt_active_count", 0)) == 0]
+    return {
+        "query_count": int(query_count),
+        "valid_queries": int(len(valid)),
+        **_mean_metrics(valid),
+        "nonempty_queries": int(len(nonempty)),
+        "nonempty_only": _mean_metrics(nonempty),
+        "zero_target_queries": int(len(empty)),
+        "zero_target_correct": int(sum(bool(row.get("empty_query_correct")) for row in empty)),
+        "zero_target_false_positive": int(sum(not bool(row.get("empty_query_correct")) for row in empty)),
+        "warning_count": int(sum(len(item.get("score_warnings", [])) for item in valid)),
     }
 
 
@@ -396,16 +432,7 @@ def main() -> None:
         per_query.append(result)
 
     valid = [item for item in per_query if item.get("Acc") is not None]
-    summary = {
-        "query_count": int(len(per_query)),
-        "valid_queries": int(len(valid)),
-        "Acc": float(np.mean([item["Acc"] for item in valid])) if valid else 0.0,
-        "vIoU": float(np.mean([item["vIoU"] for item in valid])) if valid else 0.0,
-        "temporal_tIoU": float(np.mean([item["temporal_tIoU"] for item in valid])) if valid else 0.0,
-        "temporal_precision": float(np.mean([item["temporal_precision"] for item in valid])) if valid else 0.0,
-        "temporal_recall": float(np.mean([item["temporal_recall"] for item in valid])) if valid else 0.0,
-        "warning_count": int(sum(len(item.get("score_warnings", [])) for item in per_query)),
-    }
+    summary = summarize_query_results(valid, len(per_query))
     payload = {
         "protocol_json": str(Path(args.protocol_json)),
         "annotation_dir": str(Path(args.annotation_dir)),
@@ -421,15 +448,26 @@ def main() -> None:
         json.dump(payload, handle, indent=2, ensure_ascii=False)
 
     if args.output_md:
+        def summary_pct(value: float | None) -> str:
+            return f"{value * 100.0:.2f}" if value is not None else "n/a"
+
         lines = [
             "# Public Query Benchmark",
             "",
             f"- Queries: `{summary['query_count']}`",
             f"- Valid queries: `{summary['valid_queries']}`",
-            f"- Acc(%): `{summary['Acc'] * 100.0:.2f}`",
-            f"- vIoU(%): `{summary['vIoU'] * 100.0:.2f}`",
-            f"- temporal tIoU(%): `{summary['temporal_tIoU'] * 100.0:.2f}`",
-            f"- temporal precision/recall(%): `{summary['temporal_precision'] * 100.0:.2f}` / `{summary['temporal_recall'] * 100.0:.2f}`",
+            f"- Acc(%): `{summary_pct(summary['Acc'])}`",
+            f"- vIoU(%): `{summary_pct(summary['vIoU'])}`",
+            f"- temporal tIoU(%): `{summary_pct(summary['temporal_tIoU'])}`",
+            f"- temporal precision/recall(%): "
+            f"`{summary_pct(summary['temporal_precision'])}` / "
+            f"`{summary_pct(summary['temporal_recall'])}`",
+            f"- non-empty queries: `{summary['nonempty_queries']}`",
+            f"- non-empty Acc/vIoU/tIoU(%): "
+            f"`{summary_pct(summary['nonempty_only']['Acc'])}` / "
+            f"`{summary_pct(summary['nonempty_only']['vIoU'])}` / "
+            f"`{summary_pct(summary['nonempty_only']['temporal_tIoU'])}`",
+            f"- zero-target correctness: `{summary['zero_target_correct']} / {summary['zero_target_queries']}`",
             f"- warnings: `{summary['warning_count']}`",
             "",
             "| Query | Acc(%) | vIoU(%) | tIoU(%) | tPrec(%) | tRec(%) | Target | Warnings | Pred Segments | GT Segments |",

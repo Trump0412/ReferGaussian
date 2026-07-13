@@ -693,6 +693,7 @@ def evaluate_query(
         "total_frames": total_frames,
         "gt_active_count": gt_active_count,
         "pred_active_count": pred_active_count,
+        "empty_query_correct": bool(gt_active_count == 0 and pred_active_count == 0),
         "temporal_inter": temporal_inter,
         "temporal_union": temporal_union,
         "score_warnings": warnings,
@@ -703,6 +704,42 @@ def evaluate_query(
         "binary_mask_dir_used": str(binary_mask_dir) if binary_mask_dir is not None else None,
         "dataset_dir_used": str(dataset_dir) if dataset_dir is not None else None,
     }
+
+
+_METRIC_KEYS = (
+    "Acc",
+    "vIoU",
+    "tIoU",
+    "temporal_precision",
+    "temporal_recall",
+    "temporal_f1",
+)
+
+
+def _mean_metrics(rows: list[dict]) -> dict[str, float | None]:
+    return {
+        key: float(np.mean([row[key] for row in rows])) if rows else None
+        for key in _METRIC_KEYS
+    }
+
+
+def summarize_query_results(valid: list[dict], total_queries: int) -> dict:
+    """Report aggregate scores without letting empty targets hide non-empty failures."""
+
+    nonempty = [row for row in valid if int(row.get("gt_active_count", 0)) > 0]
+    empty = [row for row in valid if int(row.get("gt_active_count", 0)) == 0]
+    summary = {
+        "total_queries": int(total_queries),
+        "valid_queries": int(len(valid)),
+        **_mean_metrics(valid),
+        "nonempty_queries": int(len(nonempty)),
+        "nonempty_only": _mean_metrics(nonempty),
+        "zero_target_queries": int(len(empty)),
+        "zero_target_correct": int(sum(bool(row.get("empty_query_correct")) for row in empty)),
+        "zero_target_false_positive": int(sum(not bool(row.get("empty_query_correct")) for row in empty)),
+        "warning_count": int(sum(len(row.get("score_warnings", [])) for row in valid)),
+    }
+    return summary
 
 
 # ---------------------------------------------------------------------------
@@ -787,17 +824,7 @@ def main() -> None:
     # Aggregate metrics (only over queries with valid results)
     valid = [r for r in per_query if r.get("Acc") is not None]
     n = len(valid)
-    summary = {
-        "total_queries": len(per_query),
-        "valid_queries": n,
-        "Acc": float(np.mean([r["Acc"] for r in valid])) if valid else None,
-        "vIoU": float(np.mean([r["vIoU"] for r in valid])) if valid else None,
-        "tIoU": float(np.mean([r["tIoU"] for r in valid])) if valid else None,
-        "temporal_precision": float(np.mean([r["temporal_precision"] for r in valid])) if valid else None,
-        "temporal_recall": float(np.mean([r["temporal_recall"] for r in valid])) if valid else None,
-        "temporal_f1": float(np.mean([r["temporal_f1"] for r in valid])) if valid else None,
-        "warning_count": int(sum(len(r.get("score_warnings", [])) for r in valid)),
-    }
+    summary = summarize_query_results(valid, len(per_query))
 
     print("\n=== Summary ===")
     print(f"Valid queries: {n} / {len(per_query)}")
@@ -806,6 +833,18 @@ def main() -> None:
         print(f"vIoU: {summary['vIoU']*100:.4f}%")
         print(f"tIoU: {summary['tIoU']*100:.4f}%")
         print(f"tPrec/tRec: {summary['temporal_precision']*100:.4f}% / {summary['temporal_recall']*100:.4f}%")
+        nonempty_summary = summary["nonempty_only"]
+        if nonempty_summary["Acc"] is not None:
+            print(
+                "Non-empty Acc/vIoU/tIoU: "
+                f"{nonempty_summary['Acc']*100:.4f}% / "
+                f"{nonempty_summary['vIoU']*100:.4f}% / "
+                f"{nonempty_summary['tIoU']*100:.4f}%"
+            )
+        print(
+            "Zero-target correctness: "
+            f"{summary['zero_target_correct']} / {summary['zero_target_queries']}"
+        )
 
     payload = {
         "benchmark": str(args.benchmark),
@@ -832,6 +871,14 @@ def main() -> None:
                 f"- vIoU: `{summary['vIoU']*100:.4f}%`",
                 f"- tIoU: `{summary['tIoU']*100:.4f}%`",
                 f"- temporal precision/recall: `{summary['temporal_precision']*100:.4f}%` / `{summary['temporal_recall']*100:.4f}%`",
+                f"- Non-empty queries: `{summary['nonempty_queries']}`",
+                f"- Non-empty Acc/vIoU/tIoU: "
+                f"`{summary['nonempty_only']['Acc']*100:.4f}%` / "
+                f"`{summary['nonempty_only']['vIoU']*100:.4f}%` / "
+                f"`{summary['nonempty_only']['tIoU']*100:.4f}%`"
+                if summary["nonempty_only"]["Acc"] is not None
+                else "- Non-empty Acc/vIoU/tIoU: `n/a`",
+                f"- Zero-target correctness: `{summary['zero_target_correct']} / {summary['zero_target_queries']}`",
                 f"- warnings: `{summary['warning_count']}`",
                 "",
                 "| Query | Status | Acc(%) | vIoU(%) | tIoU(%) | tPrec(%) | tRec(%) | Warnings |",

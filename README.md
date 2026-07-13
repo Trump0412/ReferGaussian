@@ -403,6 +403,7 @@ Output files:
 
 Metric rule used in both public and R4D evaluators:
 - Empty-set rule is enabled: if GT and prediction are both empty (temporal union = 0), `vIoU = 1.0` and `tIoU = 1.0`. An empty-GT query with any predicted activity scores `0.0` for both values.
+- Every evaluator summary also reports the non-empty-query subset and empty-target correctness separately. Report these alongside headline `Acc`/`vIoU`/`tIoU` so background-heavy timelines or zero-target queries cannot conceal ordinary grounding failures.
 
 Important benchmark note:
 - Current HF `LiYacheng/r4d-bench-qa` artifacts provide dense GT for 36-query and 89-query tiers.
