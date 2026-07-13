@@ -159,8 +159,6 @@ def generate_camera_jsons(
         if not dry_run:
             with open(out_path, "w", encoding="utf-8") as f:
                 json.dump(camera_json, f, indent=2)
-        else:
-            print(f"  [dry-run] would write: {out_path}")
 
     if not dry_run:
         print(f"Generated {len(frame_ids)} camera JSON files in {camera_dir}")
