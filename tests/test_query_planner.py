@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import os
 import unittest
+from unittest.mock import patch
 
 from refergaussian.semantics.qwen_query_planner import (
     _canonicalize_phrase,
     _count_neutral_detector_phrases,
     _normalize_plan,
+    _qwen_gpu_memory_budget_gib,
+    _qwen_max_new_tokens,
     _state_detector_phrase_additions,
 )
 from refergaussian.semantics.select_qwen_query_entities import (
@@ -92,6 +96,33 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         self.assertIn("two packages", phrases)
         self.assertIn("packages", phrases)
         self.assertIn("package", phrases)
+
+    def test_qwen_budget_uses_available_large_gpu_memory_without_a_hidden_16gib_cap(self) -> None:
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("REFERGAUSSIAN_QWEN_GPU_RESERVE_GIB", None)
+            os.environ.pop("REFERGAUSSIAN_QWEN_GPU_MAX_GIB", None)
+            self.assertEqual(_qwen_gpu_memory_budget_gib(32), 28)
+            self.assertEqual(_qwen_gpu_memory_budget_gib(12), 8)
+        with patch.dict(
+            os.environ,
+            {
+                "REFERGAUSSIAN_QWEN_GPU_RESERVE_GIB": "3",
+                "REFERGAUSSIAN_QWEN_GPU_MAX_GIB": "20",
+            },
+            clear=False,
+        ):
+            self.assertEqual(_qwen_gpu_memory_budget_gib(32), 20)
+
+    def test_qwen_generation_budget_defaults_to_existing_limit_and_is_bounded(self) -> None:
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("REFERGAUSSIAN_QWEN_MAX_NEW_TOKENS", None)
+            self.assertEqual(_qwen_max_new_tokens(), 1024)
+        with patch.dict(
+            os.environ,
+            {"REFERGAUSSIAN_QWEN_MAX_NEW_TOKENS": "640"},
+            clear=False,
+        ):
+            self.assertEqual(_qwen_max_new_tokens(), 640)
 
 
 if __name__ == "__main__":

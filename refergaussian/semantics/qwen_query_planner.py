@@ -274,6 +274,38 @@ def _import_transformers():
     return transformers
 
 
+def _qwen_env_int(name: str, default: int, minimum: int = 0, maximum: int | None = None) -> int:
+    """Read a bounded planner runtime setting without changing model semantics."""
+    try:
+        value = int(str(os.environ.get(name, default)).strip())
+    except (TypeError, ValueError):
+        value = int(default)
+    value = max(int(minimum), value)
+    if maximum is not None:
+        value = min(value, int(maximum))
+    return int(value)
+
+
+def _qwen_gpu_memory_budget_gib(free_gib: int) -> int:
+    """Reserve headroom while allowing a single planner to use a large GPU fully."""
+    reserve_gib = _qwen_env_int("REFERGAUSSIAN_QWEN_GPU_RESERVE_GIB", 4, minimum=0)
+    configured_max_gib = _qwen_env_int("REFERGAUSSIAN_QWEN_GPU_MAX_GIB", 0, minimum=0)
+    budget_gib = max(int(free_gib) - reserve_gib, 8)
+    if configured_max_gib > 0:
+        budget_gib = min(budget_gib, configured_max_gib)
+    return int(budget_gib)
+
+
+def _qwen_max_new_tokens() -> int:
+    """Keep the established output budget by default, with an explicit runtime override."""
+    return _qwen_env_int(
+        "REFERGAUSSIAN_QWEN_MAX_NEW_TOKENS",
+        1024,
+        minimum=128,
+        maximum=4096,
+    )
+
+
 def _qwen_model_load_kwargs() -> dict[str, Any]:
     kwargs: dict[str, Any] = {
         "trust_remote_code": True,
@@ -286,7 +318,7 @@ def _qwen_model_load_kwargs() -> dict[str, Any]:
         if torch.cuda.is_available():
             free_bytes, _total_bytes = torch.cuda.mem_get_info()
             free_gib = max(int(free_bytes // (1024**3)), 1)
-            gpu_budget = min(max(free_gib - 2, 8), 16)
+            gpu_budget = _qwen_gpu_memory_budget_gib(free_gib)
             max_memory = {index: f"{gpu_budget}GiB" for index in range(torch.cuda.device_count())}
             max_memory["cpu"] = "160GiB"
             kwargs["max_memory"] = max_memory
@@ -1257,7 +1289,7 @@ class QwenQueryPlanner:
         }
         generated = self.model.generate(
             **model_inputs,
-            max_new_tokens=1024,
+            max_new_tokens=_qwen_max_new_tokens(),
             do_sample=False,
         )
         trimmed = generated[:, model_inputs["input_ids"].shape[1] :]
