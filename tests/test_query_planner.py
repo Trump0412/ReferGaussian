@@ -141,6 +141,49 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         self.assertIn("packages", phrases)
         self.assertIn("package", phrases)
 
+    def test_declared_multi_hypothesis_keeps_distinct_stage1_instances(self) -> None:
+        candidates = [
+            {
+                "id": 3,
+                "stage1_object_id": 11,
+                "proposal_alias": "left hand",
+                "proposal_phrase": "left hand",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+                "query_relevant_segments_test": [[0, 9]],
+            },
+            {
+                "id": 4,
+                "stage1_object_id": 12,
+                "proposal_alias": "left hand",
+                "proposal_phrase": "left hand",
+                "quality": 0.8,
+                "support_segments_test": [[0, 9]],
+                "query_relevant_segments_test": [[0, 9]],
+            },
+        ]
+        payload = _compose_phrase_grounded_selection(
+            query="The left hand while it is typing.",
+            query_plan_payload={"query_subject_phrases": ["left hand"]},
+            candidates=candidates,
+            pair_candidates=[],
+            test_times=np.linspace(0.0, 1.0, num=10),
+            tracks_payload={
+                "instance_candidate_groups": [
+                    {
+                        "semantic_phrase": "left hand",
+                        "object_ids": [11, 12],
+                        "selection_policy": "multi_hypothesis",
+                    }
+                ]
+            },
+            raw_phrase_payload={"subject_phrases": ["left hand"], "successor_phrases": []},
+        )
+
+        self.assertEqual(payload["selection_mode"], "stage1_multi_hypothesis")
+        self.assertEqual([item["id"] for item in payload["selected"]], [3, 4])
+        self.assertTrue(all(item["segments"] == [[0, 9]] for item in payload["selected"]))
+
     def test_qwen_budget_uses_available_large_gpu_memory_without_a_hidden_16gib_cap(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("REFERGAUSSIAN_QWEN_GPU_RESERVE_GIB", None)

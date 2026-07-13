@@ -553,6 +553,15 @@ still requires its synchronized Stage-1 boundary gate. The benchmark utility
 extracts only `ground_truth.frames[].frame_id` to identify the published camera
 views; it does not inspect or pass any `segmentation` payload into inference.
 
+For an R4D diagnostic involving a compositional singular referent with several
+visually distinct instances, use the opt-in `r4d_multi_instance_boundary_v6`
+profile in a separate run root. It derives a broad noun-head detector phrase,
+lifts each spatially distinct Stage-1 track into its own Gaussian entity, and
+records a declared multi-hypothesis selection when the candidates remain
+query-compatible. It does not change the public
+`public_time_boundary_gated_v5` protocol or substitute a Stage-1 mask for a
+Gaussian render.
+
 The preflight and query pipeline require `phase: refergaussian`,
 `temporal_warp_type: refergaussian`, and `warp_enabled: true` in each run's
 `config.yaml`. This prevents accidental evaluation of a baseline or legacy

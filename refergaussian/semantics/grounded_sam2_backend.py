@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 from itertools import product
@@ -133,6 +134,112 @@ def _normalize_query_text(text: str) -> str:
     if not normalized.endswith("."):
         normalized = f"{normalized}."
     return normalized
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return bool(default)
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
+
+
+_INSTANCE_RELATION_TOKENS = frozenset(
+    {
+        "above",
+        "against",
+        "at",
+        "behind",
+        "below",
+        "beside",
+        "between",
+        "by",
+        "during",
+        "for",
+        "from",
+        "in",
+        "inside",
+        "near",
+        "next",
+        "of",
+        "on",
+        "over",
+        "under",
+        "with",
+        "while",
+        "when",
+    }
+)
+
+
+def _instance_candidate_head_phrase(phrase: str) -> str:
+    """Return a broad noun-head detector phrase for a compositional referent.
+
+    This is intentionally grammar-level rather than category-level.  It lets
+    the detector enumerate visually distinct instances for expressions such as
+    ``left hand`` or ``red package`` while retaining the original phrase for
+    semantic resolution.  It is only used by the opt-in multi-instance profile.
+    """
+    tokens = re.findall(r"[a-z0-9]+", str(phrase).strip().lower())
+    while tokens and tokens[0] in {"a", "an", "the", "both", "two", "three"}:
+        tokens.pop(0)
+    if len(tokens) < 2:
+        return ""
+    for index, token in enumerate(tokens):
+        if token in _INSTANCE_RELATION_TOKENS:
+            tokens = tokens[:index]
+            break
+    if len(tokens) < 2:
+        return ""
+    return str(tokens[-1])
+
+
+def _select_instance_anchor_detections(
+    detections: list[dict[str, Any]],
+    *,
+    max_instances: int,
+) -> list[dict[str, Any]]:
+    """Pick spatially distinct same-frame detections as instance hypotheses.
+
+    Selecting anchors from one frame gives every candidate the same camera and
+    temporal support before SAM2 propagation.  This avoids treating detections
+    from distant times as separate objects solely because they moved.
+    """
+    if int(max_instances) < 2:
+        return []
+    per_frame: dict[int, list[dict[str, Any]]] = {}
+    for detection in detections:
+        per_frame.setdefault(int(detection["frame_index"]), []).append(detection)
+
+    best_group: tuple[float, list[dict[str, Any]]] | None = None
+    for rows in per_frame.values():
+        ranked = sorted(rows, key=lambda row: float(row["score"]), reverse=True)
+        chosen: list[dict[str, Any]] = []
+        for row in ranked:
+            if any(_bbox_iou(row["bbox_xyxy"], other["bbox_xyxy"]) >= 0.35 for other in chosen):
+                continue
+            chosen.append(row)
+            if len(chosen) >= int(max_instances):
+                break
+        if len(chosen) < 2:
+            continue
+        pairwise_separation = [
+            1.0 - _bbox_proximity(first["bbox_xyxy"], second["bbox_xyxy"])
+            for first_index, first in enumerate(chosen)
+            for second in chosen[first_index + 1 :]
+        ]
+        score = float(np.mean([float(row["score"]) for row in chosen]))
+        score += 0.18 * float(len(chosen) - 1)
+        score += 0.12 * float(np.mean(pairwise_separation)) if pairwise_separation else 0.0
+        if best_group is None or score > best_group[0]:
+            best_group = (score, chosen)
+    if best_group is None:
+        return []
+    return sorted(best_group[1], key=lambda row: (-float(row["score"]), tuple(row["bbox_xyxy"])))
 
 
 def _draw_box_preview(image: Image.Image, box: list[float], label: str, score: float) -> Image.Image:
@@ -495,6 +602,23 @@ def run_grounded_sam2_query(
     detector_phrases = [str(item).strip() for item in query_plan.get("detector_phrases", []) if str(item).strip()]
     must_track_phrases = [str(item).strip() for item in query_plan.get("must_track_phrases", []) if str(item).strip()]
     successor_phrases = [str(item).strip() for item in query_plan.get("query_successor_phrases", []) if str(item).strip()]
+    subject_phrases = [str(item).strip() for item in query_plan.get("query_subject_phrases", []) if str(item).strip()]
+    enable_instance_candidates = _env_flag("GSAM2_ENABLE_INSTANCE_CANDIDATES", False)
+    max_instance_candidates = max(2, int(os.environ.get("GSAM2_INSTANCE_MAX_CANDIDATES", "2")))
+    instance_policy = str(os.environ.get("GSAM2_INSTANCE_RESOLUTION_POLICY", "multi_hypothesis")).strip().lower()
+    if instance_policy not in {"multi_hypothesis", "none"}:
+        raise ValueError(
+            "GSAM2_INSTANCE_RESOLUTION_POLICY must be 'multi_hypothesis' or 'none'."
+        )
+    # A single compositional subject is the case in which a broad detector can
+    # enumerate multiple visual instances without changing a set-query's
+    # intended cardinality.  The original phrase remains the semantic label.
+    candidate_head_by_phrase: dict[str, str] = {}
+    if enable_instance_candidates and len(subject_phrases) == 1:
+        subject_phrase = subject_phrases[0]
+        candidate_head = _instance_candidate_head_phrase(subject_phrase)
+        if candidate_head and candidate_head != _normalize_query_text(subject_phrase).rstrip("."):
+            candidate_head_by_phrase[subject_phrase] = candidate_head
 
     image_entries = resolve_dataset_image_entries(dataset_dir)
     image_entries = image_entries[:: max(int(frame_subsample_stride), 1)]
@@ -521,6 +645,8 @@ def run_grounded_sam2_query(
             "max_detector_frames": int(max_detector_frames),
             "track_window_radius": int(track_window_radius),
             "num_anchor_seeds": int(num_anchor_seeds),
+            "instance_candidate_mode": bool(enable_instance_candidates),
+            "instance_candidate_groups": [],
             "phrases": [],
             "tracks": [],
         }
@@ -555,15 +681,13 @@ def run_grounded_sam2_query(
             ) from error
         raise
     grounding_model.eval()
-    image_predictor, video_predictor = _load_pinned_sam2_predictors(
-        sam2_model_id,
-        sam2_model_revision,
-        local_files_only=local_files_only,
-        device=device,
-    )
 
     detections_by_phrase: dict[str, list[dict[str, Any]]] = {}
-    for phrase in detector_phrases:
+    detector_prompts = list(detector_phrases)
+    for candidate_head in candidate_head_by_phrase.values():
+        if candidate_head not in detector_prompts:
+            detector_prompts.append(candidate_head)
+    for phrase in detector_prompts:
         detections_by_phrase[phrase] = _run_phrase_detection(
             phrase=phrase,
             sampled_entries=sampled_entries,
@@ -574,6 +698,20 @@ def run_grounded_sam2_query(
             text_threshold=text_threshold,
             top_k=detection_top_k,
         )
+
+    # GroundingDINO is no longer needed once anchors are known.  Releasing it
+    # before SAM2 lowers peak memory without altering either detector output or
+    # the subsequent Gaussian-lifting semantics.
+    del grounding_model
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    image_predictor, video_predictor = _load_pinned_sam2_predictors(
+        sam2_model_id,
+        sam2_model_revision,
+        local_files_only=local_files_only,
+        device=device,
+    )
     selected_anchor_by_phrase = _select_anchor_detections(
         detections_by_phrase=detections_by_phrase,
         must_track_phrases=must_track_phrases,
@@ -589,19 +727,80 @@ def run_grounded_sam2_query(
         max_anchors_per_phrase=max(1, int(num_anchor_seeds)),
         top_n_per_anchor=max(2, int(detection_top_k)),
     )
+    track_specs: list[dict[str, Any]] = []
+    instance_candidate_groups: list[dict[str, Any]] = []
+    for phrase in detector_phrases:
+        semantic_detections = detections_by_phrase.get(phrase, [])
+        candidate_head = candidate_head_by_phrase.get(phrase)
+        candidate_anchors = _select_instance_anchor_detections(
+            detections_by_phrase.get(candidate_head, []) if candidate_head else [],
+            max_instances=max_instance_candidates,
+        )
+        if len(candidate_anchors) >= 2:
+            group_index = len(instance_candidate_groups)
+            object_ids: list[int] = []
+            for instance_index, anchor in enumerate(candidate_anchors):
+                object_id = int(len(track_specs) + 1)
+                object_ids.append(object_id)
+                track_specs.append(
+                    {
+                        "phrase": phrase,
+                        "detector_phrase": candidate_head,
+                        "detections": detections_by_phrase.get(candidate_head, []),
+                        "selected_anchors": [anchor],
+                        "best": anchor,
+                        "object_id": object_id,
+                        "instance_group_id": f"instance_group_{group_index:03d}",
+                        "instance_index": int(instance_index),
+                        "semantic_detections": semantic_detections,
+                    }
+                )
+            instance_candidate_groups.append(
+                {
+                    "group_id": f"instance_group_{group_index:03d}",
+                    "semantic_phrase": phrase,
+                    "candidate_detector_phrase": candidate_head,
+                    "object_ids": object_ids,
+                    "selection_policy": instance_policy,
+                    "anchor_frame_index": int(candidate_anchors[0]["frame_index"]),
+                }
+            )
+            continue
+        selected_anchors = multi_anchor_by_phrase.get(phrase) or [
+            selected_anchor_by_phrase.get(phrase, semantic_detections[0])
+        ] if semantic_detections else []
+        track_specs.append(
+            {
+                "phrase": phrase,
+                "detector_phrase": phrase,
+                "detections": semantic_detections,
+                "selected_anchors": selected_anchors,
+                "best": selected_anchor_by_phrase.get(phrase, selected_anchors[0]) if selected_anchors else None,
+                "object_id": int(len(track_specs) + 1),
+                "instance_group_id": None,
+                "instance_index": None,
+                "semantic_detections": semantic_detections,
+            }
+        )
+
     max_frame_index = max(int(entry["frame_index"]) for entry in image_entries)
 
     phrase_payloads: list[dict[str, Any]] = []
     phrase_tracks: list[dict[str, Any]] = []
-    for phrase_index, phrase in enumerate(detector_phrases):
-        detections = detections_by_phrase.get(phrase, [])
+    for phrase_index, spec in enumerate(track_specs):
+        phrase = str(spec["phrase"])
+        detector_phrase = str(spec["detector_phrase"])
+        detections = list(spec["detections"])
         phrase_output_dir = phrase_dir / f"{phrase_index:02d}_{phrase.replace(' ', '_')}"
         phrase_output_dir.mkdir(parents=True, exist_ok=True)
         if not detections:
             phrase_payloads.append(
                 {
                     "phrase": phrase,
-                    "object_id": int(phrase_index + 1),
+                    "detector_phrase": detector_phrase,
+                    "object_id": int(spec["object_id"]),
+                    "instance_group_id": spec.get("instance_group_id"),
+                    "instance_index": spec.get("instance_index"),
                     "detections": [],
                     "status": "no_detection",
                 }
@@ -609,7 +808,10 @@ def run_grounded_sam2_query(
             phrase_tracks.append(
                 {
                     "phrase": phrase,
-                    "object_id": int(phrase_index + 1),
+                    "detector_phrase": detector_phrase,
+                    "object_id": int(spec["object_id"]),
+                    "instance_group_id": spec.get("instance_group_id"),
+                    "instance_index": spec.get("instance_index"),
                     "status": "no_detection",
                     "anchor_frame_index": None,
                     "frames": [
@@ -626,9 +828,9 @@ def run_grounded_sam2_query(
             )
             continue
 
-        selected_anchors = multi_anchor_by_phrase.get(phrase) or [selected_anchor_by_phrase.get(phrase, detections[0])]
-        best = selected_anchor_by_phrase.get(phrase, selected_anchors[0])
-        object_id = int(phrase_index + 1)
+        selected_anchors = list(spec["selected_anchors"])
+        best = spec.get("best") or selected_anchors[0]
+        object_id = int(spec["object_id"])
         effective_track_window_radius = max(
             int(track_window_radius),
             int(np.ceil(float(len(image_entries)) / max(len(selected_anchors), 1))),
@@ -807,7 +1009,10 @@ def run_grounded_sam2_query(
         phrase_payloads.append(
             {
                 "phrase": phrase,
+                "detector_phrase": detector_phrase,
                 "object_id": object_id,
+                "instance_group_id": spec.get("instance_group_id"),
+                "instance_index": spec.get("instance_index"),
                 "status": "seeded",
                 "anchor_frame_index": int(best["frame_index"]),
                 "anchor_image_id": best["image_id"],
@@ -850,7 +1055,10 @@ def run_grounded_sam2_query(
         phrase_tracks.append(
             {
                 "phrase": phrase,
+                "detector_phrase": detector_phrase,
                 "object_id": object_id,
+                "instance_group_id": spec.get("instance_group_id"),
+                "instance_index": spec.get("instance_index"),
                 "status": "seeded",
                 "anchor_frame_index": anchor_frame_index,
                 "split_frames": split_frames,
@@ -874,6 +1082,8 @@ def run_grounded_sam2_query(
         "max_detector_frames": int(max_detector_frames),
         "track_window_radius": int(track_window_radius),
         "num_anchor_seeds": int(num_anchor_seeds),
+        "instance_candidate_mode": bool(enable_instance_candidates),
+        "instance_candidate_groups": instance_candidate_groups,
         "phrases": phrase_payloads,
         "tracks": phrase_tracks,
     }

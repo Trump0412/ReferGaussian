@@ -1628,6 +1628,10 @@ def _build_candidates(
                 "proposal_alias": str(proposal_entity.get("proposal_alias", "")).strip(),
                 "proposal_phase": str(proposal_entity.get("proposal_phase", "")).strip(),
                 "proposal_variant": str(proposal_entity.get("proposal_variant", "")).strip(),
+                "stage1_object_id": proposal_entity.get("stage1_object_id"),
+                "stage1_track_id": proposal_entity.get("stage1_track_id"),
+                "stage1_instance_group_id": proposal_entity.get("stage1_instance_group_id"),
+                "stage1_instance_index": proposal_entity.get("stage1_instance_index"),
                 "proposal_phrase": str(proposal_entity.get("static_text", "")).strip(),
                 "proposal_desc": str(proposal_entity.get("global_desc", "")).strip(),
                 "entity_type": assignment.get("entity_type"),
@@ -1645,6 +1649,105 @@ def _build_candidates(
         )
     pair_rows.sort(key=lambda item: (-float(item["interaction_score"]), int(item["entity_a"]), int(item["entity_b"])))
     return rows, pair_rows
+
+
+def _multi_hypothesis_instance_selection(
+    *,
+    query: str,
+    query_plan_payload: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    tracks_payload: dict[str, Any] | None,
+    test_times: np.ndarray,
+) -> dict[str, Any] | None:
+    """Select separately lifted, visually compatible instances as one entity set.
+
+    This applies only when Stage 1 explicitly recorded a compositional
+    single-subject expression that produced multiple same-category instance
+    hypotheses.  It is a declared inference mode, not a best-effort fallback:
+    every selected component remains a Gaussian entity with its own tracked
+    mask evidence and final Gaussian projection.
+    """
+    if not tracks_payload:
+        return None
+    plan_subjects = [
+        str(value).strip()
+        for value in query_plan_payload.get("query_subject_phrases", [])
+        if str(value).strip()
+    ]
+    if len(plan_subjects) != 1 or query_plan_payload.get("query_successor_phrases"):
+        return None
+    target_phrase = _normalize_phrase(plan_subjects[0])
+    groups = tracks_payload.get("instance_candidate_groups", [])
+    if not isinstance(groups, list):
+        return None
+
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        if str(group.get("selection_policy", "")).strip().lower() != "multi_hypothesis":
+            continue
+        if _normalize_phrase(group.get("semantic_phrase", "")) != target_phrase:
+            continue
+        try:
+            wanted_object_ids = {int(value) for value in group.get("object_ids", [])}
+        except (TypeError, ValueError):
+            continue
+        if len(wanted_object_ids) < 2:
+            continue
+        matched = []
+        for candidate in candidates:
+            try:
+                object_id = int(candidate.get("stage1_object_id"))
+            except (TypeError, ValueError):
+                continue
+            if object_id in wanted_object_ids:
+                matched.append(candidate)
+        matched.sort(key=lambda item: int(item["id"]))
+        matched_object_ids = {
+            int(candidate["stage1_object_id"])
+            for candidate in matched
+            if candidate.get("stage1_object_id") is not None
+        }
+        if wanted_object_ids != matched_object_ids:
+            continue
+
+        selected = []
+        for candidate in matched:
+            segments = candidate.get("query_relevant_segments_test") or candidate.get("support_segments_test")
+            if not segments:
+                segments = [[0, max(int(test_times.size) - 1, 0)]]
+            selected.append(
+                {
+                    "id": int(candidate["id"]),
+                    "role": "entity",
+                    "confidence": 1.0,
+                    "reason": "Selected as a separately lifted member of the query-compatible instance set.",
+                    "segments": [
+                        _clip_segment_to_plan_window(
+                            [int(segments[0][0]), int(segments[-1][1])],
+                            query_plan_payload=query_plan_payload,
+                            test_times=test_times,
+                        )
+                    ],
+                }
+            )
+        return {
+            "query": query,
+            "selected": selected,
+            "empty": False,
+            "notes": (
+                "Stage 1 produced multiple spatially distinct candidates for one compositional subject; "
+                "the declared multi-hypothesis policy preserves all query-compatible Gaussian entities."
+            ),
+            "selection_mode": "stage1_multi_hypothesis",
+            "subject_phrases": plan_subjects,
+            "successor_phrases": [],
+            "subject_phrase_matches": {target_phrase: [int(item["id"]) for item in matched]},
+            "successor_phrase_matches": {},
+            "contact_pair": None,
+            "raw_output": "",
+        }
+    return None
 
 
 def _normalize_selected(raw_payload: dict[str, Any], valid_ids: set[int], query: str) -> dict[str, Any]:
@@ -1737,6 +1840,16 @@ def _compose_phrase_grounded_selection(
             "contact_pair": None,
             "raw_output": raw_output,
         }
+    multi_hypothesis = _multi_hypothesis_instance_selection(
+        query=query,
+        query_plan_payload=query_plan_payload,
+        candidates=candidates,
+        tracks_payload=tracks_payload,
+        test_times=test_times,
+    )
+    if multi_hypothesis is not None:
+        multi_hypothesis["raw_output"] = raw_output
+        return multi_hypothesis
     force_allow_missing = os.environ.get("QUERY_ALLOW_MISSING_PHRASE", "0") == "1"
     _allow_missing = (query_state_mode == "static") or is_exclusion_query or force_allow_missing
     try:

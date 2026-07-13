@@ -74,6 +74,7 @@ _FORMAL_BOUNDARY_GATED_PROFILES = frozenset(
         "public_time_boundary_gated_v5",
         "boundary_gated_gaussian_v5",
         "r4d_boundary_gated_v5",
+        "r4d_multi_instance_boundary_v6",
     }
 )
 _COVERAGE_RENDER_PROFILES = frozenset(
@@ -651,6 +652,9 @@ def _load_entity_phrase_hints(run_dir: Path) -> dict[int, list[str]]:
             entity.get("proposal_variant", ""),
             entity.get("global_desc", ""),
         ]
+        stage1_object_id = entity.get("stage1_object_id")
+        if stage1_object_id is not None:
+            values.insert(0, f"stage1 object id {stage1_object_id}")
         normalized: list[str] = []
         seen: set[str] = set()
         for value in values:
@@ -695,10 +699,20 @@ def _resolve_query_tracks(selection_path: Path) -> dict[str, QueryTrack]:
         phrase = _normalize_phrase_key(track.get("phrase", ""))
         if not phrase:
             continue
-        tracks[phrase] = QueryTrack(
+        query_track = QueryTrack(
             phrase=phrase,
             frames=[frame for frame in track.get("frames", []) if bool(frame.get("active")) and frame.get("mask_path")],
         )
+        # A phrase can legitimately map to several same-category instances.
+        # Preserve their stable Stage-1 ids for entity-specific boundary gates
+        # while retaining the legacy phrase key for ordinary single-instance runs.
+        try:
+            object_id = int(track.get("object_id"))
+        except (TypeError, ValueError):
+            object_id = None
+        if object_id is not None:
+            tracks[f"stage1 object id {object_id}"] = query_track
+        tracks.setdefault(phrase, query_track)
     return tracks
 
 

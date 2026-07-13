@@ -507,6 +507,22 @@ def _subsample_frames(frames: list[dict[str, Any]], max_track_frames: int) -> li
     return [frames[int(index)] for index in indices.tolist()]
 
 
+def _attach_track_identity(variants: list[dict[str, Any]], track: dict[str, Any]) -> list[dict[str, Any]]:
+    """Carry Stage-1 identity through lifting and final boundary gating."""
+    object_id = track.get("object_id")
+    try:
+        source_object_id = None if object_id is None else int(object_id)
+    except (TypeError, ValueError):
+        source_object_id = None
+    source_track_id = str(track.get("instance_group_id") or f"stage1_object_{source_object_id}")
+    for variant in variants:
+        variant["source_object_id"] = source_object_id
+        variant["source_track_id"] = source_track_id
+        variant["source_instance_group_id"] = track.get("instance_group_id")
+        variant["source_instance_index"] = track.get("instance_index")
+    return variants
+
+
 def _phase_aware_track_variants(
     phrase: str,
     track: dict[str, Any],
@@ -520,7 +536,7 @@ def _phase_aware_track_variants(
 
     split_frame = _merged_split_frame(phrase=phrase, track=track, query_plan=query_plan)
     if split_frame is None:
-        return [
+        return _attach_track_identity([
             {
                 "alias": str(phrase),
                 "base_phrase": str(phrase),
@@ -529,7 +545,7 @@ def _phase_aware_track_variants(
                 "description": f"Query-guided entity for '{phrase}' across its full visible support.",
                 "frames": _subsample_frames(active, max_track_frames=max_track_frames),
             }
-        ]
+        ], track)
 
     pre_frames = [frame for frame in active if int(frame["frame_index"]) < int(split_frame)]
     post_frames = [frame for frame in active if int(frame["frame_index"]) >= int(split_frame)]
@@ -599,7 +615,7 @@ def _phase_aware_track_variants(
                 "frames": _subsample_frames(active, max_track_frames=max_track_frames),
             }
         )
-    return variants
+    return _attach_track_identity(variants, track)
 
 
 def _bbox_area(bbox_xyxy: list[float]) -> float:

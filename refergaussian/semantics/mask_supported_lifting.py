@@ -44,6 +44,10 @@ class LiftingSample:
 class LiftingSupport:
     alias: str
     base_phrase: str
+    source_object_id: int | None
+    source_track_id: str
+    source_instance_group_id: str | None
+    source_instance_index: int | None
     phase: str
     variant_kind: str
     description: str
@@ -101,6 +105,7 @@ def _lifting_mode() -> str:
                 "public_time_boundary_gated_v5",
                 "boundary_gated_gaussian_v5",
                 "r4d_boundary_gated_v5",
+                "r4d_multi_instance_boundary_v6",
             }:
                 return "mask_bootstrap_refine"
             return normalized
@@ -409,6 +414,22 @@ def _collect_support(
     return LiftingSupport(
         alias=str(variant["alias"]),
         base_phrase=str(variant["base_phrase"]),
+        source_object_id=(
+            None
+            if variant.get("source_object_id") is None
+            else int(variant.get("source_object_id"))
+        ),
+        source_track_id=str(variant.get("source_track_id") or ""),
+        source_instance_group_id=(
+            None
+            if variant.get("source_instance_group_id") is None
+            else str(variant.get("source_instance_group_id"))
+        ),
+        source_instance_index=(
+            None
+            if variant.get("source_instance_index") is None
+            else int(variant.get("source_instance_index"))
+        ),
         phase=str(variant["phase"]),
         variant_kind=str(variant["variant_kind"]),
         description=str(variant["description"]),
@@ -2928,6 +2949,10 @@ def build_mask_supported_lifting_proposal_dir(
                 "id": int(entity_id),
                 "phrase": support.base_phrase,
                 "proposal_alias": support.alias,
+                "stage1_object_id": support.source_object_id,
+                "stage1_track_id": support.source_track_id,
+                "stage1_instance_group_id": support.source_instance_group_id,
+                "stage1_instance_index": support.source_instance_index,
                 "phase": support.phase,
                 "variant_kind": support.variant_kind,
                 "entity_type": support.entity_type,
@@ -2952,6 +2977,10 @@ def build_mask_supported_lifting_proposal_dir(
                     "id": int(entity_id),
                     "static_text": support.base_phrase,
                     "proposal_alias": support.alias,
+                    "stage1_object_id": support.source_object_id,
+                    "stage1_track_id": support.source_track_id,
+                    "stage1_instance_group_id": support.source_instance_group_id,
+                    "stage1_instance_index": support.source_instance_index,
                     "proposal_phase": support.phase,
                     "proposal_variant": support.variant_kind,
                     "global_desc": support.description,
@@ -3045,7 +3074,11 @@ def build_mask_supported_lifting_proposal_dir(
                 "final_profile_expected": (
                     str(os.environ.get("QUERY_EVAL_PROFILE", "")).strip().lower()
                     if str(os.environ.get("QUERY_EVAL_PROFILE", "")).strip().lower()
-                    in {"public_time_boundary_gated_v5", "r4d_boundary_gated_v5"}
+                    in {
+                        "public_time_boundary_gated_v5",
+                        "r4d_boundary_gated_v5",
+                        "r4d_multi_instance_boundary_v6",
+                    }
                     else (
                         "public_time_shape_v4_recall"
                         if _lifting_mode() in {"mask_bootstrap_refine", "bootstrap_refine", "mask_coverage_refine_v4"}

@@ -48,6 +48,9 @@ apply_query_eval_profile() {
   unset QUERY_SKIP_QWEN_EXPORT
   unset QUERY_SKIP_QWEN_SELECTION
   unset QUERY_SAVE_KEY_FRAMES
+  unset GSAM2_ENABLE_INSTANCE_CANDIDATES
+  unset GSAM2_INSTANCE_MAX_CANDIDATES
+  unset GSAM2_INSTANCE_RESOLUTION_POLICY
   unset QUERY_LIFT_MAX_PHASE_VARIANTS
   unset QUERY_LIFT_BOOTSTRAP_MAX_ITER
   unset QUERY_LIFT_BOOTSTRAP_TIMEOUT
@@ -541,8 +544,20 @@ apply_query_eval_profile() {
       export GS_QUERY_ALLOW_DIRECT_2D_MASKS=0
       export GS_QUERY_STRICT_GAUSSIAN_PROJECTION=1
       ;;
+    r4d_multi_instance_boundary_v6)
+      apply_query_eval_profile r4d_boundary_gated_v5
+      export QUERY_EVAL_PROFILE="r4d_multi_instance_boundary_v6"
+      export REFERGAUSSIAN_QUERY_EVAL_PROFILE="r4d_multi_instance_boundary_v6"
+
+      # Candidate instances are discovered from a grammar-derived noun head,
+      # then lifted and rendered as distinct Gaussian entities. This never
+      # changes a public profile or injects a scene/object-specific rule.
+      export GSAM2_ENABLE_INSTANCE_CANDIDATES=1
+      export GSAM2_INSTANCE_MAX_CANDIDATES=2
+      export GSAM2_INSTANCE_RESOLUTION_POLICY=multi_hypothesis
+      ;;
     *)
-      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, public_time_boundary_gated_v5, r4d_shape_v4_recall, r4d_boundary_gated_v5)" >&2
+      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, public_time_boundary_gated_v5, r4d_shape_v4_recall, r4d_boundary_gated_v5, r4d_multi_instance_boundary_v6)" >&2
       return 2
       ;;
   esac
