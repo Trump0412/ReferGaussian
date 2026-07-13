@@ -133,6 +133,11 @@ gs_python() {
   fi
 }
 
+require_refergaussian_run() {
+  local run_dir="$1"
+  gs_python "${GS_ROOT}/scripts/validate_refergaussian_run.py" --run-dir "${run_dir}"
+}
+
 gs_pip() {
   if [[ "${CONDA_PREFIX:-}" == "${GS_ENV_PATH}" && -x "${GS_ENV_PATH}/bin/python" ]]; then
     "${GS_ENV_PATH}/bin/python" -m pip "$@"

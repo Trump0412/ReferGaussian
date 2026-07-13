@@ -127,6 +127,7 @@ run_final_render_and_summary() {
 QUERY_EVAL_PROFILE="${QUERY_EVAL_PROFILE:-${REFERGAUSSIAN_QUERY_EVAL_PROFILE:-default}}"
 apply_query_eval_profile "${QUERY_EVAL_PROFILE}"
 echo "[profile] QUERY_EVAL_PROFILE=${QUERY_EVAL_PROFILE}"
+require_refergaussian_run "${RUN_DIR}"
 
 QUERY_PROPOSAL_BUILDER="${QUERY_PROPOSAL_BUILDER:-mask_supported_lifting}"
 
@@ -296,10 +297,11 @@ run_build_query_proposal_with_relaxed_retry() {
   if run_build_query_proposal; then
     return 0
   fi
-  echo "[warn] query proposal build failed for ${QUERY_NAME}; trying relaxed GSAM2 retry" >&2
-  if [[ "${QUERY_RETRY_RELAXED_GSAM2:-1}" != "1" ]]; then
+  if [[ "${QUERY_RETRY_RELAXED_GSAM2:-0}" != "1" ]]; then
+    echo "[error] query proposal build failed for ${QUERY_NAME}; no retry profile is enabled" >&2
     return 1
   fi
+  echo "[warn] query proposal build failed for ${QUERY_NAME}; retrying because the active profile explicitly enables it" >&2
   GSAM2_REUSE_QUERY_PLAN=1 \
   GSAM2_PROMPT_TYPE="${QUERY_RELAXED_GSAM2_PROMPT_TYPE:-box}" \
   GSAM2_DETECTOR_FRAME_STRIDE="${QUERY_RELAXED_GSAM2_DETECTOR_STRIDE:-4}" \

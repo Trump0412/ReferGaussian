@@ -383,6 +383,11 @@ gs_python scripts/evaluate_ours_benchmark.py \
   --skip-missing
 ```
 
+The preflight and query pipeline require `phase: refergaussian`,
+`temporal_warp_type: refergaussian`, and `warp_enabled: true` in each run's
+`config.yaml`. This prevents accidental evaluation of a baseline or legacy
+reconstruction as ReferGaussian.
+
 Output files:
 - `${RUN_ROOT}/query_root_map.json`
 - `${RUN_ROOT}/dataset_dir_map.json`

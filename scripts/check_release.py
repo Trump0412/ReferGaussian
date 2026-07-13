@@ -41,6 +41,7 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/select_qwen_query_entities.py",
     "scripts/build_4dlangsplat_query_protocol.py",
     "scripts/evaluate_ours_benchmark.py",
+    "scripts/validate_refergaussian_run.py",
 )
 REQUIRED_RUNTIME_TOKENS = {
     "scripts/build_joint_query_proposal_dir.py": "mask_supported_lifting",
@@ -50,6 +51,7 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/select_qwen_query_entities.py": "refergaussian.semantics.select_qwen_query_entities import main",
     "scripts/build_4dlangsplat_query_protocol.py": "video_annotations.json",
     "scripts/evaluate_ours_benchmark.py": "--query-manifest",
+    "scripts/validate_refergaussian_run.py": "validate_refergaussian_run",
 }
 ENGLISH_RUNTIME_FILES = (
     "refergaussian/semantics/qwen_query_planner.py",
@@ -149,6 +151,10 @@ def check_runtime_release_guards() -> list[str]:
     )
     if "QUERY_ALLOW_FULLSCENE_FALLBACK" in pipeline_text:
         errors.append("Published query pipeline must not contain full-scene fallback")
+    if "QUERY_RETRY_RELAXED_GSAM2:-1" in pipeline_text:
+        errors.append("Published query pipeline must not enable relaxed GSAM2 retry by default")
+    if "require_refergaussian_run" not in pipeline_text:
+        errors.append("Published query pipeline must validate the ReferGaussian training identity")
     return errors
 
 

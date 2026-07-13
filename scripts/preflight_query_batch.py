@@ -14,6 +14,13 @@ from pathlib import Path
 from typing import Any
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from refergaussian.run_identity import validate_refergaussian_run
+
+
 REQUIRED_KEYS = {"query_id", "query", "run_dir", "dataset_dir", "output_root", "gpu"}
 DEFAULT_IMPORTS = ["numpy", "scipy", "cv2", "PIL", "torch"]
 
@@ -118,6 +125,9 @@ def _check_rows(
         output_root = Path(str(row["output_root"]))
         if not run_dir.is_dir():
             errors.append(f"{query_id}: run_dir missing: {run_dir}")
+        else:
+            for identity_error in validate_refergaussian_run(run_dir):
+                errors.append(f"{query_id}: non-ReferGaussian run: {identity_error}")
         if not dataset_dir.is_dir():
             errors.append(f"{query_id}: dataset_dir missing: {dataset_dir}")
         if not _is_writable_dir(output_root, create=create_output_root):
