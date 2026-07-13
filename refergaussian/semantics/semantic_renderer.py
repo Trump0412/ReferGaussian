@@ -139,6 +139,7 @@ def prepare_semantic_frame_inputs(
     image_scale: float = 1.0,
     max_gaussians: int = 16000,
     gate_threshold: float = 0.01,
+    selection_priority: np.ndarray | None = None,
     device: str | torch.device = "cpu",
 ) -> PreparedSemanticFrame:
     width_full, height_full = _camera_image_size(camera)
@@ -149,6 +150,14 @@ def prepare_semantic_frame_inputs(
     depth = local_points[:, 2].astype(np.float32)
     depth_valid = depth > 1.0e-4
     gate = np.asarray(visibility_gate, dtype=np.float32).reshape(-1)
+    priority = None
+    if selection_priority is not None:
+        priority = np.asarray(selection_priority, dtype=np.float32).reshape(-1)
+        if priority.shape[0] != points.shape[0]:
+            raise ValueError(
+                "selection_priority row count must match points: "
+                f"{priority.shape[0]} vs {points.shape[0]}"
+            )
     opacity_sigmoid = _opacity_sigmoid(opacity)
     alpha_weight = (gate * opacity_sigmoid).astype(np.float32)
     projected = np.asarray(camera.project(points), dtype=np.float32)
@@ -178,7 +187,19 @@ def prepare_semantic_frame_inputs(
         )
 
     if valid_ids.size > int(max_gaussians):
-        support = alpha_weight[valid_ids] / np.clip(depth[valid_ids], 1.0e-3, None)
+        if priority is None:
+            support = alpha_weight[valid_ids] / np.clip(depth[valid_ids], 1.0e-3, None)
+        else:
+            # The lifting caller can prioritize mask interior/boundary support
+            # before the generic opacity-depth cap.  This only changes which
+            # visible Gaussians are evaluated; final membership still comes
+            # from multi-frame rendered overlap.
+            support = np.nan_to_num(
+                priority[valid_ids],
+                nan=-np.inf,
+                posinf=np.finfo(np.float32).max,
+                neginf=-np.inf,
+            )
         order = np.argsort(-support, kind="mergesort")
         valid_ids = valid_ids[order[: int(max_gaussians)]]
 

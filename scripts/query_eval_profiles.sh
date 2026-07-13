@@ -84,6 +84,8 @@ apply_query_eval_profile() {
   unset QUERY_RENDERER_GEOMETRY_SUPPORT_PATH
   unset QUERY_RENDERER_GEOMETRY_SUPPORT_TIMEOUT
   unset QUERY_RENDERER_GEOMETRY_FINAL_TIMEOUT
+  unset QUERY_LIFT_MASK_AWARE_PREFILTER
+  unset QUERY_LIFT_MASK_AWARE_PREFILTER_MARGIN
 
   case "${profile}" in
     ""|default|paper_default)
@@ -577,6 +579,11 @@ apply_query_eval_profile() {
       export QUERY_REQUIRE_RENDERER_GEOMETRY=1
       export QUERY_RENDERER_GEOMETRY_SUPPORT_TIMEOUT="${QUERY_RENDERER_GEOMETRY_SUPPORT_TIMEOUT:-1200}"
       export QUERY_RENDERER_GEOMETRY_FINAL_TIMEOUT="${QUERY_RENDERER_GEOMETRY_FINAL_TIMEOUT:-1800}"
+      # Preserve Stage-1-supported foreground Gaussians before the generic
+      # opacity/depth cap. This is a geometry-only candidate prefilter; final
+      # membership remains validated by multi-frame Gaussian rendering.
+      export QUERY_LIFT_MASK_AWARE_PREFILTER=1
+      export QUERY_LIFT_MASK_AWARE_PREFILTER_MARGIN="${QUERY_LIFT_MASK_AWARE_PREFILTER_MARGIN:-48}"
       export GS_QUERY_CLOUD_RENDER_MODE=gaussian_alpha
       export GS_QUERY_ALPHA_REQUIRE_SUCCESS=1
       export GS_QUERY_ALPHA_REQUIRE_OPACITY=1

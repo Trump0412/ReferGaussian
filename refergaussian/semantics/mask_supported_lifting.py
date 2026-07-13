@@ -133,6 +133,65 @@ def _load_mask(mask_path: str | Path, width: int, height: int) -> np.ndarray:
         return np.asarray(binary, dtype=np.uint8) > 0
 
 
+def _mask_aware_prefilter_priority(
+    camera: Any,
+    points: np.ndarray,
+    mask: np.ndarray,
+    opacity: np.ndarray,
+    visibility_gate: np.ndarray,
+) -> np.ndarray | None:
+    """Rank visible candidates by generic mask geometry before the frame cap.
+
+    The old opacity/depth-only cap can discard nearly every Gaussian that
+    contributes to a small foreground object before lifting observes the mask.
+    This prefilter is not a 2D output replacement: it only ensures that the
+    later multi-frame Gaussian-overlap optimization receives the object's
+    interior and a fixed-width boundary neighborhood.
+    """
+    if not _env_flag("QUERY_LIFT_MASK_AWARE_PREFILTER", False):
+        return None
+    array = np.asarray(points, dtype=np.float32)
+    if array.ndim != 2 or array.shape[1] != 3:
+        raise ValueError(f"Expected points [N,3] for mask-aware prefilter, got {array.shape}")
+    height, width = mask.shape
+    projected = np.asarray(camera.project(array), dtype=np.float32)
+    local = np.asarray(camera.points_to_local_points(array), dtype=np.float32)
+    priority = np.full((array.shape[0],), -np.inf, dtype=np.float32)
+    x = np.floor(projected[:, 0]).astype(np.int64)
+    y = np.floor(projected[:, 1]).astype(np.int64)
+    valid = (
+        np.isfinite(projected).all(axis=1)
+        & np.isfinite(local).all(axis=1)
+        & (local[:, 2] > 1.0e-4)
+        & (x >= 0)
+        & (x < int(width))
+        & (y >= 0)
+        & (y < int(height))
+    )
+    if not bool(valid.any()):
+        return priority
+    inside_distance = ndimage.distance_transform_edt(mask).astype(np.float32)
+    outside_distance = ndimage.distance_transform_edt(~mask).astype(np.float32)
+    margin = _env_float("QUERY_LIFT_MASK_AWARE_PREFILTER_MARGIN", 48.0, minimum=1.0, maximum=256.0)
+    rows = y[valid]
+    cols = x[valid]
+    is_inside = np.asarray(mask[rows, cols], dtype=bool)
+    geometry_score = np.exp(-outside_distance[rows, cols] / float(margin)).astype(np.float32)
+    geometry_score[is_inside] = (
+        2.0 + np.tanh(inside_distance[rows[is_inside], cols[is_inside]] / 8.0)
+    ).astype(np.float32)
+    raw_opacity = np.asarray(opacity, dtype=np.float32).reshape(-1)
+    gate = np.asarray(visibility_gate, dtype=np.float32).reshape(-1)
+    if raw_opacity.shape[0] != array.shape[0] or gate.shape[0] != array.shape[0]:
+        raise ValueError("opacity and visibility_gate must match points for mask-aware prefilter")
+    alpha = 1.0 / (1.0 + np.exp(-np.clip(raw_opacity[valid], -40.0, 40.0)))
+    depth = np.clip(local[valid, 2], 1.0e-3, None)
+    appearance = alpha * np.clip(gate[valid], 0.0, 1.0) / depth
+    scale = max(float(np.percentile(appearance, 95.0)), 1.0e-6)
+    priority[valid] = geometry_score + 0.02 * np.clip(appearance / scale, 0.0, 1.0)
+    return priority
+
+
 def _outer_mask(mask: np.ndarray) -> np.ndarray:
     regions = build_mask_regions(mask, core_kernel=5, outer_kernel=17)
     return np.asarray(regions["outer"], dtype=bool)
@@ -374,6 +433,13 @@ def _collect_support(
         mask = _load_mask(frame["mask_path"], width=width, height=height)
         regions = build_mask_regions(mask, core_kernel=5, outer_kernel=17)
         distance_region = _build_distance_regions(mask, thin_mode=_is_geometrically_thin_mask(mask))
+        selection_priority = _mask_aware_prefilter_priority(
+            camera=camera,
+            points=points,
+            mask=mask,
+            opacity=opacity,
+            visibility_gate=visibility_gate,
+        )
         prepared = prepare_semantic_frame_inputs(
             camera=camera,
             frame_index=int(frame["frame_index"]),
@@ -387,6 +453,7 @@ def _collect_support(
             image_scale=1.0,
             max_gaussians=int(max_gaussians_per_frame),
             gate_threshold=float(gate_threshold),
+            selection_priority=selection_priority,
             device=device,
         )
         if int(prepared.gaussian_ids.numel()) <= 0:

@@ -22,6 +22,22 @@ class _PinholeCamera:
 
 
 class SemanticRendererCovarianceTest(unittest.TestCase):
+    def test_selection_priority_overrides_generic_frame_cap(self) -> None:
+        prepared = prepare_semantic_frame_inputs(
+            camera=_PinholeCamera(),
+            frame_index=0,
+            image_id="000001",
+            time_value=0.0,
+            points=np.asarray([[0.0, 0.0, 2.0], [0.1, 0.0, 2.0]], dtype=np.float32),
+            spatial_scale=np.full((2, 3), 0.05, dtype=np.float32),
+            opacity=np.asarray([0.0, 12.0], dtype=np.float32),
+            visibility_gate=np.ones((2,), dtype=np.float32),
+            selection_priority=np.asarray([10.0, 1.0], dtype=np.float32),
+            max_gaussians=1,
+            device="cpu",
+        )
+        self.assertTrue(np.array_equal(prepared.gaussian_ids.cpu().numpy(), np.asarray([0], dtype=np.int64)))
+
     def test_covariance_projection_creates_anisotropic_splat(self) -> None:
         prepared = prepare_semantic_frame_inputs(
             camera=_PinholeCamera(),
