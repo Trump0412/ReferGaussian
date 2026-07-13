@@ -122,7 +122,8 @@ Override with `GS4D_ENV_ROOT`, `GS4D_CONDA_PKGS_DIRS`, and `GS4D_PIP_CACHE_DIR`.
 The Refer-Planner uses [Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct). Download before referring evaluation:
 
 ```bash
-python -c "
+source scripts/common.sh
+gs_python -c "
 from huggingface_hub import snapshot_download
 snapshot_download('Qwen/Qwen3-VL-8B-Instruct', local_dir='models/Qwen3-VL-8B-Instruct')
 "
@@ -181,7 +182,8 @@ data/dynerf/coffee_martini/
 Generate the required per-frame camera metadata after placing a scene:
 
 ```bash
-python scripts/generate_dynerf_camera_jsons.py \
+source scripts/common.sh
+gs_python scripts/generate_dynerf_camera_jsons.py \
   --dataset-dir data/dynerf/coffee_martini
 ```
 
@@ -361,7 +363,8 @@ The paper-facing release protocol is fixed to 8 scenes and 58 English queries:
 Filter the official query metadata to this fixed protocol when preparing a release run:
 
 ```bash
-python scripts/filter_r4d_benchmark_queries.py \
+source scripts/common.sh
+gs_python scripts/filter_r4d_benchmark_queries.py \
   --input-json data/benchmarks/r4d_bench_qa/evaluation/R4D-Bench_queries.json \
   --output-json reports/r4d_bench_queries_8scene.json \
   --output-md reports/r4d_bench_queries_8scene.md \
@@ -392,7 +395,8 @@ ReferGaussian/
 Before publishing a release, run:
 
 ```bash
-python scripts/check_release.py
+source scripts/common.sh
+gs_python scripts/check_release.py
 ```
 
 ```bibtex

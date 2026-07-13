@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
-"""
-evaluate_ours_benchmark.py
+"""Evaluate ReferGaussian outputs against R4D-Bench-QA annotations.
 
-评测脚本：读取 Ours_benchmark.json 作为 ground-truth，
-评测 ReferGaussian query pipeline 的输出结果。
-指标：Acc（时序准确率）、vIoU（视频 mask IoU）、tIoU（时序 IoU）。
+The evaluator reads the official benchmark JSON and reports temporal accuracy,
+video mask IoU (vIoU), and temporal IoU (tIoU).
 
-用法:
-  python scripts/evaluate_ours_benchmark.py \
+Usage:
+  gs_python scripts/evaluate_ours_benchmark.py \
     --benchmark data/benchmarks/r4d_bench_qa/benchmark.json \
     --query-root-map /path/to/query_root_map.json \
     --output-json reports/ours_benchmark_eval.json \
     [--output-md reports/ours_benchmark_eval.md]
 
-query_root_map.json 格式:
+The query-root map has this shape:
 {
   "espresso_q1": "/path/to/run_dir/entitybank/query_guided/espresso_q1",
   ...
