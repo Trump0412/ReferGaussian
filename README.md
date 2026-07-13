@@ -536,7 +536,8 @@ Metric rule used in both public and R4D evaluators:
 Important benchmark note:
 - Current HF `LiYacheng/r4d-bench-qa` artifacts provide dense GT for 36-query and 89-query tiers.
 - The larger language-only extension set does not always include dense masks, so strict `vIoU`/`tIoU` cannot be computed for those entries without extra GT alignment files.
-- Prefer the official query metadata file `R4D-Bench_queries.json` as the source of truth for query text.
+- Prefer the official query metadata file `R4D-Bench_queries.json` as the source of truth for query ids and semantics.
+  Legacy releases whose question field is Chinese use the versioned, reviewed English translation map keyed by that official id.
   Avoid retyping benchmark queries in ad-hoc shell scripts, because even small wording drift can change the target object set.
 
 The paper-facing release protocol is fixed to 8 scenes and 58 English queries:
