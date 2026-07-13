@@ -9,7 +9,7 @@ shift $(( $# > 1 ? 2 : $# ))
 EXTRA_ARGS="$(shell_join "$@")"
 
 DA3_ENV_PATH="${DA3_ENV_PATH:-${GS_ENV_ROOT}/da3-gs-py310}"
-DA3_HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+DA3_HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
 DA3_HF_HOME="${HF_HOME:-${GS_CACHE_ROOT}/huggingface}"
 
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY ftp_proxy FTP_PROXY

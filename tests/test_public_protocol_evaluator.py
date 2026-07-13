@@ -38,6 +38,18 @@ def _validation(mask_dir: Path, active: list[bool]) -> dict:
 
 
 class PublicProtocolEvaluatorTest(unittest.TestCase):
+    def test_coverage_marks_missing_protocol_outputs_incomplete(self) -> None:
+        coverage = EVALUATOR.coverage_summary(
+            ["query_a", "query_b"],
+            [
+                {"query_slug": "query_a", "Acc": 1.0},
+                {"query_slug": "query_b", "Acc": None},
+            ],
+        )
+
+        self.assertFalse(coverage["complete"])
+        self.assertEqual(coverage["missing_query_ids"], ["query_b"])
+
     def test_summary_separates_empty_target_outcomes(self) -> None:
         nonempty = {
             "Acc": 0.25,

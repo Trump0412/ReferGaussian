@@ -12,7 +12,7 @@ PLAN_PATH="${OUTPUT_ROOT}/query_plan.json"
 TRACK_DIR="${OUTPUT_ROOT}/grounded_sam2"
 
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY ftp_proxy FTP_PROXY
-export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+export HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
 
 mkdir -p "${OUTPUT_ROOT}"
 
@@ -52,6 +52,8 @@ gsam2_python "${GS_ROOT}/scripts/run_grounded_sam2_query.py" \
   --output-dir "${TRACK_DIR}" \
   --grounding-model-id "${GSAM2_GROUNDING_MODEL_ID:-IDEA-Research/grounding-dino-base}" \
   --sam2-model-id "${GSAM2_SAM2_MODEL_ID:-facebook/sam2-hiera-large}" \
+  --grounding-model-revision "${GSAM2_GROUNDING_MODEL_REVISION:-12bdfa3120f3e7ec7b434d90674b3396eccf88eb}" \
+  --sam2-model-revision "${GSAM2_SAM2_MODEL_REVISION:-e6a8e8809b8f1bfa2238b6d080f3d05cc76bd251}" \
   --prompt-type "${GSAM2_PROMPT_TYPE:-point}" \
   --detector-frame-stride "${GSAM2_DETECTOR_FRAME_STRIDE:-6}" \
   --max-detector-frames "${GSAM2_MAX_DETECTOR_FRAMES:-48}" \

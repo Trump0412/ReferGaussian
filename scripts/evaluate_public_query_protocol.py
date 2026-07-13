@@ -369,6 +369,22 @@ def summarize_query_results(valid: list[dict], query_count: int) -> dict:
     }
 
 
+def coverage_summary(expected_query_ids: list[str], rows: list[dict]) -> dict:
+    """Describe whether a report covers every query selected by its protocol."""
+    id_to_row = {str(row.get("query_slug", "")): row for row in rows}
+    missing = [
+        query_id
+        for query_id in expected_query_ids
+        if id_to_row.get(query_id, {}).get("Acc") is None
+    ]
+    return {
+        "expected_queries": int(len(expected_query_ids)),
+        "valid_queries": int(len(expected_query_ids) - len(missing)),
+        "missing_query_ids": missing,
+        "complete": not missing,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate ReferGaussian query outputs on public 4DLangSplat-style protocols.")
     parser.add_argument("--protocol-json", required=True)
@@ -378,11 +394,26 @@ def main() -> None:
     parser.add_argument("--output-json", required=True)
     parser.add_argument("--output-md", default=None)
     parser.add_argument(
+        "--category",
+        default=None,
+        help="Optional protocol category to evaluate, e.g. temporal_state_reference.",
+    )
+    parser.add_argument(
+        "--scene",
+        default=None,
+        help="Optional scene basename to evaluate from a multi-scene protocol.",
+    )
+    parser.add_argument(
         "--query-manifest",
         default=None,
         help="Optional JSONL manifest. Only protocol queries listed by query_id are evaluated.",
     )
     parser.add_argument("--skip-missing", action="store_true")
+    parser.add_argument(
+        "--require-complete",
+        action="store_true",
+        help="Fail unless every protocol/manifest query has a valid evaluation result.",
+    )
     args = parser.parse_args()
 
     protocol_payload = _read_json(Path(args.protocol_json))
@@ -395,11 +426,30 @@ def main() -> None:
         else None
     )
 
+    protocol_items = list(protocol_payload.get("queries", []))
+    protocol_ids = {str(query_item.get("query_slug", "")) for query_item in protocol_items}
+    if manifest_query_ids is not None:
+        unknown_manifest_ids = sorted(manifest_query_ids - protocol_ids)
+        if unknown_manifest_ids:
+            raise ValueError(
+                "Query manifest contains ids absent from the public protocol: "
+                + ", ".join(unknown_manifest_ids[:10])
+            )
+
+    selected_items = [
+        query_item
+        for query_item in protocol_items
+        if (args.category is None or str(query_item.get("category", "")) == args.category)
+        and (args.scene is None or str(query_item.get("scene", "")).rsplit("/", 1)[-1] == args.scene)
+        and (manifest_query_ids is None or str(query_item["query_slug"]) in manifest_query_ids)
+    ]
+    if not selected_items:
+        raise ValueError("No public protocol queries matched the requested category/scene/manifest")
+    expected_query_ids = [str(query_item["query_slug"]) for query_item in selected_items]
+
     per_query = []
-    for query_item in protocol_payload.get("queries", []):
+    for query_item in selected_items:
         query_slug = str(query_item["query_slug"])
-        if manifest_query_ids is not None and query_slug not in manifest_query_ids:
-            continue
         validation_path = Path(args.query_root) / query_slug / "final_query_render_sourcebg" / "validation.json"
         if not validation_path.exists():
             if args.skip_missing:
@@ -433,13 +483,17 @@ def main() -> None:
 
     valid = [item for item in per_query if item.get("Acc") is not None]
     summary = summarize_query_results(valid, len(per_query))
+    coverage = coverage_summary(expected_query_ids, per_query)
     payload = {
         "protocol_json": str(Path(args.protocol_json)),
         "annotation_dir": str(Path(args.annotation_dir)),
         "dataset_dir": str(Path(args.dataset_dir)),
         "query_root": str(Path(args.query_root)),
         "query_manifest": str(Path(args.query_manifest)) if args.query_manifest else None,
+        "category": args.category,
+        "scene": args.scene,
         "summary": summary,
+        "coverage": coverage,
         "queries": per_query,
     }
     output_json = Path(args.output_json)
@@ -454,8 +508,11 @@ def main() -> None:
         lines = [
             "# Public Query Benchmark",
             "",
+            f"- Category: `{args.category or 'all'}`",
+            f"- Scene: `{args.scene or 'all'}`",
             f"- Queries: `{summary['query_count']}`",
             f"- Valid queries: `{summary['valid_queries']}`",
+            f"- Complete coverage: `{coverage['complete']}` ({coverage['valid_queries']} / {coverage['expected_queries']})",
             f"- Acc(%): `{summary_pct(summary['Acc'])}`",
             f"- vIoU(%): `{summary_pct(summary['vIoU'])}`",
             f"- temporal tIoU(%): `{summary_pct(summary['temporal_tIoU'])}`",
@@ -481,6 +538,13 @@ def main() -> None:
                 f"| {row['query_slug']} | {fmt(row.get('Acc'))} | {fmt(row.get('vIoU'))} | {fmt(row.get('temporal_tIoU'))} | {fmt(row.get('temporal_precision'))} | {fmt(row.get('temporal_recall'))} | {row.get('target_object', '')} | {','.join(row.get('score_warnings', []))} | {row.get('predicted_time_segments', [])} | {row.get('gt_time_segments', [])} |"
             )
         Path(args.output_md).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    if args.require_complete and not coverage["complete"]:
+        raise SystemExit(
+            "Incomplete public evaluation: "
+            f"{coverage['valid_queries']} / {coverage['expected_queries']} valid. "
+            f"Missing: {', '.join(coverage['missing_query_ids'][:10])}"
+        )
 
 
 if __name__ == "__main__":

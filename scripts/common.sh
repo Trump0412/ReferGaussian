@@ -11,7 +11,6 @@ GS_CONDA_PKGS_DIRS="${GS4D_CONDA_PKGS_DIRS:-${GS_CACHE_ROOT}/conda-pkgs}"
 GS_PIP_CACHE_DIR="${GS4D_PIP_CACHE_DIR:-${GS_CACHE_ROOT}/pip}"
 GS_TORCH_HOME="${GS4D_TORCH_HOME:-${GS_CACHE_ROOT}/torch}"
 GS_MPLCONFIGDIR="${GS4D_MPLCONFIGDIR:-${GS_CACHE_ROOT}/matplotlib}"
-GSAM2_ENV_PATH="${GS4D_GSAM2_ENV_PATH:-${GS_ENV_ROOT}/grounded-sam2-py310}"
 
 resolve_conda_bin() {
   if [[ -n "${GS4D_CONDA_BIN:-}" && -x "${GS4D_CONDA_BIN}" ]]; then
@@ -100,9 +99,26 @@ detect_default_env_path() {
   printf '%s' "${GS_ENV_ROOT}/gs4d-cuda121-py310"
 }
 
+detect_gsam2_env_path() {
+  if [[ -n "${GS4D_GSAM2_ENV_PATH:-}" ]]; then
+    printf '%s' "${GS4D_GSAM2_ENV_PATH}"
+    return
+  fi
+  if [[ -d "${GS_ENV_ROOT}/grounded-sam2-py310" ]]; then
+    printf '%s' "${GS_ENV_ROOT}/grounded-sam2-py310"
+    return
+  fi
+  if [[ -d "${GS_LEGACY_ENV_ROOT}/grounded-sam2-py310" ]]; then
+    printf '%s' "${GS_LEGACY_ENV_ROOT}/grounded-sam2-py310"
+    return
+  fi
+  printf '%s' "${GS_ENV_ROOT}/grounded-sam2-py310"
+}
+
 mkdir -p "${GS_ENV_ROOT}" "${GS_CONDA_PKGS_DIRS}" "${GS_PIP_CACHE_DIR}" "${GS_TORCH_HOME}" "${GS_MPLCONFIGDIR}"
 GS_ENV_PATH="$(detect_default_env_path)"
 GS_ENV_NAME="${GS4D_ENV_NAME:-$(basename "${GS_ENV_PATH}")}"
+GSAM2_ENV_PATH="$(detect_gsam2_env_path)"
 export GS_ROOT
 export GS_ENV_ROOT
 export GS_LEGACY_ENV_ROOT

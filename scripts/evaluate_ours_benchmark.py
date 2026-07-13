@@ -742,6 +742,22 @@ def summarize_query_results(valid: list[dict], total_queries: int) -> dict:
     return summary
 
 
+def coverage_summary(expected_query_ids: list[str], rows: list[dict]) -> dict:
+    """Describe whether every manifest query produced a valid official score."""
+    id_to_row = {str(row.get("query_id", "")): row for row in rows}
+    missing = [
+        query_id
+        for query_id in expected_query_ids
+        if id_to_row.get(query_id, {}).get("Acc") is None
+    ]
+    return {
+        "expected_queries": int(len(expected_query_ids)),
+        "valid_queries": int(len(expected_query_ids) - len(missing)),
+        "missing_query_ids": missing,
+        "complete": not missing,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -766,6 +782,11 @@ def main() -> None:
     )
     parser.add_argument("--skip-missing", action="store_true",
                         help="Skip queries with missing validation (don't fail)")
+    parser.add_argument(
+        "--require-complete",
+        action="store_true",
+        help="Fail unless every benchmark/manifest query has a valid evaluation result.",
+    )
     args = parser.parse_args()
 
     benchmark = json.loads(Path(args.benchmark).read_text(encoding="utf-8"))
@@ -780,6 +801,8 @@ def main() -> None:
                 + ", ".join(unknown_ids[:10])
             )
         benchmark = [item for item in benchmark if str(item.get("query_id", "")) in manifest_ids]
+    if not benchmark:
+        raise ValueError("No benchmark queries selected for evaluation")
     query_root_map: dict[str, str] = json.loads(
         Path(args.query_root_map).read_text(encoding="utf-8")
     )
@@ -789,6 +812,7 @@ def main() -> None:
             Path(args.dataset_dir_map).read_text(encoding="utf-8")
         )
 
+    expected_query_ids = [str(item["query_id"]) for item in benchmark]
     per_query: list[dict] = []
     for item in benchmark:
         query_id = str(item["query_id"])
@@ -825,6 +849,7 @@ def main() -> None:
     valid = [r for r in per_query if r.get("Acc") is not None]
     n = len(valid)
     summary = summarize_query_results(valid, len(per_query))
+    coverage = coverage_summary(expected_query_ids, per_query)
 
     print("\n=== Summary ===")
     print(f"Valid queries: {n} / {len(per_query)}")
@@ -850,6 +875,7 @@ def main() -> None:
         "benchmark": str(args.benchmark),
         "query_manifest": str(args.query_manifest) if args.query_manifest else None,
         "summary": summary,
+        "coverage": coverage,
         "per_query": per_query,
     }
     out_path = Path(args.output_json)
@@ -864,6 +890,7 @@ def main() -> None:
             "",
             f"- Total queries: {summary['total_queries']}",
             f"- Valid queries: {summary['valid_queries']}",
+            f"- Complete coverage: {coverage['complete']} ({coverage['valid_queries']} / {coverage['expected_queries']})",
         ]
         if summary["Acc"] is not None:
             lines += [
@@ -892,6 +919,13 @@ def main() -> None:
                 )
         Path(args.output_md).write_text("\n".join(lines) + "\n", encoding="utf-8")
         print(f"Saved: {args.output_md}")
+
+    if args.require_complete and not coverage["complete"]:
+        raise SystemExit(
+            "Incomplete R4D evaluation: "
+            f"{coverage['valid_queries']} / {coverage['expected_queries']} valid. "
+            f"Missing: {', '.join(coverage['missing_query_ids'][:10])}"
+        )
 
 
 if __name__ == "__main__":

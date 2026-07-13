@@ -11,10 +11,12 @@ PYTHON_VERSION="${1:-3.10}"
 TORCH_VERSION="${GSAM2_TORCH_VERSION:-2.5.1}"
 TORCHVISION_VERSION="${GSAM2_TORCHVISION_VERSION:-0.20.1}"
 TORCHAUDIO_VERSION="${GSAM2_TORCHAUDIO_VERSION:-2.5.1}"
-PIP_MIRROR="${GSAM2_PIP_MIRROR:-https://pypi.tuna.tsinghua.edu.cn/simple}"
-HF_MIRROR="${HF_ENDPOINT:-https://hf-mirror.com}"
+PIP_INDEX_URL="${GSAM2_PIP_INDEX_URL:-${GSAM2_PIP_MIRROR:-https://pypi.org/simple}}"
+HF_MIRROR="${HF_ENDPOINT:-https://huggingface.co}"
 SAM2_MODEL_ID="${GSAM2_SAM2_MODEL_ID:-facebook/sam2-hiera-large}"
 GDINO_MODEL_ID="${GSAM2_GDINO_MODEL_ID:-IDEA-Research/grounding-dino-base}"
+SAM2_MODEL_REVISION="${GSAM2_SAM2_MODEL_REVISION:-e6a8e8809b8f1bfa2238b6d080f3d05cc76bd251}"
+GDINO_MODEL_REVISION="${GSAM2_GROUNDING_MODEL_REVISION:-12bdfa3120f3e7ec7b434d90674b3396eccf88eb}"
 INSTALL_EDITABLE="${GSAM2_INSTALL_EDITABLE:-0}"
 
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY ftp_proxy FTP_PROXY
@@ -42,10 +44,10 @@ env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
     --index-url https://download.pytorch.org/whl/cu121
 
 env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
-  "${GS_CONDA_BIN}" run --no-capture-output -p "${GSAM2_ENV_PATH}" python -m pip install -i "${PIP_MIRROR}" \
-    "numpy<2" "transformers>=4.46" "huggingface_hub>=0.27" "pillow>=10" "tqdm>=4.66" \
-    "hydra-core>=1.3.2" "iopath>=0.1.10" "opencv-python>=4.8" "supervision>=0.25" \
-    "pyyaml>=6.0" "matplotlib>=3.8" "accelerate>=0.34" "sentencepiece>=0.2"
+  "${GS_CONDA_BIN}" run --no-capture-output -p "${GSAM2_ENV_PATH}" python -m pip install --index-url "${PIP_INDEX_URL}" \
+    "numpy==1.26.4" "transformers==5.3.0" "huggingface_hub==1.7.2" "pillow==12.0.0" "tqdm==4.67.3" \
+    "hydra-core==1.3.2" "iopath==0.1.10" "opencv-python==4.11.0.86" "supervision==0.27.0.post2" \
+    "pyyaml==6.0.3" "matplotlib==3.10.8" "accelerate==1.13.0" "sentencepiece==0.2.1"
 
 if [[ "${INSTALL_EDITABLE}" == "1" ]]; then
   pushd "${GSAM2_ROOT}" >/dev/null
@@ -63,10 +65,12 @@ from sam2.sam2_video_predictor import SAM2VideoPredictor
 
 gdino_model_id = "${GDINO_MODEL_ID}"
 sam2_model_id = "${SAM2_MODEL_ID}"
+gdino_model_revision = "${GDINO_MODEL_REVISION}"
+sam2_model_revision = "${SAM2_MODEL_REVISION}"
 
-processor = AutoProcessor.from_pretrained(gdino_model_id)
-grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(gdino_model_id)
-predictor = SAM2VideoPredictor.from_pretrained(sam2_model_id)
+processor = AutoProcessor.from_pretrained(gdino_model_id, revision=gdino_model_revision)
+grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(gdino_model_id, revision=gdino_model_revision)
+predictor = SAM2VideoPredictor.from_pretrained(sam2_model_id, revision=sam2_model_revision)
 
 print("grounding processor", type(processor).__name__)
 print("grounding model", type(grounding_model).__name__)

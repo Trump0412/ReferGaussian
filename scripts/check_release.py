@@ -40,6 +40,8 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/run_query_specific_worldtube_pipeline.sh",
     "scripts/select_qwen_query_entities.py",
     "scripts/build_4dlangsplat_query_protocol.py",
+    "scripts/download_hf_snapshot.py",
+    "scripts/aggregate_public_query_evaluations.py",
     "scripts/evaluate_ours_benchmark.py",
     "scripts/validate_refergaussian_run.py",
     "scripts/train_baseline.sh",
@@ -52,12 +54,15 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/run_query_specific_worldtube_pipeline.sh": "mask_supported_lifting",
     "scripts/select_qwen_query_entities.py": "refergaussian.semantics.select_qwen_query_entities import main",
     "scripts/build_4dlangsplat_query_protocol.py": "video_annotations.json",
+    "scripts/download_hf_snapshot.py": "resolved_revision",
+    "scripts/aggregate_public_query_evaluations.py": "--require-complete",
     "scripts/evaluate_ours_benchmark.py": "--query-manifest",
     "scripts/validate_refergaussian_run.py": "validate_refergaussian_run",
     "scripts/eval_baseline.sh": "external/4DGaussians/render.py",
 }
 ENGLISH_RUNTIME_FILES = (
     "refergaussian/semantics/qwen_query_planner.py",
+    "refergaussian/semantics/qwen_assignment.py",
     "refergaussian/semantics/select_qwen_query_entities.py",
     "refergaussian/semantics/mask_supported_lifting.py",
 )
@@ -199,6 +204,52 @@ def check_runtime_release_guards() -> list[str]:
         errors.append("Query rendering must not contain object-specific intent rules")
     if "cloud_only_fallback" in query_render_text:
         errors.append("Query rendering must not silently replace an empty Gaussian projection")
+
+    if (ROOT / "refergaussian/semantics/qwen_pair_query.py").exists():
+        errors.append("Unused object-specific pair-query utility must not ship in the release")
+    qwen_assignment_text = (ROOT / "refergaussian/semantics/qwen_assignment.py").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    if "looks like a lemon, knife" in qwen_assignment_text:
+        errors.append("Qwen assignment prompt must not contain named scene-object examples")
+    public_manifest_text = (ROOT / "scripts/build_public_query_manifest.py").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    if "SCENE_QUERIES_ALL" in public_manifest_text:
+        errors.append("Public release manifest must be generated only from annotation protocols")
+
+    setup_gsam_text = (ROOT / "scripts/setup_grounded_sam2.sh").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    for revision in (
+        "e6a8e8809b8f1bfa2238b6d080f3d05cc76bd251",
+        "12bdfa3120f3e7ec7b434d90674b3396eccf88eb",
+        "transformers==5.3.0",
+        "huggingface_hub==1.7.2",
+    ):
+        if revision not in setup_gsam_text:
+            errors.append(f"Grounded-SAM2 setup must pin {revision}")
+    query_launch_text = (ROOT / "scripts/run_query_guided_grounded_sam2.sh").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    if "--grounding-model-revision" not in query_launch_text or "--sam2-model-revision" not in query_launch_text:
+        errors.append("Query launcher must pass pinned Grounded-SAM2 model revisions")
+
+    r4d_download_text = (ROOT / "scripts/download_r4d_bench_qa.sh").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    if "0fe2b3a99a95632ea6d0bd1718723ac24804e49b" not in r4d_download_text:
+        errors.append("R4D dataset download must pin a snapshot revision")
+    public_annotation_text = (ROOT / "scripts/download_4dlangsplat_annotations.sh").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    if "d127a280446206fc97887a304de790a1fe6af5ff" not in public_annotation_text:
+        errors.append("Public annotation download must pin a snapshot revision")
+    readme_text = (ROOT / "README.md").read_text(encoding="utf-8", errors="replace")
+    if "gsam2_python scripts/download_hf_snapshot.py" not in readme_text:
+        errors.append("README must download Qwen with the Grounded-SAM2 environment")
+    if "--require-complete" not in readme_text:
+        errors.append("README must require complete coverage for final benchmark reports")
     return errors
 
 

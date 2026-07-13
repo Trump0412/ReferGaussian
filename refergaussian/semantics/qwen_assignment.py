@@ -61,7 +61,7 @@ Return exactly one JSON object with keys:
 - query_hints: object with array keys patient_terms, tool_terms, action_terms
 
 Rules:
-- Be specific when the entity looks like a lemon, knife, hand, cutting board, or another familiar object.
+- Use the visual evidence and geometry prior to name familiar entities precisely.
 - Use the candidate temporal segments and keep captions short.
 - Do not output markdown fences.
 - Do not mention uncertainty unless the evidence is truly weak.

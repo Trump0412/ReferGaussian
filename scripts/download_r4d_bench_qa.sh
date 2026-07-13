@@ -5,27 +5,22 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 REPO_ID="${1:-${R4D_BENCH_REPO_ID:-LiYacheng/r4d-bench-qa}}"
 OUTPUT_DIR="${2:-${GS_ROOT}/data/benchmarks/r4d_bench_qa}"
+REVISION="${R4D_BENCH_REVISION:-0fe2b3a99a95632ea6d0bd1718723ac24804e49b}"
 
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY ftp_proxy FTP_PROXY
 export HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
 
 mkdir -p "${OUTPUT_DIR}"
 
-PYTHON_BIN="${PYTHON_BIN:-$(command -v python3 || command -v python || true)}"
-if [[ -z "${PYTHON_BIN}" && -z "${GS_CONDA_BIN:-}" ]]; then
-  echo "Python is required to download dataset snapshots. Install python3 (or conda) first." >&2
-  exit 2
-fi
-
 run_python() {
-  if [[ -n "${PYTHON_BIN}" ]]; then
+  if [[ -n "${PYTHON_BIN:-}" ]]; then
     "${PYTHON_BIN}" "$@"
-  else
-    gs_python "$@"
+    return
   fi
+  gs_python "$@"
 }
 
-run_python - <<'PY' "${REPO_ID}" "${OUTPUT_DIR}"
+run_python - <<'PY' "${REPO_ID}" "${OUTPUT_DIR}" "${REVISION}"
 from __future__ import annotations
 
 import json
@@ -36,20 +31,23 @@ from pathlib import Path
 
 repo_id = sys.argv[1]
 output_dir = Path(sys.argv[2]).resolve()
+requested_revision = sys.argv[3]
 
 try:
-    from huggingface_hub import snapshot_download
+    from huggingface_hub import HfApi, snapshot_download
 except ModuleNotFoundError as exc:
     raise SystemExit(
         "Missing dependency 'huggingface_hub'. Install it first, e.g. pip install huggingface_hub"
     ) from exc
 
 token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+resolved_revision = str(HfApi().dataset_info(repo_id, revision=requested_revision, token=token).sha)
 
 snapshot_path = Path(
     snapshot_download(
         repo_id=repo_id,
         repo_type="dataset",
+        revision=resolved_revision,
         local_dir=str(output_dir),
         local_dir_use_symlinks=False,
         resume_download=True,
@@ -99,6 +97,8 @@ if benchmark_89 is not None:
 
 manifest = {
     "repo_id": repo_id,
+    "requested_revision": requested_revision,
+    "resolved_revision": resolved_revision,
     "hf_endpoint": os.environ.get("HF_ENDPOINT", ""),
     "snapshot_path": str(snapshot_path),
     "token_provided": bool(token),

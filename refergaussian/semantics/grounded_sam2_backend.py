@@ -422,6 +422,8 @@ def run_grounded_sam2_query(
     output_dir: str | Path,
     grounding_model_id: str = "IDEA-Research/grounding-dino-base",
     sam2_model_id: str = "facebook/sam2-hiera-large",
+    grounding_model_revision: str | None = None,
+    sam2_model_revision: str | None = None,
     detector_frame_stride: int = 12,
     max_detector_frames: int = 12,
     detection_top_k: int = 3,
@@ -460,6 +462,8 @@ def run_grounded_sam2_query(
             "query_plan_path": str(query_plan_path),
             "grounding_model_id": grounding_model_id,
             "sam2_model_id": sam2_model_id,
+            "grounding_model_revision": grounding_model_revision,
+            "sam2_model_revision": sam2_model_revision,
             "prompt_type": prompt_type,
             "frame_subsample_stride": int(frame_subsample_stride),
             "num_tracking_frames": int(len(image_entries)),
@@ -480,11 +484,13 @@ def run_grounded_sam2_query(
     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    processor = AutoProcessor.from_pretrained(grounding_model_id)
-    grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(grounding_model_id).to(device)
+    processor = AutoProcessor.from_pretrained(grounding_model_id, revision=grounding_model_revision)
+    grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(
+        grounding_model_id, revision=grounding_model_revision
+    ).to(device)
     grounding_model.eval()
-    image_predictor = SAM2ImagePredictor.from_pretrained(sam2_model_id)
-    video_predictor = SAM2VideoPredictor.from_pretrained(sam2_model_id)
+    image_predictor = SAM2ImagePredictor.from_pretrained(sam2_model_id, revision=sam2_model_revision)
+    video_predictor = SAM2VideoPredictor.from_pretrained(sam2_model_id, revision=sam2_model_revision)
 
     detections_by_phrase: dict[str, list[dict[str, Any]]] = {}
     for phrase in detector_phrases:
@@ -788,6 +794,8 @@ def run_grounded_sam2_query(
         "query_plan_path": str(query_plan_path),
         "grounding_model_id": grounding_model_id,
         "sam2_model_id": sam2_model_id,
+        "grounding_model_revision": grounding_model_revision,
+        "sam2_model_revision": sam2_model_revision,
         "prompt_type": prompt_type,
         "frame_subsample_stride": int(frame_subsample_stride),
         "num_tracking_frames": int(len(image_entries)),

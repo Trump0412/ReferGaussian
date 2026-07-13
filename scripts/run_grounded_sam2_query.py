@@ -18,6 +18,8 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--grounding-model-id", default="IDEA-Research/grounding-dino-base")
     parser.add_argument("--sam2-model-id", default="facebook/sam2-hiera-large")
+    parser.add_argument("--grounding-model-revision", default=None)
+    parser.add_argument("--sam2-model-revision", default=None)
     parser.add_argument("--detector-frame-stride", type=int, default=12)
     parser.add_argument("--max-detector-frames", type=int, default=12)
     parser.add_argument("--detection-top-k", type=int, default=3)
@@ -36,6 +38,8 @@ def main() -> None:
         output_dir=Path(args.output_dir),
         grounding_model_id=args.grounding_model_id,
         sam2_model_id=args.sam2_model_id,
+        grounding_model_revision=args.grounding_model_revision,
+        sam2_model_revision=args.sam2_model_revision,
         detector_frame_stride=args.detector_frame_stride,
         max_detector_frames=args.max_detector_frames,
         detection_top_k=args.detection_top_k,

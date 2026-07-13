@@ -36,6 +36,18 @@ def _write_validation(query_root: Path, frames: list[dict]) -> Path:
 
 
 class BenchmarkEvaluatorTest(unittest.TestCase):
+    def test_coverage_marks_missing_manifest_outputs_incomplete(self) -> None:
+        coverage = EVALUATOR.coverage_summary(
+            ["query_a", "query_b"],
+            [
+                {"query_id": "query_a", "Acc": 1.0},
+                {"query_id": "query_b", "Acc": None},
+            ],
+        )
+
+        self.assertFalse(coverage["complete"])
+        self.assertEqual(coverage["missing_query_ids"], ["query_b"])
+
     def test_summary_separates_empty_target_outcomes(self) -> None:
         nonempty = {
             "Acc": 0.25,

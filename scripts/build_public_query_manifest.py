@@ -26,19 +26,7 @@ SCENE_PATHS: dict[str, tuple[str, str]] = {
     "chickchicken": ("refergaussian/hypernerf/chickchicken", "hypernerf/interp/chickchicken"),
 }
 
-# Exploratory object queries are intentionally separate from the official
-# time-sensitive protocol. They do not have public benchmark masks by default.
-SCENE_QUERIES_ALL: dict[str, list[str]] = {
-    "americano": ["the espresso cup", "the milk pitcher", "the red milk pitcher"],
-    "espresso": ["the empty glass cup", "the white cup", "the metal spoon", "the knife"],
-    "split-cookie": ["the left hand", "the right hand", "the knife"],
-    "chickchicken": ["the hand holding the knife", "the rubber chicken", "the spoon"],
-}
-QUERY_SETS = ("all", "time_sensitive")
-
-
-def _slugify(text: str) -> str:
-    return text.strip().lower().replace(" ", "_").replace("-", "_").replace("/", "_")
+QUERY_SETS = ("time_sensitive",)
 
 
 def _validate_path(label: str, path_str: str) -> None:
@@ -139,7 +127,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--protocol-json",
-        help="Output of build_4dlangsplat_query_protocol.py; required for time_sensitive.",
+        required=True,
+        help="Output of build_4dlangsplat_query_protocol.py.",
     )
     parser.add_argument(
         "--run-root",
@@ -174,19 +163,10 @@ def main() -> int:
     entries: list[dict[str, object]] = []
 
     try:
-        if args.query_set == "time_sensitive":
-            if not args.protocol_json:
-                parser.error("--protocol-json is required when --query-set time_sensitive")
-            protocol_path = Path(args.protocol_json)
-            if not protocol_path.is_file():
-                parser.error(f"protocol not found: {protocol_path}")
-            source_rows = _time_sensitive_protocol_rows(protocol_path)
-        else:
-            source_rows = [
-                (scene, f"{scene}__{_slugify(query)}", query)
-                for scene in sorted(SCENE_QUERIES_ALL)
-                for query in SCENE_QUERIES_ALL[scene]
-            ]
+        protocol_path = Path(args.protocol_json)
+        if not protocol_path.is_file():
+            parser.error(f"protocol not found: {protocol_path}")
+        source_rows = _time_sensitive_protocol_rows(protocol_path)
 
         for index, (scene, query_id, query) in enumerate(source_rows):
             entries.append(

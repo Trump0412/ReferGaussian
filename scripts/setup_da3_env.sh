@@ -7,7 +7,7 @@ DA3_ENV_PATH="${DA3_ENV_PATH:-${GS_ENV_ROOT}/da3-gs-py310}"
 DA3_REPO_DIR="${DA3_REPO_DIR:-${GS_ROOT}/external/Depth-Anything-3}"
 DA3_GSPLAT_REPO_DIR="${DA3_GSPLAT_REPO_DIR:-${GS_ROOT}/external/gsplat}"
 DA3_INSTALL_GSPLAT="${DA3_INSTALL_GSPLAT:-0}"
-DA3_HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+DA3_HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
 DA3_HF_HOME="${HF_HOME:-${GS_CACHE_ROOT}/huggingface}"
 DA3_PIP_CACHE_DIR="${PIP_CACHE_DIR:-${GS_PIP_CACHE_DIR}}"
 DA3_GIT_URL="${DA3_GIT_URL:-https://github.com/ByteDance-Seed/Depth-Anything-3.git}"
@@ -18,7 +18,7 @@ DA3_GSPLAT_GIT_URL="${DA3_GSPLAT_GIT_URL:-https://github.com/nerfstudio-project/
 DA3_GSPLAT_GIT_MIRROR_URL="${DA3_GSPLAT_GIT_MIRROR_URL:-https://mirror.ghproxy.com/https://github.com/nerfstudio-project/gsplat.git}"
 DA3_GSPLAT_ARCHIVE_URL="${DA3_GSPLAT_ARCHIVE_URL:-https://mirror.ghproxy.com/https://codeload.github.com/nerfstudio-project/gsplat/tar.gz/0b4dddf04cb687367602c01196913cde6a743d70}"
 DA3_GSPLAT_ARCHIVE_FALLBACK_URL="${DA3_GSPLAT_ARCHIVE_FALLBACK_URL:-https://codeload.github.com/nerfstudio-project/gsplat/tar.gz/0b4dddf04cb687367602c01196913cde6a743d70}"
-DA3_PIP_INDEX_URL="${DA3_PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+DA3_PIP_INDEX_URL="${DA3_PIP_INDEX_URL:-https://pypi.org/simple}"
 
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY ftp_proxy FTP_PROXY
 export HF_ENDPOINT="${DA3_HF_ENDPOINT}"

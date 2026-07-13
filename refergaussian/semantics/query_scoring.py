@@ -60,7 +60,6 @@ TOOL_WORDS = {"knife", "blade", "cutter", "scissors", "fork", "spoon", "spatula"
 PERSON_WORDS = {"person", "human", "hand", "arm", "man", "woman", "chef"}
 SUPPORT_WORDS = {"board", "table", "plate", "surface", "counter", "tray"}
 BACKGROUND_WORDS = {"background", "wall", "scene", "floor"}
-OBJECT_WORDS = {"lemon", "apple", "orange", "fruit", "object", "target", "food"}
 ACTION_NEEDS_TOOL = {"cut", "cuts", "cutting", "slice", "slices", "sliced", "chop", "chops", "chopping"}
 
 

@@ -27,7 +27,14 @@ Accepted at **ACM Multimedia 2026**.
 
 ## Results
 
-### R4D-Bench-QA — referring segmentation
+The following tables are the accepted-paper results under the stated fixed
+protocols. They are not partial reruns: a new release reproduction must cover
+all expected queries, retain the manifest/evaluator output, and report
+overall, non-empty-only, and zero-target outcomes separately.
+See [the release reproduction protocol](docs/RELEASE_REPRODUCTION_PROTOCOL.md)
+for the fixed scene/query sets and required artifacts.
+
+### Paper results — R4D-Bench-QA referring segmentation
 
 | Method | Acc ↑ | vIoU ↑ |
 |---|---:|---:|
@@ -35,7 +42,7 @@ Accepted at **ACM Multimedia 2026**.
 | 4D LangSplat | 58.4 | 32.1 |
 | ReferGaussian (Ours) | **76.5** | **34.4** |
 
-### Reconstruction — fixed 8-scene protocol
+### Paper results — reconstruction on the fixed 8-scene protocol
 
 | Method | PSNR ↑ | SSIM ↑ | LPIPS ↓ |
 |---|---:|---:|---:|
@@ -45,7 +52,7 @@ Accepted at **ACM Multimedia 2026**.
 The reconstruction table uses the fixed 8-scene release protocol. Results where either
 method has PSNR below 20 dB are excluded from paper-facing reconstruction comparisons.
 
-### Generalization — 4D LangSplat HyperNeRF split
+### Paper results — 4D LangSplat HyperNeRF split
 
 | Method | Acc ↑ | vIoU ↑ |
 |---|---|---|
@@ -55,7 +62,7 @@ method has PSNR below 20 dB are excluded from paper-facing reconstruction compar
 | 4D LangSplat | 88.86 | 66.14 |
 | ReferGaussian (Ours) | **91.62** | **66.48** |
 
-### Module ablation — R4D-Bench-QA
+### Paper results — module ablation on R4D-Bench-QA
 
 | Variant | Acc ↑ | vIoU ↑ |
 |---|---|---|
@@ -130,17 +137,22 @@ Override with `GS4D_ENV_ROOT`, `GS4D_CONDA_PKGS_DIRS`, and `GS4D_PIP_CACHE_DIR`.
 
 ### Qwen3-VL-8B-Instruct (Refer-Planner)
 
-The Refer-Planner uses [Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct). Download before referring evaluation:
+The Refer-Planner uses [Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct).
+The release pins the model snapshot below; download it from the Grounded-SAM2
+environment before referring evaluation:
 
 ```bash
 source scripts/common.sh
-gs_python -c "
-from huggingface_hub import snapshot_download
-snapshot_download('Qwen/Qwen3-VL-8B-Instruct', local_dir='models/Qwen3-VL-8B-Instruct')
-"
+export REFERGAUSSIAN_QWEN_REVISION=0c351dd01ed87e9c1b53cbc748cba10e6187ff3b
+gsam2_python scripts/download_hf_snapshot.py \
+  --repo-id Qwen/Qwen3-VL-8B-Instruct \
+  --revision "${REFERGAUSSIAN_QWEN_REVISION}" \
+  --local-dir models/Qwen3-VL-8B-Instruct
 ```
 
-Default path is `models/Qwen3-VL-8B-Instruct/` (relative to repo root). Override with:
+Default path is `models/Qwen3-VL-8B-Instruct/` (relative to repo root); the
+download writes `refergaussian_snapshot.json` with the resolved revision.
+Override the model location with:
 
 ```bash
 export REFERGAUSSIAN_QWEN_MODEL=/path/to/Qwen3-VL-8B-Instruct
@@ -148,11 +160,13 @@ export REFERGAUSSIAN_QWEN_MODEL=/path/to/Qwen3-VL-8B-Instruct
 
 ### SAM2 and Grounding DINO (Grounded-SAM2 pipeline)
 
-Downloaded automatically during `bash scripts/setup_grounded_sam2.sh`:
-- `facebook/sam2-hiera-large`
-- `IDEA-Research/grounding-dino-base`
+Downloaded automatically during `bash scripts/setup_grounded_sam2.sh` at the
+pinned revisions below:
+- `facebook/sam2-hiera-large @ e6a8e8809b8f1bfa2238b6d080f3d05cc76bd251`
+- `IDEA-Research/grounding-dino-base @ 12bdfa3120f3e7ec7b434d90674b3396eccf88eb`
 
-If needed, set `HF_ENDPOINT=https://hf-mirror.com` before setup.
+The default endpoint is `https://huggingface.co`; set `HF_ENDPOINT` only when
+an alternative mirror is explicitly required.
 
 ## Dataset Setup
 
@@ -210,7 +224,10 @@ The command is deterministic and may be repeated safely for each DyNeRF scene.
 bash scripts/download_4dlangsplat_annotations.sh
 ```
 
-Downloads to `data/benchmarks/4dlangsplat/HyperNeRF-Annotation/`.
+Downloads the pinned annotation snapshot
+`d127a280446206fc97887a304de790a1fe6af5ff` to
+`data/benchmarks/4dlangsplat/HyperNeRF-Annotation/`; its manifest records the
+resolved revision.
 Build a per-scene query protocol from the downloaded temporal annotations
 before running the public evaluator:
 
@@ -233,7 +250,11 @@ evaluating those scenes. The generated protocol is deterministic from
 bash scripts/download_r4d_bench_qa.sh
 ```
 
-Downloads to `data/benchmarks/r4d_bench_qa/`.
+Downloads the pinned dataset snapshot
+`0fe2b3a99a95632ea6d0bd1718723ac24804e49b` to
+`data/benchmarks/r4d_bench_qa/`. Override it only with an explicit
+`R4D_BENCH_REVISION`; the generated `download_manifest.json` records both the
+requested and resolved revisions.
 
 Dataset link: [https://huggingface.co/datasets/LiYacheng/r4d-bench-qa](https://huggingface.co/datasets/LiYacheng/r4d-bench-qa)
 
@@ -266,7 +287,12 @@ bash scripts/eval_baseline.sh hypernerf misc/keyboard
 The two commands write PSNR / SSIM / LPIPS to their respective run directories.
 For a fair reconstruction comparison, use the same dataset source, 4DGaussians
 scene config, iteration budget, and metric mode for both runs. The wrappers
-write `config.yaml` and `metrics_summary.json` beside each output for audit.
+write `config.yaml`, `results.json`, and `metrics.json` beside each output for
+audit.
+
+For iterative debugging only, set `GS_SKIP_FULL_METRICS=1` to run the uniform
+subset metric path. Do not compare subset metrics with the full-frame paper
+table; omit that variable for any final reconstruction report.
 
 ### Referring evaluation — 4DLangSplat public protocol
 
@@ -298,8 +324,14 @@ gs_python scripts/evaluate_public_query_protocol.py \
   --annotation-dir "${ANNOT_DIR}" \
   --dataset-dir "${DATASET_DIR}" \
   --query-root "${RUN_DIR}/entitybank/query_guided" \
+  --category temporal_state_reference \
+  --require-complete \
   --output-json reports/public_eval_${SCENE}.json
 ```
+
+`run_public_query_protocol.sh` defaults to the
+`temporal_state_reference` category, so it does not spend compute on the
+unscored static-reference rows in the annotation file.
 
 Reproducible profile switch:
 
@@ -355,6 +387,36 @@ gs_python scripts/run_query_batch_two_gpu.py \
   --timeout 10800
 ```
 
+Evaluate each scene from the same protocol and then aggregate the four
+complete scene reports. The aggregate command refuses to turn a partial run
+into a final result:
+
+```bash
+for SCENE in americano espresso split-cookie chickchicken; do
+  case "${SCENE}" in
+    chickchicken) GROUP=interp ;;
+    *) GROUP=misc ;;
+  esac
+  gs_python scripts/evaluate_public_query_protocol.py \
+    --protocol-json "${PROTOCOL_JSON}" \
+    --annotation-dir "${ANN_ROOT}/${SCENE}" \
+    --dataset-dir "data/hypernerf/${GROUP}/${SCENE}" \
+    --query-root "${OUT}/query_root" \
+    --scene "${SCENE}" \
+    --category temporal_state_reference \
+    --require-complete \
+    --output-json "${OUT}/${SCENE}_official_eval.json" \
+    --output-md "${OUT}/${SCENE}_official_eval.md"
+done
+
+gs_python scripts/aggregate_public_query_evaluations.py \
+  --inputs "${OUT}"/*_official_eval.json \
+  --expected-queries 9 \
+  --require-complete \
+  --output-json "${OUT}/official_eval.json" \
+  --output-md "${OUT}/official_eval.md"
+```
+
 When evaluating a subset such as `time_sensitive`, pass the same manifest to
 `evaluate_public_query_protocol.py --query-manifest "${OUT}/manifest.jsonl"`.
 This prevents unrequested protocol queries from appearing as missing results.
@@ -398,7 +460,7 @@ gs_python scripts/evaluate_ours_benchmark.py \
   --query-manifest "${RUN_ROOT}/manifest.jsonl" \
   --output-json "${RUN_ROOT}/official_eval.json" \
   --output-md "${RUN_ROOT}/official_eval.md" \
-  --skip-missing
+  --require-complete
 ```
 
 The preflight and query pipeline require `phase: refergaussian`,
