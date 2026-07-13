@@ -4,7 +4,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 REPO_ID="${1:-rpzhou/HyperNeRF-Annotation}"
-OUTPUT_DIR="${2:-${GS_ROOT}/data/benchmarks/4dlangsplat/$(basename "${REPO_ID}")}"
+OUTPUT_DIR="${2:-${GS_DATA_ROOT}/benchmarks/4dlangsplat/$(basename "${REPO_ID}")}"
 SCENE_NAME="${3:-}"
 REVISION="${4:-${FOURDLANGSPLAT_ANNOTATION_REVISION:-d127a280446206fc97887a304de790a1fe6af5ff}}"
 

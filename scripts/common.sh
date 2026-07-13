@@ -4,6 +4,8 @@ set -euo pipefail
 GS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GS_REPO_PARENT="$(cd "${GS_ROOT}/.." && pwd)"
 GS_HOME_DEFAULT="${HOME:-/tmp}"
+GS_DATA_ROOT="${GS_DATA_ROOT:-${GS_ROOT}/data}"
+GS_RUN_ROOT="${GS_RUN_ROOT:-${GS_ROOT}/runs}"
 GS_CACHE_ROOT="${GS4D_CACHE_ROOT:-${GS_HOME_DEFAULT}/.cache/refergaussian}"
 GS_ENV_ROOT="${GS4D_ENV_ROOT:-${GS_CACHE_ROOT}/conda-envs}"
 GS_LEGACY_ENV_ROOT="${GS4D_LEGACY_ENV_ROOT:-${GS_REPO_PARENT}/.conda-envs}"
@@ -120,6 +122,8 @@ GS_ENV_PATH="$(detect_default_env_path)"
 GS_ENV_NAME="${GS4D_ENV_NAME:-$(basename "${GS_ENV_PATH}")}"
 GSAM2_ENV_PATH="$(detect_gsam2_env_path)"
 export GS_ROOT
+export GS_DATA_ROOT
+export GS_RUN_ROOT
 export GS_ENV_ROOT
 export GS_LEGACY_ENV_ROOT
 export GS_CACHE_ROOT
@@ -207,16 +211,16 @@ dataset_source_path() {
   local scene="$2"
   case "${dataset}" in
     dnerf)
-      printf '%s/data/dnerf/%s' "${GS_ROOT}" "${scene}"
+      printf '%s/dnerf/%s' "${GS_DATA_ROOT}" "${scene}"
       ;;
     dynerf)
-      printf '%s/data/dynerf/%s' "${GS_ROOT}" "${scene}"
+      printf '%s/dynerf/%s' "${GS_DATA_ROOT}" "${scene}"
       ;;
     hypernerf)
       if [[ "${scene}" == */* ]]; then
-        printf '%s/data/hypernerf/%s' "${GS_ROOT}" "${scene}"
+        printf '%s/hypernerf/%s' "${GS_DATA_ROOT}" "${scene}"
       else
-        printf '%s/data/hypernerf/virg/%s' "${GS_ROOT}" "${scene}"
+        printf '%s/hypernerf/virg/%s' "${GS_DATA_ROOT}" "${scene}"
       fi
       ;;
     *)

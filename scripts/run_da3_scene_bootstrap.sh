@@ -4,7 +4,7 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
 SCENE_DIR="${1:?scene dir required}"
-OUTPUT_DIR="${2:-${GS_ROOT}/data/downloads/da3_$(basename "${SCENE_DIR}")}" 
+OUTPUT_DIR="${2:-${GS_DATA_ROOT}/downloads/da3_$(basename "${SCENE_DIR}")}"
 INPUT_PATH="${3:-${SCENE_DIR}/val}"
 MAX_POINTS="${DA3_BOOTSTRAP_MAX_POINTS:-200000}"
 shift $(( $# > 2 ? 3 : $# ))

@@ -285,6 +285,18 @@ Dataset link: [https://huggingface.co/datasets/LiYacheng/r4d-bench-qa](https://h
 
 ## Training
 
+By default, prepared data and training outputs live under `data/` and `runs/`
+inside the repository. To keep large assets on a mounted volume, set these
+generic roots once before running the same commands:
+
+```bash
+export GS_DATA_ROOT=/absolute/path/to/refergaussian-data
+export GS_RUN_ROOT=/absolute/path/to/refergaussian-runs
+```
+
+The defaults remain `data/` and `runs/`; these variables only relocate assets
+and do not change a model or query-evaluation setting.
+
 ```bash
 # Use one explicit seed for a matched ReferGaussian / 4DGS comparison.
 # bootstrap_external.sh applies the seed-order patch so this seed is effective.

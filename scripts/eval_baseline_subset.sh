@@ -8,7 +8,7 @@ SCENE="${2:-interp/cut-lemon1}"
 shift $(( $# > 1 ? 2 : $# ))
 
 RUN_NAMESPACE="${GS_RUN_NAMESPACE:-baseline_4dgs}"
-RUN_DIR="${GS_ROOT}/runs/${RUN_NAMESPACE}/${DATASET}/${SCENE##*/}"
+RUN_DIR="${GS_RUN_ROOT}/${RUN_NAMESPACE}/${DATASET}/${SCENE##*/}"
 LOG_PATH="${RUN_DIR}/render.log"
 META_PATH="${RUN_DIR}/render_meta.json"
 PY_CMD="$(gs_python_cmd)"

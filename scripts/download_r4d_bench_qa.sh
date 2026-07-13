@@ -4,7 +4,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 REPO_ID="${1:-${R4D_BENCH_REPO_ID:-LiYacheng/r4d-bench-qa}}"
-OUTPUT_DIR="${2:-${GS_ROOT}/data/benchmarks/r4d_bench_qa}"
+OUTPUT_DIR="${2:-${GS_DATA_ROOT}/benchmarks/r4d_bench_qa}"
 REVISION="${R4D_BENCH_REVISION:-0fe2b3a99a95632ea6d0bd1718723ac24804e49b}"
 
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY ftp_proxy FTP_PROXY

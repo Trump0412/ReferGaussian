@@ -3,8 +3,8 @@ set -euo pipefail
 
 source "$(dirname "$0")/common.sh"
 
-SOURCE_ROOT="${CUT_LEMON1_SOURCE_ROOT:-${HYPERNERF_RAW_ROOT:-${GS_ROOT}/data/raw/HyperNeRF}/interp/cut-lemon1}"
-TARGET_ROOT="${GS_ROOT}/data/hypernerf/interp/cut-lemon1"
+SOURCE_ROOT="${CUT_LEMON1_SOURCE_ROOT:-${HYPERNERF_RAW_ROOT:-${GS_DATA_ROOT}/raw/HyperNeRF}/interp/cut-lemon1}"
+TARGET_ROOT="${GS_DATA_ROOT}/hypernerf/interp/cut-lemon1"
 LINK_MODE="${CUT_LEMON1_LINK_MODE:-symlink}"
 
 mkdir -p "$(dirname "${TARGET_ROOT}")"

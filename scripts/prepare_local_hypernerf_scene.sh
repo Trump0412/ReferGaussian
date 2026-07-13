@@ -13,7 +13,7 @@ if [[ -z "${SOURCE_ROOT}" || -z "${TARGET_GROUP}" || -z "${TARGET_SCENE}" ]]; th
   exit 2
 fi
 
-TARGET_ROOT="${GS_ROOT}/data/hypernerf/${TARGET_GROUP}/${TARGET_SCENE}"
+TARGET_ROOT="${GS_DATA_ROOT}/hypernerf/${TARGET_GROUP}/${TARGET_SCENE}"
 mkdir -p "$(dirname "${TARGET_ROOT}")"
 
 for required in dataset.json metadata.json scene.json points3D_downsample2.ply; do

@@ -4,7 +4,7 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
 INPUT_PATH="${1:?input path required}"
-OUTPUT_DIR="${2:-${GS_ROOT}/data/downloads/da3_bootstrap}"
+OUTPUT_DIR="${2:-${GS_DATA_ROOT}/downloads/da3_bootstrap}"
 shift $(( $# > 1 ? 2 : $# ))
 EXTRA_ARGS="$(shell_join "$@")"
 

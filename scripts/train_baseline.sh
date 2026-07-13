@@ -10,7 +10,7 @@ shift $(( $# > 1 ? 2 : $# ))
 SOURCE_PATH="$(dataset_source_path "${DATASET}" "${SCENE}")"
 CONFIG_PATH="$(dataset_config_path "${DATASET}" "${SCENE}")"
 RUN_NAMESPACE="${GS_RUN_NAMESPACE:-baseline_4dgs}"
-RUN_DIR="${GS_ROOT}/runs/${RUN_NAMESPACE}/${DATASET}/${SCENE##*/}"
+RUN_DIR="${GS_RUN_ROOT}/${RUN_NAMESPACE}/${DATASET}/${SCENE##*/}"
 LOG_PATH="${RUN_DIR}/train.log"
 META_PATH="${RUN_DIR}/train_meta.json"
 PY_CMD="$(gs_python_cmd)"
