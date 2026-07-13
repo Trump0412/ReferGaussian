@@ -557,8 +557,9 @@ For an R4D diagnostic involving a compositional singular referent with several
 visually distinct instances, use the opt-in `r4d_multi_instance_boundary_v6`
 profile in a separate run root. It derives a broad noun-head detector phrase,
 lifts each spatially distinct Stage-1 track into its own Gaussian entity, and
-records a declared multi-hypothesis selection when the candidates remain
-query-compatible. It does not change the public
+tracks those candidates across the complete query timeline before recording a
+declared multi-hypothesis selection when they remain query-compatible. It does
+not change the public
 `public_time_boundary_gated_v5` protocol or substitute a Stage-1 mask for a
 Gaussian render.
 

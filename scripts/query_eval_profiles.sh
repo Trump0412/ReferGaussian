@@ -51,6 +51,7 @@ apply_query_eval_profile() {
   unset GSAM2_ENABLE_INSTANCE_CANDIDATES
   unset GSAM2_INSTANCE_MAX_CANDIDATES
   unset GSAM2_INSTANCE_RESOLUTION_POLICY
+  unset GSAM2_INSTANCE_FULL_SEQUENCE_TRACKS
   unset QUERY_LIFT_MAX_PHASE_VARIANTS
   unset QUERY_LIFT_BOOTSTRAP_MAX_ITER
   unset QUERY_LIFT_BOOTSTRAP_TIMEOUT
@@ -555,6 +556,7 @@ apply_query_eval_profile() {
       export GSAM2_ENABLE_INSTANCE_CANDIDATES=1
       export GSAM2_INSTANCE_MAX_CANDIDATES=2
       export GSAM2_INSTANCE_RESOLUTION_POLICY=multi_hypothesis
+      export GSAM2_INSTANCE_FULL_SEQUENCE_TRACKS=1
       ;;
     *)
       echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, public_time_boundary_gated_v5, r4d_shape_v4_recall, r4d_boundary_gated_v5, r4d_multi_instance_boundary_v6)" >&2

@@ -606,6 +606,7 @@ def run_grounded_sam2_query(
     enable_instance_candidates = _env_flag("GSAM2_ENABLE_INSTANCE_CANDIDATES", False)
     max_instance_candidates = max(2, int(os.environ.get("GSAM2_INSTANCE_MAX_CANDIDATES", "2")))
     instance_policy = str(os.environ.get("GSAM2_INSTANCE_RESOLUTION_POLICY", "multi_hypothesis")).strip().lower()
+    instance_full_sequence_tracks = _env_flag("GSAM2_INSTANCE_FULL_SEQUENCE_TRACKS", False)
     if instance_policy not in {"multi_hypothesis", "none"}:
         raise ValueError(
             "GSAM2_INSTANCE_RESOLUTION_POLICY must be 'multi_hypothesis' or 'none'."
@@ -646,6 +647,7 @@ def run_grounded_sam2_query(
             "track_window_radius": int(track_window_radius),
             "num_anchor_seeds": int(num_anchor_seeds),
             "instance_candidate_mode": bool(enable_instance_candidates),
+            "instance_full_sequence_tracks": bool(instance_full_sequence_tracks),
             "instance_candidate_groups": [],
             "phrases": [],
             "tracks": [],
@@ -783,6 +785,7 @@ def run_grounded_sam2_query(
             }
         )
 
+    min_frame_index = min(int(entry["frame_index"]) for entry in image_entries)
     max_frame_index = max(int(entry["frame_index"]) for entry in image_entries)
 
     phrase_payloads: list[dict[str, Any]] = []
@@ -869,8 +872,16 @@ def run_grounded_sam2_query(
                 first_preview_path = preview_path
                 first_anchor_mask_preview_path = anchor_mask_preview_path
 
-            track_start = max(0, anchor_frame_index - int(effective_track_window_radius))
-            track_end = min(max_frame_index, anchor_frame_index + int(effective_track_window_radius))
+            if instance_full_sequence_tracks and spec.get("instance_group_id"):
+                # Multi-instance hypotheses must remain comparable across the
+                # complete query timeline. A local anchor window can otherwise
+                # make a valid candidate fail solely because its Stage-1 mask
+                # evidence disappears before the final temporal selection.
+                track_start = min_frame_index
+                track_end = max_frame_index
+            else:
+                track_start = max(min_frame_index, anchor_frame_index - int(effective_track_window_radius))
+                track_end = min(max_frame_index, anchor_frame_index + int(effective_track_window_radius))
             local_frame_dir, local_entries = _materialize_local_jpeg_frame_dir(
                 image_entries=image_entries,
                 output_dir=phrase_output_dir / f"video_window_jpg_{anchor_index:02d}",
@@ -1083,6 +1094,7 @@ def run_grounded_sam2_query(
         "track_window_radius": int(track_window_radius),
         "num_anchor_seeds": int(num_anchor_seeds),
         "instance_candidate_mode": bool(enable_instance_candidates),
+        "instance_full_sequence_tracks": bool(instance_full_sequence_tracks),
         "instance_candidate_groups": instance_candidate_groups,
         "phrases": phrase_payloads,
         "tracks": phrase_tracks,

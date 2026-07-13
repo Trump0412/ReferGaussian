@@ -72,10 +72,11 @@ run fail after saving its diagnostics; it cannot enter a release aggregate.
 `r4d_multi_instance_boundary_v6` is an opt-in R4D canary profile for a
 compositional singular referring expression that yields multiple spatially
 distinct same-category detector candidates. It retains those candidates as
-separate Stage-1 tracks and separately lifted Gaussian entities, records the
-selection policy in `grounded_sam2_query_tracks.json`, and keeps every final
-mask on the same boundary-gated Gaussian-rendering contract. Run and report it
-in a distinct output root; it does not alter the public v5 baseline.
+separate full-timeline Stage-1 tracks and separately lifted Gaussian entities,
+records the selection policy in `grounded_sam2_query_tracks.json`, and keeps
+every final mask on the same boundary-gated Gaussian-rendering contract. Run
+and report it in a distinct output root; it does not alter the public v5
+baseline.
 
 ## Reporting Rules
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +51,24 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
     def test_provenance_checker_rejects_foreign_sam2_extension(self) -> None:
         text = (ROOT / "scripts" / "check_grounded_sam2_import.py").read_text(encoding="utf-8")
         self.assertIn("sam2._C resolved outside", text)
+
+    def test_multi_instance_profile_keeps_full_sequence_tracking_opt_in(self) -> None:
+        profiles = ROOT / "scripts" / "query_eval_profiles.sh"
+        command = (
+            f"source {profiles}; "
+            "apply_query_eval_profile r4d_multi_instance_boundary_v6; "
+            "printf '%s' \"${GSAM2_INSTANCE_FULL_SEQUENCE_TRACKS:-}\""
+        )
+        enabled = subprocess.check_output(["bash", "-lc", command], text=True)
+        self.assertEqual(enabled, "1")
+
+        command = (
+            f"source {profiles}; "
+            "apply_query_eval_profile public_time_boundary_gated_v5; "
+            "printf '%s' \"${GSAM2_INSTANCE_FULL_SEQUENCE_TRACKS:-}\""
+        )
+        disabled = subprocess.check_output(["bash", "-lc", command], text=True)
+        self.assertEqual(disabled, "")
 
 
 if __name__ == "__main__":
