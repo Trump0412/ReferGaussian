@@ -821,6 +821,200 @@ def _filter_qwen_subjects_to_singular_plan_subject(
     return deduped
 
 
+def _bbox_gap_normalized(first: Any, second: Any) -> float | None:
+    """Return the non-overlap gap normalized by the larger box diagonal."""
+    if not isinstance(first, (list, tuple)) or not isinstance(second, (list, tuple)):
+        return None
+    if len(first) != 4 or len(second) != 4:
+        return None
+    try:
+        first_x0, first_y0, first_x1, first_y1 = [float(value) for value in first]
+        second_x0, second_y0, second_x1, second_y1 = [float(value) for value in second]
+    except (TypeError, ValueError):
+        return None
+    if first_x1 <= first_x0 or first_y1 <= first_y0 or second_x1 <= second_x0 or second_y1 <= second_y0:
+        return None
+    gap_x = max(first_x0 - second_x1, second_x0 - first_x1, 0.0)
+    gap_y = max(first_y0 - second_y1, second_y0 - first_y1, 0.0)
+    first_diagonal = float(np.hypot(first_x1 - first_x0, first_y1 - first_y0))
+    second_diagonal = float(np.hypot(second_x1 - second_x0, second_y1 - second_y0))
+    return float(np.hypot(gap_x, gap_y) / max(first_diagonal, second_diagonal, 1.0))
+
+
+def _relation_disambiguation_override(
+    *,
+    query_plan_payload: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    tracks_payload: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Choose a singular instance using its tracked relation to query context.
+
+    Relation candidates are generated from one shared anchor frame precisely so
+    same-category objects can be compared without identity switching.  When
+    one has substantially stronger multi-frame proximity to an explicitly
+    planned relation context, that evidence is stronger than an LLM's arbitrary
+    ``instance 1``/``instance 2`` naming.  This is geometry-only and contains
+    no object, scene, or action vocabulary.
+    """
+    if not tracks_payload:
+        return None
+    plan_subjects = [
+        _normalize_phrase(value)
+        for value in query_plan_payload.get("query_subject_phrases", [])
+        if _normalize_phrase(value)
+    ]
+    relation_context = [
+        _normalize_phrase(value)
+        for value in query_plan_payload.get("relation_context_phrases", [])
+        if _normalize_phrase(value)
+    ]
+    if len(plan_subjects) != 1 or not relation_context:
+        return None
+    groups = tracks_payload.get("instance_candidate_groups", [])
+    if not isinstance(groups, list):
+        return None
+    target_group = next(
+        (
+            group
+            for group in groups
+            if isinstance(group, dict)
+            and str(group.get("selection_policy", "")).strip().lower() == "relation_disambiguation"
+            and _normalize_phrase(group.get("semantic_phrase", "")) == plan_subjects[0]
+        ),
+        None,
+    )
+    if target_group is None:
+        return None
+    try:
+        object_ids = [int(value) for value in target_group.get("object_ids", [])]
+    except (TypeError, ValueError):
+        return None
+    if len(object_ids) < 2:
+        return None
+
+    tracks_by_object_id: dict[int, dict[str, Any]] = {}
+    context_tracks: list[dict[str, Any]] = []
+    for track in tracks_payload.get("tracks", []):
+        if not isinstance(track, dict):
+            continue
+        try:
+            tracks_by_object_id[int(track.get("object_id"))] = track
+        except (TypeError, ValueError):
+            pass
+        if _normalize_phrase(track.get("phrase", "")) in relation_context:
+            context_tracks.append(track)
+    if not context_tracks or any(object_id not in tracks_by_object_id for object_id in object_ids):
+        return None
+
+    all_frame_indices = [
+        int(frame.get("frame_index", 0))
+        for track in tracks_by_object_id.values()
+        for frame in track.get("frames", [])
+        if isinstance(frame, dict)
+    ]
+    if not all_frame_indices:
+        return None
+    full_span = max(all_frame_indices) - min(all_frame_indices)
+    anchor_radius = max(1, int(round(max(full_span, 1) * 0.12)))
+    score_rows: list[dict[str, Any]] = []
+    for object_id in object_ids:
+        subject_track = tracks_by_object_id[object_id]
+        try:
+            anchor_frame = int(subject_track.get("anchor_frame_index"))
+        except (TypeError, ValueError):
+            anchor_frame = int(round((min(all_frame_indices) + max(all_frame_indices)) * 0.5))
+        subject_boxes = {
+            int(frame.get("frame_index", 0)): frame.get("bbox_xyxy")
+            for frame in subject_track.get("frames", [])
+            if isinstance(frame, dict) and bool(frame.get("active", False))
+        }
+        context_scores: list[dict[str, Any]] = []
+        for context_track in context_tracks:
+            context_boxes = {
+                int(frame.get("frame_index", 0)): frame.get("bbox_xyxy")
+                for frame in context_track.get("frames", [])
+                if isinstance(frame, dict) and bool(frame.get("active", False))
+            }
+            gaps = [
+                gap
+                for frame_index in sorted(set(subject_boxes) & set(context_boxes))
+                if abs(int(frame_index) - anchor_frame) <= anchor_radius
+                for gap in [_bbox_gap_normalized(subject_boxes[frame_index], context_boxes[frame_index])]
+                if gap is not None
+            ]
+            if not gaps:
+                continue
+            median_gap = float(np.median(np.asarray(gaps, dtype=np.float32)))
+            near_fraction = float(np.mean(np.asarray(gaps, dtype=np.float32) <= 0.40))
+            proximity = 0.65 / (1.0 + median_gap) + 0.35 * near_fraction
+            context_scores.append(
+                {
+                    "context_phrase": str(context_track.get("phrase", "")),
+                    "frame_count": int(len(gaps)),
+                    "median_gap": median_gap,
+                    "near_fraction": near_fraction,
+                    "proximity": float(proximity),
+                }
+            )
+        if context_scores:
+            context_scores.sort(key=lambda row: float(row["proximity"]), reverse=True)
+            score_rows.append(
+                {
+                    "object_id": int(object_id),
+                    "anchor_frame_index": int(anchor_frame),
+                    "score": float(context_scores[0]["proximity"]),
+                    "best_context": context_scores[0],
+                    "contexts": context_scores,
+                }
+            )
+    if len(score_rows) < 2:
+        return None
+    score_rows.sort(key=lambda row: (-float(row["score"]), int(row["object_id"])))
+    winner, runner_up = score_rows[0], score_rows[1]
+    margin = float(winner["score"]) - float(runner_up["score"])
+    if float(winner["score"]) < 0.55 or margin < 0.10:
+        return {
+            "applied": False,
+            "reason": "relation_geometry_not_separable",
+            "scores": score_rows,
+            "margin": margin,
+        }
+    winner_candidates = []
+    for candidate in candidates:
+        try:
+            candidate_object_id = int(candidate.get("stage1_object_id"))
+        except (TypeError, ValueError):
+            continue
+        if candidate_object_id == int(winner["object_id"]):
+            winner_candidates.append(candidate)
+    if not winner_candidates:
+        return None
+    winner_candidates.sort(
+        key=lambda candidate: (
+            -_candidate_phrase_score(plan_subjects[0], candidate),
+            -float(candidate.get("quality", 0.0)),
+            int(candidate.get("id", -1)),
+        )
+    )
+    winner_candidate = winner_candidates[0]
+    alias = str(
+        winner_candidate.get("proposal_alias")
+        or winner_candidate.get("proposal_phrase")
+        or winner_candidate.get("static_text")
+        or ""
+    ).strip()
+    if not alias:
+        return None
+    return {
+        "applied": True,
+        "winner_object_id": int(winner["object_id"]),
+        "winner_candidate_id": int(winner_candidate["id"]),
+        "winner_alias": alias,
+        "margin": margin,
+        "scores": score_rows,
+    }
+
+
 def _choose_subject_pair(
     pair_candidates: list[dict[str, Any]],
     subject_ids: list[int],
@@ -2206,6 +2400,13 @@ def _compose_phrase_grounded_selection(
             plan_subjects=plan_subjects,
             candidates=candidates,
         )
+    relation_disambiguation = None if is_exclusion_query else _relation_disambiguation_override(
+        query_plan_payload=query_plan_payload,
+        candidates=candidates,
+        tracks_payload=tracks_payload,
+    )
+    if relation_disambiguation and bool(relation_disambiguation.get("applied", False)):
+        qwen_subjects = [str(relation_disambiguation["winner_alias"])]
     # If Qwen actually ran (raw_phrase_payload is not None) and explicitly returned empty subject_phrases,
     # respect that as "no matching entity" — do NOT fall back to plan_subjects.
     qwen_ran = raw_phrase_payload is not None
@@ -2622,6 +2823,18 @@ def _compose_phrase_grounded_selection(
             notes_parts.append(f"Start condition: {query_plan_payload['start_condition']}")
         if query_plan_payload.get("stop_condition"):
             notes_parts.append(f"Stop condition: {query_plan_payload['stop_condition']}")
+        if relation_disambiguation:
+            if relation_disambiguation.get("applied", False):
+                notes_parts.append(
+                    "Relation instance="
+                    f"{relation_disambiguation['winner_object_id']} "
+                    f"margin={float(relation_disambiguation['margin']):.4f}"
+                )
+            else:
+                notes_parts.append(
+                    "Relation geometry unresolved="
+                    f"{relation_disambiguation.get('reason', 'unknown')}"
+                )
         return {
             "query": query,
             "selected": selected_rows,
@@ -2640,6 +2853,7 @@ def _compose_phrase_grounded_selection(
                 "contact_segments_test": [],
                 "source": selection_source,
             },
+            "relation_disambiguation": relation_disambiguation,
             "raw_output": raw_output,
         }
     pair_row = None

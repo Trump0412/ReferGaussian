@@ -424,6 +424,92 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         self.assertEqual([item["id"] for item in payload["selected"]], [3])
         self.assertEqual(payload["subject_phrases"], ["part instance 1"])
 
+    def test_relation_geometry_overrides_arbitrary_instance_numbering(self) -> None:
+        def track(object_id: int, phrase: str, bbox: list[int], *, anchor: int = 10) -> dict:
+            return {
+                "object_id": object_id,
+                "phrase": phrase,
+                "anchor_frame_index": anchor,
+                "frames": [
+                    {
+                        "frame_index": frame_index,
+                        "active": True,
+                        "bbox_xyxy": bbox,
+                        "mask_path": f"{object_id}_{frame_index}.png",
+                        "time_value": frame_index / 20.0,
+                    }
+                    for frame_index in (0, 10, 20)
+                ],
+            }
+
+        candidates = [
+            {
+                "id": 3,
+                "stage1_object_id": 11,
+                "stage1_instance_group_id": "instance_group_000",
+                "stage1_instance_index": 0,
+                "instance_selection_policy": "relation_disambiguation",
+                "proposal_alias": "part instance 1",
+                "proposal_phrase": "part",
+                "static_text": "part",
+                "quality": 0.99,
+                "support_segments_test": [[0, 9]],
+            },
+            {
+                "id": 4,
+                "stage1_object_id": 12,
+                "stage1_instance_group_id": "instance_group_000",
+                "stage1_instance_index": 1,
+                "instance_selection_policy": "relation_disambiguation",
+                "proposal_alias": "part instance 2",
+                "proposal_phrase": "part",
+                "static_text": "part",
+                "quality": 0.10,
+                "support_segments_test": [[0, 9]],
+            },
+            {
+                "id": 5,
+                "stage1_object_id": 13,
+                "proposal_alias": "device",
+                "proposal_phrase": "device",
+                "quality": 0.8,
+                "support_segments_test": [[0, 9]],
+            },
+        ]
+        payload = _compose_phrase_grounded_selection(
+            query="The part moving the device.",
+            query_plan_payload={
+                "query_subject_phrases": ["part"],
+                "relation_context_phrases": ["device"],
+                "action_window_hint": "during the movement",
+            },
+            candidates=candidates,
+            pair_candidates=[],
+            test_times=np.linspace(0.0, 1.0, num=10),
+            tracks_payload={
+                "instance_candidate_groups": [
+                    {
+                        "semantic_phrase": "part",
+                        "object_ids": [11, 12],
+                        "selection_policy": "relation_disambiguation",
+                    }
+                ],
+                "tracks": [
+                    track(11, "part", [300, 300, 340, 340]),
+                    track(12, "part", [100, 100, 140, 140]),
+                    track(13, "device", [105, 100, 165, 160]),
+                ],
+            },
+            raw_phrase_payload={
+                "subject_phrases": ["part instance 1", "device"],
+                "successor_phrases": [],
+            },
+        )
+
+        self.assertEqual([item["id"] for item in payload["selected"]], [4])
+        self.assertTrue(payload["relation_disambiguation"]["applied"])
+        self.assertEqual(payload["relation_disambiguation"]["winner_object_id"], 12)
+
     def test_relation_disambiguation_exposes_stable_instance_aliases(self) -> None:
         candidates = [
             {
