@@ -51,6 +51,19 @@ class ReleaseRunnerTest(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("differs from --profile", errors[0])
 
+    def test_strict_runner_clears_inherited_query_tuning_only(self) -> None:
+        env = {
+            "QUERY_SKIP_QWEN_SELECTION": "1",
+            "GS_QUERY_ALLOW_DIRECT_2D_MASKS": "1",
+            "GSAM2_REUSE_QUERY_PLAN": "1",
+            "QWEN_MODEL_PATH": "/models/qwen",
+            "PATH": "/usr/bin",
+        }
+
+        RUNNER._clear_inherited_release_tuning(env)
+
+        self.assertEqual(env, {"QWEN_MODEL_PATH": "/models/qwen", "PATH": "/usr/bin"})
+
 
 if __name__ == "__main__":
     unittest.main()
