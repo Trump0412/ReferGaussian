@@ -367,8 +367,8 @@ Output files:
 - `${RUN_ROOT}/official_eval.json` (per-query Acc/vIoU/tIoU + summary)
 - `${RUN_ROOT}/official_eval.md`
 
-Metric rule used in this repository:
-- Empty-set rule is enabled in evaluator: if GT and prediction are both empty (temporal union = 0), `vIoU = 1.0` and `tIoU = 1.0`.
+Metric rule used in both public and R4D evaluators:
+- Empty-set rule is enabled: if GT and prediction are both empty (temporal union = 0), `vIoU = 1.0` and `tIoU = 1.0`. An empty-GT query with any predicted activity scores `0.0` for both values.
 
 Important benchmark note:
 - Current HF `LiYacheng/r4d-bench-qa` artifacts provide dense GT for 36-query and 89-query tiers.
