@@ -318,7 +318,9 @@ This makes public reruns auditable and easy to compare.
 The released query path is strictly `mask_supported_lifting`: if multi-frame
 lifting cannot form the requested entity, the query is reported as a failure
 with its Stage-1 and proposal diagnostics. It is never replaced by an
-unconstrained full-scene entity.
+unconstrained full-scene entity. Query inference also requires the exact
+ReferGaussian test renders produced by `scripts/eval.sh`; raw source RGB
+frames are not used as a surrogate render.
 
 For paper-style batched reruns, prefer the manifest-based runner so query ids, output roots,
 and evaluator maps stay aligned:

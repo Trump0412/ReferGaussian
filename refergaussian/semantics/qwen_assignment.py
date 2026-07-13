@@ -283,16 +283,10 @@ def _load_source_images(run_dir: Path) -> tuple[Path, list[str], np.ndarray]:
     source_path = Path(config.get("source_path", ""))
     if (source_path / "dataset.json").exists() and (source_path / "metadata.json").exists():
         test_ids, test_times = _hypernerf_test_ids(source_path)
-        try:
-            render_dir = _find_render_dir(run_dir)
-            with Image.open(next(iter(sorted(render_dir.glob("*.png"))))) as probe:
-                target_size = probe.size
-            source_frame_dir = _find_source_frame_dir(source_path, target_size)
-        except FileNotFoundError:
-            entries = resolve_dataset_image_entries(source_path)
-            if not entries:
-                raise FileNotFoundError(f"No source images found under {source_path}")
-            source_frame_dir = Path(entries[0]["image_path"]).parent
+        render_dir = _find_render_dir(run_dir)
+        with Image.open(next(iter(sorted(render_dir.glob("*.png"))))) as probe:
+            target_size = probe.size
+        source_frame_dir = _find_source_frame_dir(source_path, target_size)
         return source_frame_dir, test_ids, test_times
 
     render_dir = _find_render_dir(run_dir)

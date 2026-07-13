@@ -29,8 +29,6 @@ except Exception:  # pragma: no cover - keep point projection available in light
     prepare_semantic_frame_inputs = None
     render_selection_mask = None
 
-from .source_images import resolve_dataset_image_entries
-
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _UPSTREAM_ROOT = _PROJECT_ROOT / "external" / "4DGaussians"
 
@@ -45,7 +43,15 @@ def _load_camera_class():
     return module.Camera
 
 
-Camera = _load_camera_class()
+_CAMERA_CLASS: Any | None = None
+
+
+def _camera_class():
+    """Load upstream camera support only when 3D projection is requested."""
+    global _CAMERA_CLASS
+    if _CAMERA_CLASS is None:
+        _CAMERA_CLASS = _load_camera_class()
+    return _CAMERA_CLASS
 
 
 ROLE_COLORS = {
@@ -200,10 +206,6 @@ def _query_intent_mode(query_text: str, track_state_mode: str | None = None) -> 
     if any(token in text for token in ("broken", "pieces", "piece", "fragment", "crumb", "split", "detached")):
         return "multi_component"
     if any(token in text for token in ("complete", "whole", "intact", "unbroken", "full")):
-        return "single_component"
-    if any(token in text for token in ("glass", "cup", "bottle")) and any(
-        token in text for token in ("liquid", "empty", "filled", "midpoint", "above")
-    ):
         return "single_component"
     normalized_state = _normalize_track_state_mode(track_state_mode)
     if normalized_state in {"support", "static_full_video"}:
@@ -467,31 +469,11 @@ def _find_render_dir(run_dir: Path) -> Path:
     candidates = sorted(test_dir.glob("ours_*/renders"))
     if candidates:
         return candidates[-1]
-
-    # DyNeRF fallback: some released runs do not pre-export test renders.
-    # Reuse source RGB frames as a render surrogate so semantic export can proceed.
-    config_path = run_dir / "config.yaml"
-    source_path = None
-    if config_path.exists():
-        for raw_line in config_path.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if line.startswith("source_path:"):
-                source_path = Path(line.split(":", 1)[1].strip())
-                break
-
-    if source_path and source_path.exists():
-        cam_dirs = sorted(source_path.glob("cam*/images"))
-        if cam_dirs:
-            fallback_dir = test_dir / "ours_fallback_source" / "renders"
-            if not fallback_dir.exists():
-                fallback_dir.parent.mkdir(parents=True, exist_ok=True)
-                try:
-                    fallback_dir.symlink_to(cam_dirs[0], target_is_directory=True)
-                except Exception:
-                    shutil.copytree(cam_dirs[0], fallback_dir)
-            return fallback_dir
-
-    raise FileNotFoundError(f"No render directory found under {test_dir}")
+    raise FileNotFoundError(
+        f"No ReferGaussian test render found under {test_dir}. "
+        "Run scripts/eval.sh for this exact model directory before query inference; "
+        "source RGB frames are never substituted for model renders."
+    )
 
 
 def _find_source_frame_dir(dataset_dir: Path, target_size: tuple[int, int]) -> Path:
@@ -1168,11 +1150,7 @@ def _fuse_query_and_cloud_masks(
     if not prepared_candidates:
         if allow_direct_query_track:
             return aligned_query, aligned_query_bbox, aligned_query_bbox, "query_track_fallback"
-        if bool(options.get("strict_gaussian_projection", False)):
-            return None, None, aligned_query_bbox, "gaussian_projection_empty"
-        if bool(options.get("clip_to_query_track", False)):
-            return cloud_binary, cloud_bbox, aligned_query_bbox, "cloud_clipped_empty"
-        return cloud_binary, cloud_bbox, aligned_query_bbox, "cloud_only_fallback"
+        return None, None, aligned_query_bbox, "gaussian_projection_empty"
 
     best_source = prepared_candidates[0][0]
     best_mask = prepared_candidates[0][1]
@@ -1865,48 +1843,25 @@ def render_hypernerf_query_video(
     render_dir: Path | None = None
     render_files: list[Path]
     hypernerf_ids = _hypernerf_test_ids(dataset_dir)
-    try:
-        render_dir = _find_render_dir(run_dir)
-        render_files = sorted(render_dir.glob("*.png"))
-        if not render_files:
-            raise FileNotFoundError(f"No frames found in {render_dir}")
-        with Image.open(render_files[0]) as probe:
-            target_size = probe.size
-        if background_mode == "source":
-            source_frame_dir = _find_source_frame_dir(dataset_dir, target_size)
-        if hypernerf_ids is not None:
-            test_ids, test_times = hypernerf_ids
-            if len(test_ids) != len(render_files):
-                raise ValueError(
-                    f"Render frame count ({len(render_files)}) does not match HyperNeRF test ids ({len(test_ids)})"
-                )
-        else:
-            # DyNeRF dataset: derive test IDs from render files
-            test_ids, test_times = _dynerf_test_ids_from_renders(render_dir)
-    except FileNotFoundError:
-        if background_mode != "source":
-            raise
-        entries = resolve_dataset_image_entries(dataset_dir)
-        if not entries:
-            raise FileNotFoundError(f"No source images found under {dataset_dir}")
-        if hypernerf_ids is not None:
-            test_ids, test_times = hypernerf_ids
-            entry_map = {str(entry["image_id"]): Path(str(entry["image_path"])) for entry in entries}
-            missing_ids = [image_id for image_id in test_ids if image_id not in entry_map]
-            if missing_ids:
-                preview = ", ".join(missing_ids[:5])
-                raise FileNotFoundError(
-                    f"Missing source frames for {len(missing_ids)} test ids under {dataset_dir}: {preview}"
-                )
-            render_files = [entry_map[image_id] for image_id in test_ids]
-        else:
-            # DyNeRF: use all entries as source frames
-            render_files = [Path(str(entry["image_path"])) for entry in entries]
-            test_ids = [str(entry["image_id"]) for entry in entries]
-            test_times = np.linspace(0.0, 1.0, num=len(entries), dtype=np.float32)
-        source_frame_dir = render_files[0].parent
-        with Image.open(render_files[0]) as probe:
-            target_size = probe.size
+    render_dir = _find_render_dir(run_dir)
+    render_files = sorted(render_dir.glob("*.png"))
+    if not render_files:
+        raise FileNotFoundError(f"No frames found in {render_dir}")
+    with Image.open(render_files[0]) as probe:
+        target_size = probe.size
+    if background_mode == "source":
+        # This affects only the visualization backdrop. Entity masks and
+        # geometry still come from the ReferGaussian render and 3D cloud.
+        source_frame_dir = _find_source_frame_dir(dataset_dir, target_size)
+    if hypernerf_ids is not None:
+        test_ids, test_times = hypernerf_ids
+        if len(test_ids) != len(render_files):
+            raise ValueError(
+                f"Render frame count ({len(render_files)}) does not match HyperNeRF test ids ({len(test_ids)})"
+            )
+    else:
+        # DyNeRF dataset: derive test IDs from model render files.
+        test_ids, test_times = _dynerf_test_ids_from_renders(render_dir)
 
     selection_payload = _read_json(selection_path)
     fusion_options = _fusion_options_for_profile(resolved_eval_profile)
@@ -2114,7 +2069,7 @@ def render_hypernerf_query_video(
             frame_fusion_sources: list[str] = []
             overlay_draw = ImageDraw.Draw(overlay, "RGBA")
 
-            camera = Camera.from_json(dataset_dir / "camera" / f"{image_id}.json")
+            camera = _camera_class().from_json(dataset_dir / "camera" / f"{image_id}.json")
             frame_roles = []
             for entry in role_entries:
                 role = entry["role"]

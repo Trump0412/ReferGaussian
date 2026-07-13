@@ -189,6 +189,16 @@ def check_runtime_release_guards() -> list[str]:
     )
     if "--warp_enabled" in baseline_eval_text or "temporal_warp_type" in baseline_eval_text:
         errors.append("Baseline evaluation must not enable ReferGaussian temporal warp")
+
+    query_render_text = (ROOT / "refergaussian/semantics/query_render.py").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    if "ours_fallback_source" in query_render_text:
+        errors.append("Query rendering must not substitute source RGB for model renders")
+    if '"glass", "cup", "bottle"' in query_render_text:
+        errors.append("Query rendering must not contain object-specific intent rules")
+    if "cloud_only_fallback" in query_render_text:
+        errors.append("Query rendering must not silently replace an empty Gaussian projection")
     return errors
 
 
