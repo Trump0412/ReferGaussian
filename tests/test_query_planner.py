@@ -99,6 +99,22 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         self.assertEqual(plan["detector_phrases"], ["knife"])
         self.assertEqual(plan["must_track_phrases"], ["knife"])
 
+    def test_leading_subject_constrains_primary_planner_context_for_a_gerund_query(self) -> None:
+        plan = _normalize_plan(
+            {
+                "video_inventory_phrases": ["operator", "device", "material"],
+                "primary_subject_phrases": ["operator", "device", "material"],
+                "query_subject_phrases": ["operator", "device", "material"],
+                "must_track_phrases": ["operator", "device", "material"],
+            },
+            "The operator moving the device to heat the material.",
+        )
+
+        self.assertEqual(plan["primary_subject_phrases"], ["operator"])
+        self.assertEqual(plan["query_subject_phrases"], ["operator"])
+        self.assertEqual(plan["detector_phrases"], ["operator"])
+        self.assertEqual(plan["must_track_phrases"], ["operator"])
+
     def test_while_clause_is_an_action_window_without_action_specific_vocabulary(self) -> None:
         profile = _query_semantic_profile("The object while it is moving.")
         self.assertTrue(profile["asks_action_window"])

@@ -944,12 +944,19 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
     query_profile = _query_semantic_profile(query)
     is_exclusion_query = _is_exclusion_query_text(query_profile["query_norm"])
     is_static_set_query = _is_static_set_query_text(query_profile["query_norm"])
-    if primary_subject_phrases and not is_exclusion_query:
-        query_subject_phrases = primary_subject_phrases
-    elif not is_exclusion_query and not query_profile["asks_set"]:
-        leading_subjects = _leading_query_subject_phrases(query, query_subject_phrases)
+    if not is_exclusion_query and not query_profile["asks_set"]:
+        # The planner can put interaction context into primary_subject_phrases.
+        # Preserve an explicit multi-subject request, but otherwise let the
+        # grammatical leading noun phrase decide the requested entity whether
+        # it originated from primary_subject_phrases or query_subject_phrases.
+        planned_subjects = primary_subject_phrases or query_subject_phrases
+        leading_subjects = _leading_query_subject_phrases(query, planned_subjects)
         if leading_subjects:
             query_subject_phrases = leading_subjects
+        elif primary_subject_phrases:
+            query_subject_phrases = primary_subject_phrases
+    elif primary_subject_phrases and not is_exclusion_query:
+        query_subject_phrases = primary_subject_phrases
     counted_subject_spec = None if is_exclusion_query else _leading_counted_subject_spec(query)
     if counted_subject_spec is not None:
         counted_subject_phrase, _ = counted_subject_spec
