@@ -755,6 +755,8 @@ def run_grounded_sam2_query(
     )
     track_specs: list[dict[str, Any]] = []
     instance_candidate_groups: list[dict[str, Any]] = []
+    suppressed_instance_variant_phrases: list[str] = []
+    resolved_counted_candidate_heads: set[str] = set()
     for phrase in detector_phrases:
         semantic_detections = detections_by_phrase.get(phrase, [])
         candidate_head = candidate_head_by_phrase.get(phrase)
@@ -791,6 +793,27 @@ def run_grounded_sam2_query(
                     "anchor_frame_index": int(candidate_anchors[0]["frame_index"]),
                 }
             )
+            if requested_instance_count > 1:
+                resolved_counted_candidate_heads.add(str(candidate_head))
+            continue
+
+        # The planner retains count-neutral detector variants (for example,
+        # ``both hands``, ``hands``, and ``hand``). Once the broad singular
+        # detector has already produced a declared multi-instance group, the
+        # remaining variants would create duplicate SAM2 tracks and duplicate
+        # lifting work without changing the multi-hypothesis selection. Keep
+        # them when the group could not be formed so the normal path remains.
+        phrase_head = _instance_candidate_head_phrase(
+            phrase,
+            requested_instance_count=requested_instance_count,
+        )
+        if (
+            requested_instance_count > 1
+            and phrase not in candidate_head_by_phrase
+            and phrase_head
+            and phrase_head in resolved_counted_candidate_heads
+        ):
+            suppressed_instance_variant_phrases.append(phrase)
             continue
         selected_anchors = multi_anchor_by_phrase.get(phrase) or [
             selected_anchor_by_phrase.get(phrase, semantic_detections[0])
@@ -1120,6 +1143,7 @@ def run_grounded_sam2_query(
         "instance_candidate_mode": bool(enable_instance_candidates),
         "instance_full_sequence_tracks": bool(instance_full_sequence_tracks),
         "instance_candidate_groups": instance_candidate_groups,
+        "suppressed_instance_variant_phrases": suppressed_instance_variant_phrases,
         "phrases": phrase_payloads,
         "tracks": phrase_tracks,
     }

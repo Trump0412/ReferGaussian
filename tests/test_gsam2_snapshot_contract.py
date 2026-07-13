@@ -70,6 +70,14 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
         disabled = subprocess.check_output(["bash", "-lc", command], text=True)
         self.assertEqual(disabled, "")
 
+    def test_counted_instance_variants_are_suppressed_only_after_a_group_exists(self) -> None:
+        text = (ROOT / "refergaussian/semantics/grounded_sam2_backend.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("resolved_counted_candidate_heads", text)
+        self.assertIn("suppressed_instance_variant_phrases", text)
+        self.assertIn("and phrase_head in resolved_counted_candidate_heads", text)
+
 
 if __name__ == "__main__":
     unittest.main()
