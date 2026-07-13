@@ -143,6 +143,7 @@ def _splat_channel_values(
     channel_values: torch.Tensor,
     normalize: bool = True,
     chunk_size: int = 2048,
+    max_splat_radius: int = 18,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if channel_values.ndim == 1:
         channel_values = channel_values[:, None]
@@ -164,6 +165,7 @@ def _splat_channel_values(
         alpha_map = torch.zeros((1, height, width), dtype=torch.float32, device=device)
         return prob_map, alpha_map
 
+    radius_cap = max(int(max_splat_radius), 1)
     for start in range(0, centers.shape[0], int(chunk_size)):
         end = min(start + int(chunk_size), centers.shape[0])
         center_chunk = centers[start:end]
@@ -171,11 +173,11 @@ def _splat_channel_values(
         alpha_chunk = alpha_weight[start:end]
         value_chunk = channel_values[start:end]
 
-        radius_chunk = torch.ceil(sigma_chunk * 3.0).to(dtype=torch.long).clamp(min=1, max=18)
-        max_radius = int(radius_chunk.max().item())
+        radius_chunk = torch.ceil(sigma_chunk * 3.0).to(dtype=torch.long).clamp(min=1, max=radius_cap)
+        patch_radius = int(radius_chunk.max().item())
         grid_y, grid_x = torch.meshgrid(
-            torch.arange(-max_radius, max_radius + 1, device=device, dtype=torch.float32),
-            torch.arange(-max_radius, max_radius + 1, device=device, dtype=torch.float32),
+            torch.arange(-patch_radius, patch_radius + 1, device=device, dtype=torch.float32),
+            torch.arange(-patch_radius, patch_radius + 1, device=device, dtype=torch.float32),
             indexing="ij",
         )
         offsets_x = grid_x.reshape(1, -1)
@@ -246,10 +248,17 @@ def render_selection_alpha_map(
     prepared: PreparedSemanticFrame,
     selected_weights: torch.Tensor,
     chunk_size: int = 2048,
+    max_splat_radius: int = 18,
 ) -> torch.Tensor:
     if selected_weights.ndim == 1:
         selected_weights = selected_weights[:, None]
-    alpha_mass, _alpha_map = _splat_channel_values(prepared, selected_weights, normalize=False, chunk_size=chunk_size)
+    alpha_mass, _alpha_map = _splat_channel_values(
+        prepared,
+        selected_weights,
+        normalize=False,
+        chunk_size=chunk_size,
+        max_splat_radius=max_splat_radius,
+    )
     return alpha_mass[0]
 
 
@@ -272,8 +281,13 @@ def render_selection_mask(
     selected_weights: torch.Tensor,
     relative_threshold: float = 0.18,
     absolute_threshold: float = 0.015,
+    max_splat_radius: int = 18,
 ) -> tuple[np.ndarray, np.ndarray]:
-    alpha_map = render_selection_alpha_map(prepared, selected_weights)
+    alpha_map = render_selection_alpha_map(
+        prepared,
+        selected_weights,
+        max_splat_radius=max_splat_radius,
+    )
     binary = binarize_alpha_map(
         alpha_map=alpha_map,
         relative_threshold=relative_threshold,

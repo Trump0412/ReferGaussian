@@ -600,6 +600,8 @@ def _selection_metrics(
     relative_threshold: float = 0.18,
     absolute_threshold: float = 0.015,
     max_frames: int | None = None,
+    sigma_scale: float = 1.0,
+    max_splat_radius: int = 18,
 ) -> dict[str, Any]:
     mask = np.zeros((num_gaussians,), dtype=np.float32)
     mask[np.asarray(selection_ids, dtype=np.int64)] = 1.0
@@ -611,6 +613,8 @@ def _selection_metrics(
         relative_threshold=relative_threshold,
         absolute_threshold=absolute_threshold,
         max_frames=max_frames,
+        sigma_scale=sigma_scale,
+        max_splat_radius=max_splat_radius,
     )
 
 
@@ -819,8 +823,22 @@ def _selection_mask_metrics(
     relative_threshold: float = 0.18,
     absolute_threshold: float = 0.015,
     max_frames: int | None = None,
+    sigma_scale: float = 1.0,
+    max_splat_radius: int = 18,
 ) -> dict[str, Any]:
     mask = np.asarray(mask, dtype=np.float32).reshape(-1)
+    try:
+        resolved_sigma_scale = float(sigma_scale)
+    except (TypeError, ValueError):
+        resolved_sigma_scale = 1.0
+    if not np.isfinite(resolved_sigma_scale):
+        resolved_sigma_scale = 1.0
+    resolved_sigma_scale = float(np.clip(resolved_sigma_scale, 0.25, 8.0))
+    try:
+        resolved_max_splat_radius = int(float(max_splat_radius))
+    except (TypeError, ValueError):
+        resolved_max_splat_radius = 18
+    resolved_max_splat_radius = int(np.clip(resolved_max_splat_radius, 1, 64))
     rows: list[dict[str, float]] = []
     pred_areas: list[float] = []
     active_hits = 0
@@ -843,7 +861,7 @@ def _selection_mask_metrics(
             image_scale=sample.prepared.image_scale,
             gaussian_ids=sample.prepared.gaussian_ids.to(device=device),
             centers_xy=sample.prepared.centers_xy.to(device=device),
-            sigma_px=sample.prepared.sigma_px.to(device=device),
+            sigma_px=sample.prepared.sigma_px.to(device=device) * resolved_sigma_scale,
             alpha_weight=sample.prepared.alpha_weight.to(device=device),
             depth=sample.prepared.depth.to(device=device),
         )
@@ -854,6 +872,7 @@ def _selection_mask_metrics(
             local_weights,
             relative_threshold=float(relative_threshold),
             absolute_threshold=float(absolute_threshold),
+            max_splat_radius=resolved_max_splat_radius,
         )
         pred_area = float(np.asarray(pred, dtype=bool).sum())
         pred_areas.append(pred_area)
@@ -949,6 +968,8 @@ def _selection_mask_metrics(
         "mean_pred_area": float(np.mean(pred_areas)) if pred_areas else 0.0,
         "alpha_relative_threshold": float(relative_threshold),
         "alpha_absolute_threshold": float(absolute_threshold),
+        "alpha_sigma_scale": float(resolved_sigma_scale),
+        "alpha_max_splat_radius": int(resolved_max_splat_radius),
     }
 
 
@@ -2095,6 +2116,32 @@ def _alpha_calibration_levels() -> list[tuple[float, float]]:
     return levels or [(0.18, 0.015)]
 
 
+def _alpha_geometry_levels() -> list[tuple[float, int]]:
+    """Read scene-agnostic Gaussian footprint candidates for v4 calibration."""
+    raw = os.environ.get("QUERY_LIFT_ALPHA_GEOMETRY_LEVELS", "1.0:18")
+    levels: list[tuple[float, int]] = []
+    seen: set[tuple[float, int]] = set()
+    for item in str(raw).split(","):
+        pieces = [piece.strip() for piece in item.split(":")]
+        if len(pieces) != 2:
+            continue
+        try:
+            sigma_scale = float(pieces[0])
+            max_splat_radius = int(float(pieces[1]))
+        except ValueError:
+            continue
+        if not np.isfinite(sigma_scale):
+            continue
+        level = (
+            float(np.clip(sigma_scale, 0.25, 8.0)),
+            int(np.clip(max_splat_radius, 1, 64)),
+        )
+        if level not in seen:
+            levels.append(level)
+            seen.add(level)
+    return levels or [(1.0, 18)]
+
+
 def _calibrate_alpha_threshold(
     selection_ids: np.ndarray,
     support: LiftingSupport,
@@ -2110,39 +2157,44 @@ def _calibrate_alpha_threshold(
     """
     max_frames = _env_int("QUERY_LIFT_ALPHA_CALIBRATION_MAX_FRAMES", 8, minimum=1)
     trials: list[dict[str, Any]] = []
-    for relative, absolute in _alpha_calibration_levels():
-        metrics = _selection_metrics(
-            selection_ids,
-            support=support,
-            num_gaussians=num_gaussians,
-            device=device,
-            scoring_mode=scoring_mode,
-            relative_threshold=relative,
-            absolute_threshold=absolute,
-            max_frames=max_frames,
-        )
-        utility = (
-            float(metrics.get("score", float("-inf")))
-            + 0.20 * float(metrics.get("rendered_iou_stage1", 0.0))
-            + 0.08 * float(metrics.get("recall", 0.0))
-            - 0.08 * float(metrics.get("outer_leakage", 1.0))
-        )
-        metrics["alpha_calibration_utility"] = float(utility)
-        metrics["alpha_calibration_method"] = "multiframe_rendered_overlap"
-        metrics["alpha_calibration_frame_count"] = int(min(len(support.samples), max_frames))
-        trials.append(
-            {
-                "relative_threshold": float(relative),
-                "absolute_threshold": float(absolute),
-                "utility": float(utility),
-                "rendered_iou_stage1": float(metrics.get("rendered_iou_stage1", 0.0)),
-                "precision": float(metrics.get("precision", 0.0)),
-                "recall": float(metrics.get("recall", 0.0)),
-                "area_ratio": float(metrics.get("area_ratio", 0.0)),
-                "outer_leakage": float(metrics.get("outer_leakage", 1.0)),
-                "metrics": metrics,
-            }
-        )
+    for sigma_scale, max_splat_radius in _alpha_geometry_levels():
+        for relative, absolute in _alpha_calibration_levels():
+            metrics = _selection_metrics(
+                selection_ids,
+                support=support,
+                num_gaussians=num_gaussians,
+                device=device,
+                scoring_mode=scoring_mode,
+                relative_threshold=relative,
+                absolute_threshold=absolute,
+                max_frames=max_frames,
+                sigma_scale=sigma_scale,
+                max_splat_radius=max_splat_radius,
+            )
+            utility = (
+                float(metrics.get("score", float("-inf")))
+                + 0.20 * float(metrics.get("rendered_iou_stage1", 0.0))
+                + 0.08 * float(metrics.get("recall", 0.0))
+                - 0.08 * float(metrics.get("outer_leakage", 1.0))
+            )
+            metrics["alpha_calibration_utility"] = float(utility)
+            metrics["alpha_calibration_method"] = "multiframe_rendered_overlap_geometry"
+            metrics["alpha_calibration_frame_count"] = int(min(len(support.samples), max_frames))
+            trials.append(
+                {
+                    "relative_threshold": float(relative),
+                    "absolute_threshold": float(absolute),
+                    "sigma_scale": float(sigma_scale),
+                    "max_splat_radius": int(max_splat_radius),
+                    "utility": float(utility),
+                    "rendered_iou_stage1": float(metrics.get("rendered_iou_stage1", 0.0)),
+                    "precision": float(metrics.get("precision", 0.0)),
+                    "recall": float(metrics.get("recall", 0.0)),
+                    "area_ratio": float(metrics.get("area_ratio", 0.0)),
+                    "outer_leakage": float(metrics.get("outer_leakage", 1.0)),
+                    "metrics": metrics,
+                }
+            )
 
     best = max(
         trials,
@@ -2151,6 +2203,8 @@ def _calibrate_alpha_threshold(
             float(row["rendered_iou_stage1"]),
             float(row["recall"]),
             -float(row["outer_leakage"]),
+            -float(row["sigma_scale"]),
+            -int(row["max_splat_radius"]),
         ),
     )
     result = dict(best["metrics"])
@@ -2198,6 +2252,8 @@ def _calibrate_v4_candidate_rows(
         )
         relative = float(calibrated["alpha_relative_threshold"])
         absolute = float(calibrated["alpha_absolute_threshold"])
+        sigma_scale = float(calibrated.get("alpha_sigma_scale", 1.0))
+        max_splat_radius = int(calibrated.get("alpha_max_splat_radius", 18))
         full_metrics = _selection_metrics(
             np.asarray(row["ids"], dtype=np.int64),
             support=support,
@@ -2206,6 +2262,8 @@ def _calibrate_v4_candidate_rows(
             scoring_mode="mask_bootstrap_refine",
             relative_threshold=relative,
             absolute_threshold=absolute,
+            sigma_scale=sigma_scale,
+            max_splat_radius=max_splat_radius,
         )
         full_metrics.update(
             {
@@ -2213,6 +2271,8 @@ def _calibrate_v4_candidate_rows(
                 "alpha_calibration_frame_count": calibrated["alpha_calibration_frame_count"],
                 "alpha_calibration_utility": calibrated["alpha_calibration_utility"],
                 "alpha_calibration_trials": calibrated["alpha_calibration_trials"],
+                "alpha_sigma_scale": sigma_scale,
+                "alpha_max_splat_radius": max_splat_radius,
             }
         )
         row.update(full_metrics)
@@ -2845,6 +2905,8 @@ def build_mask_supported_lifting_proposal_dir(
                     "quality_gate_reason",
                     "alpha_relative_threshold",
                     "alpha_absolute_threshold",
+                    "alpha_sigma_scale",
+                    "alpha_max_splat_radius",
                     "alpha_calibration_method",
                     "alpha_calibration_frame_count",
                     "alpha_calibration_utility",

@@ -86,6 +86,8 @@ class EntityCloud:
     opacity_source: str = "unavailable"
     alpha_relative_threshold: float | None = None
     alpha_absolute_threshold: float | None = None
+    alpha_sigma_scale: float | None = None
+    alpha_max_splat_radius: int | None = None
 
 
 @dataclass
@@ -341,6 +343,8 @@ def _apply_render_profile_env_defaults(eval_profile: str) -> None:
             "GS_QUERY_ALPHA_GATE_THRESHOLD": "0.01",
             "GS_QUERY_ALPHA_REL_THRESHOLD": "0.18",
             "GS_QUERY_ALPHA_ABS_THRESHOLD": "0.015",
+            "GS_QUERY_ALPHA_SIGMA_SCALE": "1.0",
+            "GS_QUERY_ALPHA_MAX_SPLAT_RADIUS": "18",
             "GS_QUERY_ALPHA_POSTFILTER_KERNEL": "1",
             "GS_QUERY_ALPHA_REQUIRE_SUCCESS": "1",
             "GS_QUERY_ALPHA_REQUIRE_OPACITY": "1",
@@ -1289,6 +1293,8 @@ def _load_entity_clouds(run_dir: Path, selected_items: list[dict[str, Any]]) -> 
         diagnostics = entity_record.get("rendered_diagnostics", {})
         relative_threshold = diagnostics.get("alpha_relative_threshold")
         absolute_threshold = diagnostics.get("alpha_absolute_threshold")
+        sigma_scale = diagnostics.get("alpha_sigma_scale")
+        max_splat_radius = diagnostics.get("alpha_max_splat_radius")
         try:
             relative_threshold = float(relative_threshold)
         except (TypeError, ValueError):
@@ -1297,10 +1303,22 @@ def _load_entity_clouds(run_dir: Path, selected_items: list[dict[str, Any]]) -> 
             absolute_threshold = float(absolute_threshold)
         except (TypeError, ValueError):
             absolute_threshold = None
+        try:
+            sigma_scale = float(sigma_scale)
+        except (TypeError, ValueError):
+            sigma_scale = None
+        try:
+            max_splat_radius = int(float(max_splat_radius))
+        except (TypeError, ValueError):
+            max_splat_radius = None
         if relative_threshold is not None and not np.isfinite(relative_threshold):
             relative_threshold = None
         if absolute_threshold is not None and not np.isfinite(absolute_threshold):
             absolute_threshold = None
+        if sigma_scale is not None and (not np.isfinite(sigma_scale) or sigma_scale <= 0.0):
+            sigma_scale = None
+        if max_splat_radius is not None and max_splat_radius < 1:
+            max_splat_radius = None
         gaussian_ids = _selected_item_gaussian_ids(entity_map, item)
         if gaussian_ids.size == 0:
             continue
@@ -1319,6 +1337,8 @@ def _load_entity_clouds(run_dir: Path, selected_items: list[dict[str, Any]]) -> 
             opacity_source=opacity_source,
             alpha_relative_threshold=relative_threshold,
             alpha_absolute_threshold=absolute_threshold,
+            alpha_sigma_scale=sigma_scale,
+            alpha_max_splat_radius=max_splat_radius,
         )
     return clouds
 
@@ -1570,6 +1590,20 @@ def _project_entity_cloud_mask(
                 device=alpha_device,
             )
             if int(prepared.gaussian_ids.numel()) > 0:
+                sigma_scale = (
+                    float(cloud.alpha_sigma_scale)
+                    if cloud.alpha_sigma_scale is not None
+                    else _env_float("GS_QUERY_ALPHA_SIGMA_SCALE", 1.0, minimum=0.25, maximum=8.0)
+                )
+                max_splat_radius = (
+                    int(cloud.alpha_max_splat_radius)
+                    if cloud.alpha_max_splat_radius is not None
+                    else _env_int("GS_QUERY_ALPHA_MAX_SPLAT_RADIUS", 18, minimum=1)
+                )
+                sigma_scale = float(np.clip(sigma_scale, 0.25, 8.0))
+                max_splat_radius = int(np.clip(max_splat_radius, 1, 64))
+                if sigma_scale != 1.0:
+                    prepared.sigma_px = prepared.sigma_px * sigma_scale
                 selected_weights = torch.ones(
                     (int(prepared.gaussian_ids.numel()),),
                     dtype=torch.float32,
@@ -1588,6 +1622,7 @@ def _project_entity_cloud_mask(
                         if cloud.alpha_absolute_threshold is not None
                         else _env_float("GS_QUERY_ALPHA_ABS_THRESHOLD", 0.010, minimum=0.0)
                     ),
+                    max_splat_radius=max_splat_radius,
                 )
                 if mask.shape != (int(image_size[1]), int(image_size[0])):
                     mask = _resize_mask_to_shape(mask, (int(image_size[1]), int(image_size[0])))
@@ -2261,6 +2296,16 @@ def render_hypernerf_query_video(
                         None
                         if entry.get("cloud") is None
                         else entry["cloud"].alpha_absolute_threshold
+                    ),
+                    "cloud_alpha_sigma_scale": (
+                        None
+                        if entry.get("cloud") is None
+                        else entry["cloud"].alpha_sigma_scale
+                    ),
+                    "cloud_alpha_max_splat_radius": (
+                        None
+                        if entry.get("cloud") is None
+                        else entry["cloud"].alpha_max_splat_radius
                     ),
                     "support_score": float(entry["support_score"][frame_index]),
                     **query_track_meta,

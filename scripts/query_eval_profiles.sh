@@ -355,9 +355,13 @@ apply_query_eval_profile() {
       # Stage-1 evidence used for lifting. This changes only the selected
       # entity's projection threshold; it never substitutes a 2D mask.
       export QUERY_LIFT_ALPHA_THRESHOLD_CALIBRATION="${QUERY_LIFT_ALPHA_THRESHOLD_CALIBRATION:-1}"
-      export QUERY_LIFT_ALPHA_CALIBRATION_MAX_CANDIDATES="${QUERY_LIFT_ALPHA_CALIBRATION_MAX_CANDIDATES:-3}"
-      export QUERY_LIFT_ALPHA_CALIBRATION_MAX_FRAMES="${QUERY_LIFT_ALPHA_CALIBRATION_MAX_FRAMES:-8}"
-      export QUERY_LIFT_ALPHA_CALIBRATION_LEVELS="${QUERY_LIFT_ALPHA_CALIBRATION_LEVELS:-0.18:0.015,0.08:0.006,0.03:0.002,0.01:0.001}"
+      export QUERY_LIFT_ALPHA_CALIBRATION_MAX_CANDIDATES="${QUERY_LIFT_ALPHA_CALIBRATION_MAX_CANDIDATES:-2}"
+      export QUERY_LIFT_ALPHA_CALIBRATION_MAX_FRAMES="${QUERY_LIFT_ALPHA_CALIBRATION_MAX_FRAMES:-6}"
+      export QUERY_LIFT_ALPHA_CALIBRATION_LEVELS="${QUERY_LIFT_ALPHA_CALIBRATION_LEVELS:-0.18:0.015,0.03:0.002,0.00:0.0001}"
+      # Calibrate footprint geometry together with alpha thresholds. The grid is
+      # deliberately compact so every query remains bounded; it is shared by
+      # public and R4D profiles and never branches on scene or object names.
+      export QUERY_LIFT_ALPHA_GEOMETRY_LEVELS="${QUERY_LIFT_ALPHA_GEOMETRY_LEVELS:-1.0:18,3.0:24,6.0:32}"
       # Thin or hollow masks are recognized from their multi-frame geometry,
       # never from object names. The same rule applies to every dataset.
       export QUERY_LIFT_GEOMETRY_THIN_RELAXED_GATE=1

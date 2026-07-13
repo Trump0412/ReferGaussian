@@ -42,6 +42,8 @@ class QueryRenderReleaseContractTest(unittest.TestCase):
             self.assertEqual(os.environ["GS_QUERY_CLOUD_RENDER_MODE"], "gaussian_alpha")
             self.assertEqual(os.environ["GS_QUERY_ALPHA_GATE_THRESHOLD"], "0.01")
             self.assertEqual(os.environ["GS_QUERY_ALPHA_REL_THRESHOLD"], "0.18")
+            self.assertEqual(os.environ["GS_QUERY_ALPHA_SIGMA_SCALE"], "1.0")
+            self.assertEqual(os.environ["GS_QUERY_ALPHA_MAX_SPLAT_RADIUS"], "18")
             self.assertEqual(os.environ["GS_QUERY_ALPHA_REQUIRE_SUCCESS"], "1")
             self.assertEqual(os.environ["GS_QUERY_ALPHA_REQUIRE_OPACITY"], "1")
 
