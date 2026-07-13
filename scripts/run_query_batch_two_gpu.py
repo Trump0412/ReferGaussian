@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dual-GPU batch query runner.
+Multi-GPU batch query runner.
 
 Reads a JSONL manifest where each line describes a query to run on a specific GPU.
 Each GPU processes its assigned queries serially; GPUs run in parallel.
@@ -39,7 +39,7 @@ PIPELINE_SCRIPT = REPO_ROOT / "scripts" / "run_query_specific_worldtube_pipeline
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run queries from a JSONL manifest on two GPUs in parallel."
+        description="Run queries from a JSONL manifest on one or more GPUs in parallel."
     )
     parser.add_argument(
         "--manifest",
@@ -66,8 +66,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=7200,
-        help="Per-query timeout in seconds (default: 7200, i.e. 2 hours).",
+        default=3600,
+        help="Per-query timeout in seconds (default: 3600, i.e. 1 hour).",
     )
     parser.add_argument(
         "--allow-failures",

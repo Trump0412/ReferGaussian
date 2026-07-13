@@ -387,7 +387,7 @@ gs_python scripts/run_query_batch_two_gpu.py \
   --profile public_time_shape_v4_recall \
   --gpu 0 1 2 \
   --force-rerun \
-  --timeout 10800
+  --timeout 3600
 ```
 
 Evaluate each scene from the same protocol and then aggregate the four
@@ -453,7 +453,7 @@ gs_python scripts/run_query_batch_two_gpu.py \
   --profile r4d_shape_v4_recall \
   --gpu 0 1 2 \
   --force-rerun \
-  --timeout 10800
+  --timeout 3600
 
 # 3) Re-evaluate from saved query outputs (no rerun of model inference).
 gs_python scripts/evaluate_ours_benchmark.py \
