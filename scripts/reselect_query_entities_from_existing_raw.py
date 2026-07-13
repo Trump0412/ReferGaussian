@@ -1,9 +1,15 @@
 import argparse
 import json
+import sys
 from pathlib import Path
 
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from refergaussian.semantics.qwen_query_planner import _extract_first_json
-from select_qwen_query_entities import (
+from refergaussian.semantics.select_qwen_query_entities import (
     _build_candidates,
     _compose_phrase_grounded_selection,
     _read_json,

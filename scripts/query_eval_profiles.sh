@@ -40,7 +40,6 @@ apply_query_eval_profile() {
   unset QUERY_RENDER_TORCH_MORPHOLOGY_DEVICE
   unset QUERY_SKIP_VIDEO_EXPORT
   unset QUERY_SKIP_OVERLAY_FRAME_EXPORT
-  unset QUERY_ALLOW_FULLSCENE_FALLBACK
   unset QUERY_RETRY_RELAXED_GSAM2
   unset QUERY_PROPOSAL_STAGE_TIMEOUT
   unset QUERY_RENDER_STAGE_TIMEOUT
@@ -348,13 +347,20 @@ apply_query_eval_profile() {
       export QUERY_LIFT_MIN_RECALL="${QUERY_LIFT_MIN_RECALL:-0.35}"
       export QUERY_LIFT_MIN_ACTIVE_FRAME_COVERAGE="${QUERY_LIFT_MIN_ACTIVE_FRAME_COVERAGE:-0.55}"
       export QUERY_LIFT_ALLOW_SPARSE_FALLBACK="${QUERY_LIFT_ALLOW_SPARSE_FALLBACK:-0}"
+      # Thin or hollow masks are recognized from their multi-frame geometry,
+      # never from object names. The same rule applies to every dataset.
+      export QUERY_LIFT_GEOMETRY_THIN_RELAXED_GATE=1
+      export QUERY_LIFT_GEOMETRY_THIN_ASPECT_MIN="${QUERY_LIFT_GEOMETRY_THIN_ASPECT_MIN:-3.0}"
+      export QUERY_LIFT_GEOMETRY_THIN_FILL_MAX="${QUERY_LIFT_GEOMETRY_THIN_FILL_MAX:-0.42}"
+      export QUERY_LIFT_GEOMETRY_THIN_AREA_MAX="${QUERY_LIFT_GEOMETRY_THIN_AREA_MAX:-0.045}"
+      export QUERY_LIFT_GEOMETRY_THIN_VOTE_FRACTION="${QUERY_LIFT_GEOMETRY_THIN_VOTE_FRACTION:-0.45}"
       export QUERY_LIFT_BOOTSTRAP_FORCE_ADD="${QUERY_LIFT_BOOTSTRAP_FORCE_ADD:-0.46}"
       export QUERY_LIFT_BOOTSTRAP_FORCE_DROP="${QUERY_LIFT_BOOTSTRAP_FORCE_DROP:-0.54}"
       export QUERY_LIFT_BOOTSTRAP_KEEP_THRESHOLD="${QUERY_LIFT_BOOTSTRAP_KEEP_THRESHOLD:-0.08}"
       export QUERY_MISSING_PHRASE_PICK_BEST="${QUERY_MISSING_PHRASE_PICK_BEST:-0}"
       export QUERY_EMPTY_ON_PHRASE_MISS="${QUERY_EMPTY_ON_PHRASE_MISS:-1}"
 
-      # Keep shape-v2 knobs populated for diagnostics and fallback candidates.
+      # Keep shape-v2 knobs populated for diagnostics and alternate candidates.
       export QUERY_LIFT_SHAPE_MAX_ITER="${QUERY_LIFT_SHAPE_MAX_ITER:-10}"
       export QUERY_LIFT_SHAPE_BATCH_FRAMES="${QUERY_LIFT_SHAPE_BATCH_FRAMES:-6}"
       export QUERY_LIFT_SHAPE_SEEDS="${QUERY_LIFT_SHAPE_SEEDS:-1}"
@@ -406,7 +412,7 @@ apply_query_eval_profile() {
       export REFERGAUSSIAN_QUERY_EVAL_PROFILE="r4d_shape_v4_recall"
 
       # R4D uses the same training-free lifting path as public v4, but enables
-      # geometry-driven action support and relaxed sparse/thin gates. This is
+      # geometry-driven action support and relaxed geometry gates. This is
       # profile-level, not scene-level: no object or scene names are special-cased.
       export QUERY_ENABLE_ACTION_WINDOW_VARIANTS=1
       export QUERY_ACTION_TEMPORAL_USE_SUPPORT=1
@@ -449,14 +455,12 @@ apply_query_eval_profile() {
       export QUERY_LIFT_THIN_MAX_OUTER_LEAKAGE=0.32
       export QUERY_LIFT_THIN_MIN_RENDERED_IOU_STAGE1=0.08
       export QUERY_LIFT_THIN_MIN_RECALL=0.08
-      export QUERY_LIFT_ALLOW_SPARSE_FALLBACK=1
+      # Never promote a candidate that failed the coverage-quality gate.
+      export QUERY_LIFT_ALLOW_SPARSE_FALLBACK=0
       export GS_QUERY_CLOUD_POINT_RADIUS_SCALE=2.40
       export GS_QUERY_CLOUD_POINT_RADIUS_MAX=72
       export GS_QUERY_FUSE_RECOVERY_MIN_QUERY_RECALL=0.08
       export GS_QUERY_FINAL_ERODE_KERNEL=9
-      # The published benchmark path remains a single training-free lifting
-      # chain. Recovery is opt-in and must be reported separately.
-      export QUERY_ALLOW_FULLSCENE_FALLBACK="${QUERY_ENABLE_FULLSCENE_FALLBACK:-0}"
       export QUERY_RETRY_RELAXED_GSAM2=0
       export QUERY_PROPOSAL_STAGE_TIMEOUT=1200
       export QUERY_RENDER_STAGE_TIMEOUT=1200

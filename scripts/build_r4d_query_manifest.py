@@ -107,7 +107,7 @@ def _query_id_from_record(raw_query: dict, matched_scene: str, fallback_index: i
     """Return the official benchmark query id when available.
 
     The official evaluator indexes ``query_root_map.json`` by this field.  Using
-    an internal slug here makes the evaluator report zero valid queries even
+    a generated slug here makes the evaluator report zero valid queries even
     when every query output exists.
     """
     for key in ("query_id", "id", "qid"):
@@ -337,7 +337,7 @@ def main() -> int:
         dataset_dir = _resolve_under_root(dataset_rel, "REFERGAUSSIAN_DATA_ROOT", data_root)
 
         # Determine the release query text.  Open-source reproduction uses
-        # English question text only; old internal Chinese benchmark files are
+        # English question text only; legacy mixed-language benchmark files are
         # translated through the official query_id -> text_en map.
         query_text, query_text_source = choose_english_query_text(raw_query)
         if not query_text:

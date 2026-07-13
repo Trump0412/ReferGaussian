@@ -50,7 +50,7 @@ def choose_english_query_text(record: dict[str, Any]) -> tuple[str, str]:
     3. Existing generic text fields if they are already English.
 
     Chinese or mixed-language question fields are intentionally not returned.
-    This keeps open-source manifests deterministic even when an old internal
+    This keeps open-source manifests deterministic even when a legacy
     benchmark JSON still stores ``question`` in Chinese.
     """
     for key in ("query_en", "question_en", "text_en", "caption_en"):

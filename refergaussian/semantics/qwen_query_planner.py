@@ -56,7 +56,7 @@ Return exactly one JSON object with keys:
 - query: original query
 - video_inventory_phrases: array of short static noun phrases describing the main visible objects in the whole video
 - query_subject_phrases: array of short static noun phrases for the primary query objects only
-- query_successor_phrases: array of short static noun phrases that appear only after a query-driven state change, such as "lemon halves"
+- query_successor_phrases: array of short static noun phrases that appear only after a query-driven state change, such as "object fragments"
 - phase_transition_hints: array of objects, each with keys {{phrase, last_pre_change_slot, first_post_change_slot, reason}}
 - detector_phrases: array of short static noun phrases to detect and track
 - optional_phrases: array of extra visible nouns that are not query subjects
@@ -77,17 +77,17 @@ Rules:
 - Keep the output compact: video_inventory_phrases <= 8, query_subject_phrases <= 3, query_successor_phrases <= 2, detector_phrases <= 4, optional_phrases <= 6, temporal_hints <= 4.
 - Use English-only phrase outputs for all phrase lists and conditions. Do not output Chinese phrases.
 - Do not use role words like patient/tool/agent in the phrase lists.
-- Keep phrases concrete and static, such as "knife", "lemon", "hand", "cutting board", "lemon halves".
+- Keep phrases concrete and static, such as "tool", "object", "hand", "surface", "object fragments".
 - `video_inventory_phrases` should summarize the main objects visible across the whole video.
 - `query_subject_phrases` should contain only the minimum nouns needed to answer the query.
 - `detector_phrases` should normally equal `query_subject_phrases + query_successor_phrases`, and not include unrelated context objects.
 - Do not include non-subject context objects like a board or a hand in `detector_phrases` unless they are truly required by the query itself.
-- Only use `query_successor_phrases` when the action creates a new stable object state, such as "lemon halves".
-- Do not invent count-based successor phrases such as "lemon halves" when downstream mask tracking can discover the split directly.
+- Only use `query_successor_phrases` when the action creates a new stable object state, such as "object fragments".
+- Do not invent count-based successor phrases when downstream mask tracking can discover the split directly.
 - `phase_transition_hints` should use the 0-based sampled-frame slot indices from the observed frame list.
 - Use `phase_transition_hints` only when the query implies a subject state transition or a before/after distinction.
 - Prefer the earliest semantic change point suggested by the sampled frames, not the latest frame where the object is already fully separated.
-- For "cut the lemon", a good answer would inventory ["knife", "lemon", "hand", "cutting board"], and use query subjects ["knife", "lemon"].
+- For an action query, inventory only the interacting object(s) and necessary tool(s), and use those as query subjects.
 - For action queries, `start_condition` should begin at direct task-relevant contact, not at coarse pre-contact setup.
 - For action queries, `stop_condition` should end when the query-driven state change stabilizes, not when unrelated context remains visible.
 - For action queries, separate the short action/contact interval from the longer object/state support interval.
@@ -101,8 +101,8 @@ Rules:
   are visible you may include both `left hand` and `right hand` in `detector_phrases` for disambiguation.
 - preferred_detector must be "grounded_sam2".
 - **ZERO / DISTRACTOR QUERY**: If the queried object does NOT exist in this scene at all
-  (e.g., asking for "an orange" in a lemon-cutting scene, "a red cup" when only transparent
-  cups exist, "a metal spoon" when none is visible), you MUST set query_subject_phrases to [],
+  (e.g., asking for a blue object when only red objects are visible, or a metal tool when none
+  is visible), you MUST set query_subject_phrases to [],
   detector_phrases to [], absent_query to true, and add a notes field starting with
   "ZERO_QUERY: <reason>".
   Do NOT hallucinate a closest-match object. Empty detection is the correct answer.
@@ -133,9 +133,9 @@ Rules:
 - Judge semantic activity, not just visibility.
 - Keep all labels and reasons in concise English.
 - Keep frame_labels concise and notes short.
-- For full-object queries like "the cookie", mark the full lifetime where that queried object/state should count.
-- For state queries like "the complete cookie", stop before the object enters the broken state.
-- For post-change queries like "the cookie broken into smaller pieces", start when the object first clearly belongs to the changed state.
+- For full-object queries, mark the full lifetime where that queried object/state should count.
+- For intact-state queries, stop before the object enters the changed state.
+- For post-change queries, start when the object first clearly belongs to the changed state.
 - If uncertain, prefer a slightly earlier semantic transition rather than waiting for the object to become maximally separated.
 - Output valid JSON only.
 """
@@ -395,11 +395,6 @@ def _query_semantic_profile(query: str) -> dict[str, Any]:
             "everything except",
             "except the",
             "excluding the",
-            "所有物体",
-            "全部物体",
-            "除了",
-            "以外的所有",
-            "之外的所有",
         )
     )
     return {
@@ -421,9 +416,6 @@ def _is_exclusion_query_text(query_norm: str) -> bool:
             "except the",
             "excluding the",
             "other than the",
-            "除了",
-            "以外的所有",
-            "之外的所有",
         )
     )
 
@@ -439,11 +431,6 @@ def _is_static_set_query_text(query_norm: str) -> bool:
             "physically stationary throughout",
             "never move",
             "stationary throughout the video",
-            "始终保持静止",
-            "完全静止",
-            "从未移动",
-            "未曾移动",
-            "保持静止",
         )
     )
 
@@ -455,19 +442,13 @@ def _extract_exclusion_phrases(query_norm: str) -> list[str]:
         r"except\s+(.+)",
         r"(?:excluding|other than|besides)\s+(.+)",
     ]
-    chinese_patterns = [
-        r"除了(.+?)之外",
-        r"除(.+?)之外",
-        r"除了(.+?)以外",
-        r"除(.+?)以外",
-    ]
     extracted: list[str] = []
-    for pattern in english_patterns + chinese_patterns:
+    for pattern in english_patterns:
         match = re.search(pattern, text)
         if not match:
             continue
         tail = match.group(1)
-        parts = re.split(r",| and | or |/|、|，|和|以及|及", tail)
+        parts = re.split(r",| and | or |/", tail)
         for part in parts:
             phrase = _canonicalize_phrase(part)
             if phrase:
@@ -487,7 +468,17 @@ def _handed_detector_companions(query_subject_phrases: list[str], detector_phras
 
 
 def _state_detector_phrase_additions(query: str, base_phrases: list[str]) -> list[str]:
-    query_norm = " ".join(str(query).strip().lower().replace("_", " ").split())
+    """Generate state-aware detector phrases without scene-specific vocabularies.
+
+    Grounding models often respond better to a phrase that includes the state
+    requested by the query.  Build those phrases compositionally from the
+    query and the planner's own object phrases, rather than keeping a list of
+    benchmark objects or scenes.
+    """
+    query_norm = " ".join(
+        str(query).strip().lower().replace("_", " ").replace("-", " ").split()
+    )
+    query_tokens = re.findall(r"[a-z]+", query_norm)
     base_set = {_canonicalize_phrase(phrase) for phrase in base_phrases if str(phrase).strip()}
     additions: list[str] = []
 
@@ -497,33 +488,79 @@ def _state_detector_phrase_additions(query: str, base_phrases: list[str]) -> lis
             if cleaned:
                 additions.append(cleaned)
 
-    if "cookie" in base_set:
-        if any(token in query_norm for token in ("broken", "pieces", "piece", "split", "cracked")):
-            add("broken cookie pieces", "cookie pieces", "broken cookie")
-        if any(token in query_norm for token in ("complete", "whole", "intact", "unbroken")):
-            add("complete cookie", "whole cookie", "intact cookie")
-    if "lemon" in base_set:
-        if any(token in query_norm for token in ("cut", "halves", "half", "split", "sliced")):
-            add("cut lemon", "lemon halves", "lemon pieces")
-        if any(token in query_norm for token in ("complete", "whole", "intact", "unbroken")):
-            add("whole lemon", "intact lemon")
-    if "container" in base_set:
-        if any(token in query_norm for token in ("closed", "shut")):
-            add("closed container", "closed chicken container")
-        if any(token in query_norm for token in ("opened", "open")):
-            add("opened container", "open container", "opened chicken container")
-    if "glass cup" in base_set or "cup" in base_set:
-        if "empty" in query_norm:
-            add("empty glass cup", "empty cup")
-        if any(token in query_norm for token in ("full", "filled")):
-            add("full glass cup", "filled glass cup", "glass cup full of liquid")
-        if "midpoint" in query_norm or "above the midpoint" in query_norm:
-            add("liquid above midpoint", "brown liquid in glass cup")
-    if "liquid" in base_set:
-        if "brown" in query_norm or "dark" in query_norm:
-            add("brown liquid", "dark liquid")
-        if "light" in query_norm:
-            add("light colored liquid")
+    state_aliases = {
+        "opened": "opened",
+        "open": "open",
+        "closed": "closed",
+        "close": "closed",
+        "shut": "shut",
+        "empty": "empty",
+        "full": "full",
+        "filled": "filled",
+        "complete": "complete",
+        "whole": "whole",
+        "intact": "intact",
+        "unbroken": "unbroken",
+        "broken": "broken",
+        "split": "split",
+        "cracked": "cracked",
+        "cut": "cut",
+        "sliced": "sliced",
+        "melted": "melted",
+        "melting": "melting",
+        "dark": "dark",
+        "darker": "dark",
+        "light": "light",
+        "lighter": "light",
+        "brown": "brown",
+        "red": "red",
+        "blue": "blue",
+        "green": "green",
+        "white": "white",
+        "black": "black",
+    }
+    state_words = [state_aliases[token] for token in query_tokens if token in state_aliases]
+    state_words = list(dict.fromkeys(state_words))
+    has_pieces = any(token in {"piece", "pieces"} for token in query_tokens)
+    has_halves = any(token in {"half", "halves"} for token in query_tokens)
+
+    for base_phrase in sorted(base_set):
+        for state in state_words:
+            add(f"{state} {base_phrase}")
+        if has_pieces:
+            for state in state_words:
+                add(f"{state} {base_phrase} pieces")
+            add(f"{base_phrase} pieces")
+        if has_halves:
+            for state in state_words:
+                add(f"{state} {base_phrase} halves")
+            add(f"{base_phrase} halves")
+
+    # Preserve state phrases whose head noun is supplied by the query itself,
+    # e.g. "closed plastic container" or "light colored liquid".
+    direct_state_pattern = re.compile(
+        r"\b(?:opened|open|closed|shut|empty|full|filled|complete|whole|intact|"
+        r"unbroken|broken|split|cracked|cut|sliced|melted|melting|dark|darker|"
+        r"light|lighter|brown|red|blue|green|white|black)\s+"
+        r"(?:[a-z]+\s+){0,2}[a-z]+\b"
+    )
+    base_heads = {phrase.split()[-1] for phrase in base_set if phrase.split()}
+    for match in direct_state_pattern.finditer(query_norm):
+        candidate = " ".join(match.group(0).split())
+        if candidate.split()[-1] in base_heads:
+            add(candidate)
+
+    midpoint_match = re.search(r"\b([a-z]+)\s+above\s+(?:the\s+)?midpoint\b", query_norm)
+    if midpoint_match:
+        add(f"{midpoint_match.group(1)} above midpoint")
+
+    # State carriers such as liquid are query-derived rather than benchmark
+    # specific. They help when the visible carrier is distinct from its
+    # container or support object.
+    carrier_terms = [token for token in query_tokens if token in {"liquid", "contents", "material"}]
+    for carrier in dict.fromkeys(carrier_terms):
+        for state in state_words:
+            add(f"{state} {carrier}")
 
     merged: list[str] = []
     seen: set[str] = set()
@@ -550,6 +587,7 @@ def _normalize_phrase_list(values: Any) -> list[str]:
 
 
 def _canonicalize_phrase(value: Any) -> str:
+    """Normalize English detector aliases without erasing query attributes."""
     phrase = " ".join(str(value).strip().lower().replace("_", " ").split())
     if not phrase:
         return ""
@@ -558,17 +596,6 @@ def _canonicalize_phrase(value: Any) -> str:
         if phrase.startswith(prefix):
             phrase = phrase[len(prefix):].strip()
     phrase = phrase.strip(" .,!?:;\"'()[]{}")
-    compact = phrase.replace(" ", "")
-
-    if compact in {"左手", "左手掌", "左边手", "左手部"}:
-        return "left hand"
-    if compact in {"右手", "右手掌", "右边手", "右手部"}:
-        return "right hand"
-    if compact in {"双手", "两只手", "两手", "左右手"}:
-        return "both hands"
-    if compact in {"手", "手部"}:
-        return "hand"
-
     if phrase in {"left-hand", "lefthand", "left hands"}:
         return "left hand"
     if phrase in {"right-hand", "righthand", "right hands"}:
@@ -581,69 +608,10 @@ def _canonicalize_phrase(value: Any) -> str:
         return "glass cup"
     if phrase in {"glass", "glasscup", "glass-cup"}:
         return "glass cup"
-    if phrase in {"chicken container", "closed chicken container", "opened chicken container"}:
-        return "container"
-    if phrase in {"box", "lid", "container box"}:
-        return "container"
-    if phrase in {"rubber chicken", "toy chicken"}:
-        return "chicken"
-    if phrase in {"torch chocolate", "torchchocolate", "chocolate piece", "piece of chocolate"}:
-        return "chocolate"
     if phrase in {"mouse pad", "mouse-pad"}:
         return "mousepad"
     if phrase in {"round mouse", "computer mouse", "wireless mouse"}:
         return "mouse"
-    if phrase in {"black mat", "black mouse pad", "black mousepad"}:
-        return "mousepad"
-
-    phrase_aliases = {
-        "刀": "knife",
-        "柠檬": "lemon",
-        "橙子": "orange",
-        "砧板": "cutting board",
-        "木板": "cutting board",
-        "勺子": "spoon",
-        "汤勺": "spoon",
-        "玻璃杯": "glass cup",
-        "马提尼杯": "glass cup",
-        "马提尼酒杯": "glass cup",
-        "鸡尾酒杯": "glass cup",
-        "杯子": "cup",
-        "容器": "container",
-        "盒子": "container",
-        "盖子": "container",
-        "鸡容器": "container",
-        "小鸡容器": "container",
-        "橡胶鸡": "chicken",
-        "巧克力": "chocolate",
-        "液体": "liquid",
-        "咖啡": "coffee",
-        "键盘": "keyboard",
-        "饼干": "cookie",
-        "托盘": "tray",
-        "牛排": "steak",
-        "三文鱼": "salmon",
-        "菠菜": "spinach",
-        "锅": "pan",
-        "火焰": "flame",
-        "鼠标": "mouse",
-        "鼠标垫": "mousepad",
-        "桌子": "table",
-        "桌面": "table",
-        "显示器": "monitor",
-        "电脑显示器": "monitor",
-        "毯子": "blanket",
-        "便签": "sticky note",
-        "便签纸": "sticky note",
-        "便利贴": "sticky note",
-        "黑色垫": "mousepad",
-        "黑垫": "mousepad",
-        "鼠标垫子": "mousepad",
-    }
-    for token, mapped in phrase_aliases.items():
-        if token in compact:
-            return mapped
-
     return phrase
 
 

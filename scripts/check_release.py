@@ -26,25 +26,34 @@ FORBIDDEN_PATTERNS = {
     "release placeholder": re.compile(r"XXXX\.XXXXX|Author[0-9]"),
     "internal server path": re.compile(r"/root/autodl-tmp|/home/chenbp|seetacloud\.com"),
     "temporary fix label": re.compile(r"\bhotfix\b", re.IGNORECASE),
+    "deprecated transfer artifact": re.compile(r"\btrase\b", re.IGNORECASE),
 }
 TEXT_SUFFIXES = {".cff", ".html", ".json", ".md", ".py", ".sh", ".toml", ".yaml", ".yml"}
 REQUIRED_RUNTIME_FILES = (
     "refergaussian/semantics/semantic_renderer.py",
     "refergaussian/semantics/surface_mask_field.py",
     "refergaussian/semantics/mask_supported_lifting.py",
+    "refergaussian/semantics/select_qwen_query_entities.py",
     "scripts/build_joint_query_proposal_dir.py",
     "scripts/export_entitybank.py",
     "scripts/render_query_video.py",
     "scripts/run_query_specific_worldtube_pipeline.sh",
+    "scripts/select_qwen_query_entities.py",
     "scripts/evaluate_ours_benchmark.py",
 )
 REQUIRED_RUNTIME_TOKENS = {
     "scripts/build_joint_query_proposal_dir.py": "mask_supported_lifting",
     "scripts/export_entitybank.py": "--proposal-supervision-mode",
     "scripts/render_query_video.py": "--eval-profile",
-    "scripts/run_query_specific_worldtube_pipeline.sh": "QUERY_ALLOW_FULLSCENE_FALLBACK",
+    "scripts/run_query_specific_worldtube_pipeline.sh": "mask_supported_lifting",
+    "scripts/select_qwen_query_entities.py": "refergaussian.semantics.select_qwen_query_entities import main",
     "scripts/evaluate_ours_benchmark.py": "--query-manifest",
 }
+ENGLISH_RUNTIME_FILES = (
+    "refergaussian/semantics/qwen_query_planner.py",
+    "refergaussian/semantics/select_qwen_query_entities.py",
+    "refergaussian/semantics/mask_supported_lifting.py",
+)
 
 
 def tracked_files() -> list[Path]:
@@ -111,11 +120,42 @@ def check_runtime_contracts() -> list[str]:
     return errors
 
 
+def check_runtime_release_guards() -> list[str]:
+    """Keep the documented path English-only, generic, and free of silent recovery."""
+    errors: list[str] = []
+    for relative_path in ENGLISH_RUNTIME_FILES:
+        path = ROOT / relative_path
+        if not path.is_file():
+            continue
+        if re.search(r"[\u4e00-\u9fff]", path.read_text(encoding="utf-8", errors="replace")):
+            errors.append(f"Runtime source must remain English-only: {relative_path}")
+
+    lifting_text = (ROOT / "refergaussian/semantics/mask_supported_lifting.py").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    if "_is_thin_object_phrase" in lifting_text:
+        errors.append("Lifting must use geometry, not object-name thinness rules")
+
+    profile_text = (ROOT / "scripts/query_eval_profiles.sh").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    if "QUERY_LIFT_ALLOW_SPARSE_FALLBACK=1" in profile_text:
+        errors.append("Published profiles must not enable sparse-candidate fallback")
+
+    pipeline_text = (ROOT / "scripts/run_query_specific_worldtube_pipeline.sh").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    if "QUERY_ALLOW_FULLSCENE_FALLBACK" in pipeline_text:
+        errors.append("Published query pipeline must not contain full-scene fallback")
+    return errors
+
+
 def main() -> int:
     errors = check_forbidden_text(tracked_files())
     errors.extend(check_readme_scripts())
     errors.extend(check_release_queries())
     errors.extend(check_runtime_contracts())
+    errors.extend(check_runtime_release_guards())
     if errors:
         for error in errors:
             print(f"[error] {error}")

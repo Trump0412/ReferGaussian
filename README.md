@@ -106,6 +106,17 @@ bash scripts/setup_baseline_env.sh cuda121
 bash scripts/setup_grounded_sam2.sh
 ```
 
+## Verification
+
+Before a training or benchmark run, validate the checked-out release and the
+benchmark evaluator's empty-query and polygon-mask rules:
+
+```bash
+source scripts/common.sh
+gs_python scripts/check_release.py
+gs_python -m unittest discover -s tests -v
+```
+
 By default, environments and caches are created under `~/.cache/refergaussian/`:
 - `~/.cache/refergaussian/conda-envs`
 - `~/.cache/refergaussian/conda-pkgs`
@@ -272,6 +283,11 @@ export QUERY_EVAL_PROFILE=public_time_shape_v4_recall
 The active profile and its effective fusion parameters are written into each
 `final_query_render_sourcebg/validation.json` as `eval_profile` and `fusion_options`.
 This makes public reruns auditable and easy to compare.
+
+The released query path is strictly `mask_supported_lifting`: if multi-frame
+lifting cannot form the requested entity, the query is reported as a failure
+with its Stage-1 and proposal diagnostics. It is never replaced by an
+unconstrained full-scene entity.
 
 For paper-style batched reruns, prefer the manifest-based runner so query ids, output roots,
 and evaluator maps stay aligned:

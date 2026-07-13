@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageFilter
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EXTERNAL_ROOT = PROJECT_ROOT / "external" / "4DGaussians"
 for candidate in (PROJECT_ROOT, EXTERNAL_ROOT):
     candidate_str = str(candidate)
@@ -280,6 +280,7 @@ def _merge_ranges(ranges: list[list[int]]) -> list[list[int]]:
 
 
 def _canonicalize_phrase(value: Any) -> str:
+    """Normalize English detector aliases without erasing query attributes."""
     phrase = " ".join(str(value).strip().lower().replace("_", " ").split())
     if not phrase:
         return ""
@@ -288,17 +289,6 @@ def _canonicalize_phrase(value: Any) -> str:
         if phrase.startswith(prefix):
             phrase = phrase[len(prefix):].strip()
     phrase = phrase.strip(" .,!?:;\"'()[]{}")
-    compact = phrase.replace(" ", "")
-
-    if compact in {"左手", "左手掌", "左边手", "左手部"}:
-        return "left hand"
-    if compact in {"右手", "右手掌", "右边手", "右手部"}:
-        return "right hand"
-    if compact in {"双手", "两只手", "两手", "左右手"}:
-        return "both hands"
-    if compact in {"手", "手部"}:
-        return "hand"
-
     if phrase in {"left-hand", "lefthand", "left hands"}:
         return "left hand"
     if phrase in {"right-hand", "righthand", "right hands"}:
@@ -307,56 +297,42 @@ def _canonicalize_phrase(value: Any) -> str:
         return "both hands"
     if phrase in {"hand", "hands"}:
         return "hand"
+    if phrase in {"martini glass", "cocktail glass", "wine glass", "drinking glass"}:
+        return "glass cup"
+    if phrase in {"glass", "glasscup", "glass-cup"}:
+        return "glass cup"
     if phrase in {"mouse pad", "mouse-pad"}:
         return "mousepad"
     if phrase in {"round mouse", "computer mouse", "wireless mouse"}:
         return "mouse"
-    if phrase in {"black mat", "black mouse pad", "black mousepad"}:
-        return "mousepad"
-
-    phrase_aliases = {
-        "刀": "knife",
-        "柠檬": "lemon",
-        "橙子": "orange",
-        "砧板": "cutting board",
-        "木板": "cutting board",
-        "勺子": "spoon",
-        "汤勺": "spoon",
-        "玻璃杯": "glass cup",
-        "杯子": "cup",
-        "液体": "liquid",
-        "咖啡": "coffee",
-        "键盘": "keyboard",
-        "饼干": "cookie",
-        "托盘": "tray",
-        "牛排": "steak",
-        "三文鱼": "salmon",
-        "菠菜": "spinach",
-        "锅": "pan",
-        "火焰": "flame",
-        "鼠标": "mouse",
-        "鼠标垫": "mousepad",
-        "桌子": "table",
-        "桌面": "table",
-        "显示器": "monitor",
-        "电脑显示器": "monitor",
-        "毯子": "blanket",
-        "便签": "sticky note",
-        "便签纸": "sticky note",
-        "便利贴": "sticky note",
-        "黑色垫": "mousepad",
-        "黑垫": "mousepad",
-        "鼠标垫子": "mousepad",
-    }
-    for token, mapped in phrase_aliases.items():
-        if token in compact:
-            return mapped
-
     return phrase
 
 
 def _normalize_phrase(value: str) -> str:
     return _canonicalize_phrase(value)
+
+
+def _normalize_query_state_text(value: Any) -> str:
+    """Normalize a full query without collapsing it to an entity alias."""
+    text = str(value).strip().lower()
+    for old, new in (
+        ("_", " "),
+        ("-", " "),
+        (",", " "),
+        (".", " "),
+        (";", " "),
+        (":", " "),
+        ("?", " "),
+        ("!", " "),
+        ("(", " "),
+        (")", " "),
+        ("[", " "),
+        ("]", " "),
+        ("{", " "),
+        ("}", " "),
+    ):
+        text = text.replace(old, new)
+    return " ".join(text.split())
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -483,9 +459,6 @@ def _expand_dual_hand_subjects(phrases: list[str]) -> list[str]:
 
 def _query_requests_dual_hands(query: str, phrase_groups: list[list[str]]) -> bool:
     query_lower = str(query).lower()
-    query_compact = query_lower.replace(" ", "")
-    if any(token in query_compact for token in ("双手", "两只手", "两手", "左右手")):
-        return True
     if "both hands" in query_lower or "two hands" in query_lower:
         return True
     if ("left hand" in query_lower and "right hand" in query_lower) or ("right hand" in query_lower and "left hand" in query_lower):
@@ -510,12 +483,8 @@ def _is_hand_candidate(candidate: dict[str, Any]) -> bool:
         " ".join(str(tag) for tag in candidate.get("concept_tags", [])),
     ]
     for text in texts:
-        raw_text = str(text)
-        normalized = _normalize_phrase(raw_text)
-        compact = normalized.replace(" ", "")
+        normalized = _normalize_phrase(str(text))
         if any(token in normalized for token in ("hand", "left hand", "right hand")):
-            return True
-        if any(token in compact for token in ("手", "左手", "右手", "双手", "两只手", "两手")):
             return True
     return False
 
@@ -872,6 +841,114 @@ def _frame_margin_to_test_margin(
     return int(max(1, round(float(frame_margin) / stride)))
 
 
+def _structural_before_uses_full_rendered_range(query_norm: str, boundary_end: int | None, frame_count: int) -> bool:
+    # Historical note:
+    # We briefly expanded structural "before" queries
+    # to the full rendered range in an attempt to match a dense-existence
+    # evaluator interpretation. In practice this collapses temporal precision:
+    # queries like "before being cut" become active for the whole sequence and
+    # severely damage tIoU/Acc. Keep the behavior behind an explicit opt-in
+    # switch for diagnostics only; the default path should respect the inferred
+    # boundary from the query planner / split detector.
+    if not _env_flag("QUERY_STRUCTURAL_BEFORE_FULL_RANGE", False):
+        return False
+
+    fill_state_terms = (
+        "liquid",
+        "pour",
+        "empty",
+        "full",
+        "cup",
+        "glass",
+    )
+    if any(term in query_norm for term in fill_state_terms):
+        return False
+    structural_terms = (
+        "before being cut",
+        "before cutting",
+        "before cut",
+        "before split",
+        "before being broken",
+        "before breaking",
+        "before melting",
+        "intact",
+        "unbroken",
+    )
+    if not any(term in query_norm for term in structural_terms):
+        return False
+    max_frame = max(int(frame_count) - 1, 0)
+    if max_frame <= 0 or boundary_end is None:
+        return False
+    return float(boundary_end) / float(max_frame) >= 0.65
+
+
+def _before_state_end_test_index(
+    *,
+    query_plan_payload: dict[str, Any],
+    test_times: np.ndarray,
+    tracks_payload: dict[str, Any] | None = None,
+    phrase: str | None = None,
+    split_frame: int | None = None,
+) -> tuple[int, str]:
+    frame_count = int(test_times.shape[0])
+    max_frame = max(frame_count - 1, 0)
+    plan_start, plan_end = _query_plan_window_test_range(query_plan_payload, test_times)
+    if split_frame is None and tracks_payload is not None and phrase:
+        split_frame = _track_split_start_frame(
+            tracks_payload,
+            phrase=phrase,
+            test_times=test_times,
+            start_frame=0,
+        )
+
+    candidates: list[tuple[int, str, bool]] = []
+    if plan_end is not None:
+        candidates.append((int(plan_end), "plan_end", False))
+    if split_frame is not None and int(split_frame) > 0:
+        candidates.append((int(split_frame) - 1, "split_start_minus_one", True))
+    # For before/intact queries, refined_window.start may be 0 because the query
+    # window itself starts at the first frame. Only use a non-zero plan start as
+    # an event-onset boundary.
+    if plan_start is not None and int(plan_start) > 0:
+        candidates.append((int(plan_start) - 1, "plan_start_minus_one", True))
+    if not candidates:
+        return int(np.clip(round(max_frame * 0.45), 0, max_frame)), "default_45pct"
+    end_frame, source, _exclusive = candidates[0]
+    return int(np.clip(end_frame, 0, max_frame)), source
+
+
+def _after_state_start_test_index(
+    *,
+    query_plan_payload: dict[str, Any],
+    test_times: np.ndarray,
+    tracks_payload: dict[str, Any] | None = None,
+    phrase: str | None = None,
+    split_frame: int | None = None,
+) -> tuple[int, str]:
+    frame_count = int(test_times.shape[0])
+    max_frame = max(frame_count - 1, 0)
+    plan_start, plan_end = _query_plan_window_test_range(query_plan_payload, test_times)
+    if split_frame is None and tracks_payload is not None and phrase:
+        split_frame = _track_split_start_frame(
+            tracks_payload,
+            phrase=phrase,
+            test_times=test_times,
+            start_frame=0,
+        )
+
+    candidates: list[tuple[int, str]] = []
+    if split_frame is not None:
+        candidates.append((int(split_frame), "split_start"))
+    if plan_end is not None and int(plan_end) < max_frame:
+        candidates.append((int(plan_end) + 1, "plan_end_plus_one"))
+    if plan_start is not None and int(plan_start) > 0:
+        candidates.append((int(plan_start), "plan_start"))
+    if not candidates:
+        return int(np.clip(round(max_frame * 0.55), 0, max_frame)), "default_55pct"
+    start_frame, source = min(candidates, key=lambda item: int(item[0]))
+    return int(np.clip(start_frame, 0, max_frame)), source
+
+
 def _clip_segment_to_plan_window(
     segment: list[int],
     query_plan_payload: dict[str, Any],
@@ -966,27 +1043,16 @@ def _smooth_series(values: np.ndarray, radius: int = 1) -> np.ndarray:
 def _is_exclusion_query(query_norm: str) -> bool:
     """Return True if the query is an exclusion query: 'all objects EXCEPT X'."""
     text = " ".join(str(query_norm).strip().lower().replace("_", " ").split())
-    compact = text.replace(" ", "")
-    exclusion_patterns = [
-        "except", "excluding", "other than", "besides",
-        "除了", "之外的所有", "以外的所有", "以外所有",
-    ]
-    return any(pat in text or pat in compact for pat in exclusion_patterns)
+    exclusion_patterns = ("except", "excluding", "other than", "besides")
+    return any(pattern in text for pattern in exclusion_patterns)
 
 
 def _extract_exclusion_phrases(query_norm: str) -> list[str]:
     text = " ".join(str(query_norm).strip().lower().split())
-    compact = text.replace(" ", "")
     english_patterns = [
         r"(?:everything|all objects?)\s+except\s+(.+)",
         r"except\s+(.+)",
         r"(?:excluding|other than|besides)\s+(.+)",
-    ]
-    chinese_patterns = [
-        r"除了(.+?)之外",
-        r"除(.+?)之外",
-        r"除了(.+?)以外",
-        r"除(.+?)以外",
     ]
     extracted: list[str] = []
     for pattern in english_patterns:
@@ -994,17 +1060,7 @@ def _extract_exclusion_phrases(query_norm: str) -> list[str]:
         if not match:
             continue
         tail = match.group(1)
-        parts = re.split(r",| and | or |/|、|，|和|以及|及", tail)
-        for part in parts:
-            phrase = _normalize_phrase(part)
-            if phrase:
-                extracted.append(phrase)
-    for pattern in chinese_patterns:
-        match = re.search(pattern, compact)
-        if not match:
-            continue
-        tail = match.group(1)
-        parts = re.split(r",|/|、|，|和|以及|及", tail)
+        parts = re.split(r",| and | or |/", tail)
         for part in parts:
             phrase = _normalize_phrase(part)
             if phrase:
@@ -1055,6 +1111,7 @@ def _select_static_candidates(
 
 
 def _query_state_mode(query_norm: str) -> str | None:
+    padded = f" {query_norm} "
     if "above the midpoint" in query_norm or "above midpoint" in query_norm or "midpoint of the cup" in query_norm:
         return "above_midpoint"
     if "full" in query_norm:
@@ -1063,19 +1120,37 @@ def _query_state_mode(query_norm: str) -> str | None:
         return "empty"
     if "light colored" in query_norm or "light-colored" in query_norm or "lighter" in query_norm:
         return "light"
-    if "darker" in query_norm or " dark " in f" {query_norm} " or query_norm.endswith(" dark"):
+    if "darker" in query_norm or " dark " in padded or query_norm.endswith(" dark"):
         return "dark"
-    if "opened" in query_norm or " open " in f" {query_norm} " or query_norm.endswith(" open"):
+    if "opened" in query_norm or " open " in padded or query_norm.endswith(" open"):
         return "opened"
-    if "closed" in query_norm or " close " in f" {query_norm} " or query_norm.endswith(" close"):
+    if "closed" in query_norm or " close " in padded or query_norm.endswith(" close"):
         return "closed"
-    # Chinese static-throughout-video queries: detect phrases meaning "always stationary"
-    _static_cn_patterns = [
-        "始终保持静止", "物理位置始终", "始终静止", "保持静止", "完全静止",
+    before_patterns = (
+        "before",
+        "prior to",
+        "pre ",
+    )
+    if any(pattern in query_norm for pattern in before_patterns):
+        return "before"
+    after_patterns = (
+        "after",
+        "post ",
+    )
+    if any(pattern in query_norm for pattern in after_patterns):
+        return "after"
+    action_patterns = (
+        "during",
+        "while",
+        "being",
+    )
+    if any(pattern in query_norm for pattern in action_patterns):
+        return "action"
+    static_patterns = (
         "always stationary", "always static", "always remain stationary",
         "stationary throughout", "never move", "physically stationary",
-    ]
-    if any(p in query_norm for p in _static_cn_patterns):
+    )
+    if any(pattern in query_norm for pattern in static_patterns):
         return "static"
     return None
 
@@ -1194,7 +1269,7 @@ def _track_state_segments_test(
     phrase: str,
     test_times: np.ndarray,
 ) -> tuple[list[list[int]], dict[str, Any] | None]:
-    query_norm = _normalize_phrase(query)
+    query_norm = _normalize_query_state_text(query)
     state_mode = _query_state_mode(query_norm)
     frame_count = int(test_times.shape[0])
     visible_mask = _track_active_mask_test(tracks_payload, phrase, test_times)
@@ -1204,14 +1279,63 @@ def _track_state_segments_test(
             "state_mode": "support",
             "visible_segments_test": visible_segments,
         }
+    plan_start, plan_end = _query_plan_window_test_range(query_plan_payload, test_times)
+    if state_mode in {"before", "after", "action"}:
+        derived_mask = np.zeros((frame_count,), dtype=bool)
+        if state_mode == "before":
+            cutoff, boundary_source = _before_state_end_test_index(
+                query_plan_payload=query_plan_payload,
+                test_times=test_times,
+                tracks_payload=tracks_payload,
+                phrase=phrase,
+            )
+            if _structural_before_uses_full_rendered_range(query_norm, cutoff, frame_count):
+                cutoff = max(frame_count - 1, 0)
+                boundary_source = "structural_before_full_rendered_range"
+            derived_mask[: cutoff + 1] = True
+        elif state_mode == "after":
+            onset, boundary_source = _after_state_start_test_index(
+                query_plan_payload=query_plan_payload,
+                test_times=test_times,
+                tracks_payload=tracks_payload,
+                phrase=phrase,
+            )
+            derived_mask[onset:] = True
+        else:
+            boundary_source = "plan_window"
+            if plan_start is not None or plan_end is not None:
+                start = int(plan_start) if plan_start is not None else 0
+                end = int(plan_end) if plan_end is not None else max(frame_count - 1, 0)
+                start = int(np.clip(start, 0, max(frame_count - 1, 0)))
+                end = int(np.clip(end, 0, max(frame_count - 1, 0)))
+                if end >= start:
+                    derived_mask[start : end + 1] = True
+            else:
+                for start, end in visible_segments:
+                    derived_mask[int(start) : int(end) + 1] = True
+        if visible_segments:
+            visible_bool = _mask_from_segments(visible_segments, frame_count)
+            visible_restricted = derived_mask & visible_bool
+            if visible_restricted.any():
+                derived_mask = visible_restricted
+            elif state_mode == "action":
+                derived_mask = visible_bool
+        derived_segments = _ranges_from_mask(derived_mask)
+        return derived_segments, {
+            "state_mode": state_mode,
+            "visible_segments_test": visible_segments,
+            "derived_segments_test": derived_segments,
+            "plan_start_test": None if plan_start is None else int(plan_start),
+            "plan_end_test": None if plan_end is None else int(plan_end),
+            "boundary_source": boundary_source,
+            "strategy": f"query_state_{state_mode}",
+        }
     series = _track_state_series(query_plan_payload, tracks_payload, phrase, test_times)
     if series is None:
         return [], None
     valid_mask = np.asarray(series["valid_mask"], dtype=bool)
     if not valid_mask.any():
         return [], None
-    plan_start, _plan_end = _query_plan_window_test_range(query_plan_payload, test_times)
-
     metadata: dict[str, Any] = {
         "state_mode": state_mode,
         "visible_segments_test": visible_segments,
@@ -1583,7 +1707,7 @@ def _compose_phrase_grounded_selection(
 ) -> dict[str, Any]:
     qwen_subjects = [str(item).strip() for item in (raw_phrase_payload or {}).get("subject_phrases", []) if str(item).strip()]
     qwen_successors = [str(item).strip() for item in (raw_phrase_payload or {}).get("successor_phrases", []) if str(item).strip()]
-    query_norm = _normalize_phrase(query)
+    query_norm = _normalize_query_state_text(query)
     is_exclusion_query = _is_exclusion_query(query)
     plan_subjects = [str(item).strip() for item in query_plan_payload.get("query_subject_phrases", []) if str(item).strip()]
     plan_successors = [str(item).strip() for item in query_plan_payload.get("query_successor_phrases", []) if str(item).strip()]
@@ -1596,7 +1720,7 @@ def _compose_phrase_grounded_selection(
     # If Qwen actually ran (raw_phrase_payload is not None) and explicitly returned empty subject_phrases,
     # respect that as "no matching entity" — do NOT fall back to plan_subjects.
     qwen_ran = raw_phrase_payload is not None
-    query_state_mode = _query_state_mode(_normalize_phrase(query))
+    query_state_mode = _query_state_mode(query_norm)
     # Also check query_plan_payload for explicit state mode (set by query plan editor)
     if query_state_mode is None:
         plan_state_mode = str(query_plan_payload.get("query_state_mode") or "").strip()
@@ -1628,8 +1752,28 @@ def _compose_phrase_grounded_selection(
         }
     force_allow_missing = os.environ.get("QUERY_ALLOW_MISSING_PHRASE", "0") == "1"
     _allow_missing = (query_state_mode == "static") or is_exclusion_query or force_allow_missing
-    subject_ids, subject_matches = _select_phrase_ids(candidates, subject_phrases, allow_missing=_allow_missing)
-    successor_ids, successor_matches = _select_phrase_ids(candidates, successor_phrases, allow_missing=_allow_missing) if successor_phrases else ([], {})
+    try:
+        subject_ids, subject_matches = _select_phrase_ids(candidates, subject_phrases, allow_missing=_allow_missing)
+        successor_ids, successor_matches = _select_phrase_ids(candidates, successor_phrases, allow_missing=_allow_missing) if successor_phrases else ([], {})
+    except ValueError as exc:
+        if not _env_flag("QUERY_EMPTY_ON_PHRASE_MISS", True):
+            raise
+        return {
+            "query": query,
+            "selected": [],
+            "empty": True,
+            "notes": (
+                "Phrase grounding failed; returning an explicit empty selection "
+                f"instead of best-effort matching the wrong entity. {exc}"
+            ),
+            "selection_mode": "phrase_match_empty",
+            "subject_phrases": subject_phrases,
+            "successor_phrases": successor_phrases,
+            "subject_phrase_matches": {},
+            "successor_phrase_matches": {},
+            "contact_pair": None,
+            "raw_output": raw_output,
+        }
     if is_exclusion_query and not subject_ids and candidates:
         subject_ids = [int(candidate["id"]) for candidate in candidates]
         subject_phrases = [
@@ -1787,14 +1931,17 @@ def _compose_phrase_grounded_selection(
                 }
             ]
 
-        if any(keyword in query_norm for keyword in split_keywords):
-            effective_start = plan_start_frame if plan_start_frame is not None else split_frame
-            if effective_start is None:
-                effective_start = 0
-            if split_frame is None and plan_start_frame is not None:
-                effective_start = max(0, int(effective_start) - max(2, int(round(0.08 * len(test_times)))))
+        if query_state_mode == "after" or (query_state_mode != "before" and any(keyword in query_norm for keyword in split_keywords)):
+            effective_start, temporal_boundary_source = _after_state_start_test_index(
+                query_plan_payload=query_plan_payload,
+                test_times=test_times,
+                tracks_payload=tracks_payload,
+                phrase=subject_phrase_key,
+                split_frame=split_frame,
+            )
             if split_boundary_margin > 0:
                 effective_start = max(0, int(effective_start) - int(split_boundary_margin))
+                temporal_boundary_source = f"{temporal_boundary_source}+split_margin_{split_boundary_margin}"
             segment_ranges = [[int(effective_start), int(len(test_times) - 1)]]
             target_row: dict[str, Any] | None = None
             if post_union_row is not None:
@@ -1814,19 +1961,25 @@ def _compose_phrase_grounded_selection(
                     "id": int(target_row["id"]),
                     "role": "entity",
                     "confidence": 1.0,
-                    "reason": f"Selected post-split variant for subject phrase '{subject_phrases[0]}'.",
+                    "reason": f"Selected post-split variant for subject phrase '{subject_phrases[0]}' from {temporal_boundary_source}.",
                     "segments": segment_ranges,
                 }
             )
             selection_source = "single_subject_split_after"
-        elif any(keyword in query_norm for keyword in intact_keywords):
-            effective_end = plan_end_frame if plan_end_frame is not None else split_frame
-            if effective_end is None:
+        elif query_state_mode == "before" or any(keyword in query_norm for keyword in intact_keywords):
+            effective_end, temporal_boundary_source = _before_state_end_test_index(
+                query_plan_payload=query_plan_payload,
+                test_times=test_times,
+                tracks_payload=tracks_payload,
+                phrase=subject_phrase_key,
+                split_frame=split_frame,
+            )
+            if _structural_before_uses_full_rendered_range(query_norm, effective_end, len(test_times)):
                 effective_end = len(test_times) - 1
-            if split_frame is None and plan_end_frame is not None:
-                effective_end = max(0, int(effective_end) - max(2, int(round(0.08 * len(test_times)))))
-            if split_boundary_margin > 0:
+                temporal_boundary_source = "structural_before_full_rendered_range"
+            elif split_boundary_margin > 0:
                 effective_end = min(len(test_times) - 1, int(effective_end) + int(split_boundary_margin))
+                temporal_boundary_source = f"{temporal_boundary_source}+split_margin_{split_boundary_margin}"
             target_row = pre_split_row or subject_row
             segment_ranges = [[0, int(max(0, int(effective_end)))]]
             selected_rows.append(
@@ -1834,11 +1987,24 @@ def _compose_phrase_grounded_selection(
                     "id": int(target_row["id"]),
                     "role": "entity",
                     "confidence": 1.0,
-                    "reason": f"Selected pre-split variant for subject phrase '{subject_phrases[0]}'.",
+                    "reason": f"Selected pre-split variant for subject phrase '{subject_phrases[0]}' from {temporal_boundary_source}.",
                     "segments": segment_ranges,
                 }
             )
             selection_source = "single_subject_split_before"
+        elif query_state_mode == "action":
+            target_segments = track_state_segments
+            if not target_segments:
+                action_start = 0 if plan_start_frame is None else int(max(0, int(plan_start_frame)))
+                action_end = len(test_times) - 1 if plan_end_frame is None else int(min(len(test_times) - 1, int(plan_end_frame)))
+                if action_end < action_start and split_frame is not None:
+                    action_end = int(min(len(test_times) - 1, max(action_start, int(split_frame))))
+                target_segments = [[int(action_start), int(action_end)]]
+                selected_rows = _select_rows_for_target_segments(
+                    target_segments,
+                    f"Selected from track-derived action support for subject phrase '{subject_phrases[0]}'.",
+                )
+            selection_source = "single_subject_track_action"
         elif query_state_mode in {"opened", "closed", "full", "empty", "above_midpoint", "dark", "light"} and track_state_segments:
             state_mode = (track_state_meta or {}).get("state_mode", query_state_mode)
             selected_rows = _select_rows_for_target_segments(
@@ -1937,6 +2103,8 @@ def _compose_phrase_grounded_selection(
             notes_parts.append(f"Mask split frame={int(split_frame)}")
         if track_state_meta:
             notes_parts.append(f"Track state mode={track_state_meta.get('state_mode')}")
+            if "boundary_source" in track_state_meta:
+                notes_parts.append(f"Track state boundary={track_state_meta.get('boundary_source')}")
             if "threshold" in track_state_meta:
                 notes_parts.append(f"Track state threshold={float(track_state_meta['threshold']):.4f}")
         if query_plan_payload.get("start_condition"):
@@ -1988,14 +2156,9 @@ def _compose_phrase_grounded_selection(
             return None
         if not tracks_payload or len(subject_phrases) < 2:
             return None
-        carrier_index = None
-        for index, phrase in enumerate(subject_phrases):
-            phrase_norm = _normalize_phrase(phrase)
-            if any(token in phrase_norm for token in ("liquid", "coffee", "espresso", "water", "juice", "tea")):
-                carrier_index = index
-                break
-        if carrier_index is None:
-            carrier_index = len(subject_phrases) - 1
+        # The planner orders state carriers after their support object. This
+        # avoids a benchmark-specific list of material or container nouns.
+        carrier_index = len(subject_phrases) - 1
         carrier_phrase = str(subject_phrases[int(carrier_index)])
         carrier_segments, carrier_meta = _track_state_segments_test(
             query=query,
@@ -2368,7 +2531,12 @@ def main() -> None:
                 pair_json=json.dumps(pair_candidates[:16], ensure_ascii=False, indent=2),
                 total_frames=int(test_times.shape[0]) if test_times.size else "unknown",
             )
-            teacher = QwenQueryPlanner(_resolve_qwen_model(args.qwen_model))
+            resolved_path = _resolve_qwen_model(args.qwen_model)
+            try:
+                from refergaussian.semantics.vlm_backends import get_vlm_teacher
+                teacher = get_vlm_teacher(str(resolved_path))
+            except ImportError:
+                teacher = QwenQueryPlanner(resolved_path)
             raw_payload, raw_output = teacher.generate_json(prompt=prompt, images=None)
         selection_payload = _compose_phrase_grounded_selection(
             query=query,
@@ -2388,7 +2556,12 @@ def main() -> None:
             pair_json=json.dumps(pair_candidates[:16], ensure_ascii=False, indent=2),
             total_frames=int(test_times.shape[0]) if test_times.size else "unknown",
         )
-        teacher = QwenQueryPlanner(_resolve_qwen_model(args.qwen_model))
+        resolved_path = _resolve_qwen_model(args.qwen_model)
+        try:
+            from refergaussian.semantics.vlm_backends import get_vlm_teacher
+            teacher = get_vlm_teacher(str(resolved_path))
+        except ImportError:
+            teacher = QwenQueryPlanner(resolved_path)
         raw_payload, raw_output = teacher.generate_json(prompt=prompt, images=None)
         selection_payload = _normalize_selected(raw_payload, valid_ids=valid_ids, query=query)
         selection_payload["raw_output"] = raw_output

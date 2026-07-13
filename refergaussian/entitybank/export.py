@@ -953,7 +953,7 @@ def _proposal_supervised_labels(
             proposal_stats.append(stats)
     if not proposal_stats:
         return -np.ones((num_gaussians,), dtype=np.int32), {
-            "method": "trase_proposal_supervised_worldtube",
+            "method": "proposal_supervised_temporal_entity",
             "proposal_supervision_mode": "guided",
             "raw_cluster_count": 0,
         }
@@ -1165,7 +1165,7 @@ def _proposal_supervised_labels(
     guided_count = int(len([proposal_index for proposal_index in range(proposal_count) if np.any(labels == proposal_index)]))
     candidate_sizes = [int(mask.sum()) for mask in candidate_matrix]
     return labels, {
-        "method": "trase_proposal_supervised_worldtube",
+        "method": "proposal_supervised_temporal_entity",
         "proposal_supervision_mode": "guided",
         "raw_cluster_count": int(guided_count),
         "guided_candidate_mean": float(np.mean(candidate_sizes)) if candidate_sizes else 0.0,
@@ -1221,7 +1221,7 @@ def export_entitybank(
                 min_gaussians_per_entity=min_gaussians_per_entity,
             )
             cluster_meta = {
-                "method": "trase_proposal_supervised_worldtube",
+                "method": "proposal_supervised_temporal_entity",
                 "proposal_dir": str(proposal_dir),
                 "proposal_count": int(len(proposal_entities)),
                 "raw_cluster_count": int(guided_meta.get("raw_cluster_count", len(proposal_entities))),
@@ -1238,7 +1238,7 @@ def export_entitybank(
                 strict_proposals=False,
             )
             cluster_meta = {
-                "method": "trase_proposal_worldtube_reassignment",
+                "method": "proposal_temporal_reassignment",
                 "proposal_dir": str(proposal_dir),
                 "proposal_count": int(len(proposal_entities)),
                 "raw_cluster_count": int(len([cluster_id for cluster_id in np.unique(labels) if cluster_id >= 0])),
@@ -1247,7 +1247,7 @@ def export_entitybank(
             }
         else:
             cluster_meta = {
-                "method": "trase_proposal_worldtube_strict",
+                "method": "proposal_strict_temporal_entity",
                 "proposal_dir": str(proposal_dir),
                 "proposal_count": int(len(proposal_entities)),
                 "raw_cluster_count": int(len(proposal_entities)),
@@ -1391,7 +1391,7 @@ def export_entitybank(
                 "mask_refine_source": (
                     "proposal_guided_worldtube_supervision"
                     if proposal_entity is not None and proposal_strict and str(proposal_supervision_mode).strip().lower() == "guided"
-                    else ("worldtube_reassigned_trase_proposal" if proposal_entity is not None else "refergaussian_tube_bank")
+                    else ("proposal_temporal_reassignment" if proposal_entity is not None else "refergaussian_tube_bank")
                 ),
                 "bbox_image_pt_key": "bbox_image",
             }

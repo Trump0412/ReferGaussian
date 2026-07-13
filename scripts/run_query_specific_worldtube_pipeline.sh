@@ -129,19 +129,11 @@ apply_query_eval_profile "${QUERY_EVAL_PROFILE}"
 echo "[profile] QUERY_EVAL_PROFILE=${QUERY_EVAL_PROFILE}"
 
 QUERY_PROPOSAL_BUILDER="${QUERY_PROPOSAL_BUILDER:-mask_supported_lifting}"
-LEGACY_ENTITYBANK_FALLBACK_DISABLED="${DISABLE_LEGACY_ENTITYBANK_FALLBACK:-0}"
 
 if [[ "${QUERY_PROPOSAL_BUILDER}" == "surface_mask_field" ]]; then
   echo "[error] surface_mask_field is not part of the public training-free release; use mask_supported_lifting." >&2
   exit 2
 fi
-
-legacy_entitybank_fallback_disabled() {
-  if [[ "${LEGACY_ENTITYBANK_FALLBACK_DISABLED}" == "1" ]]; then
-    return 0
-  fi
-  return 1
-}
 
 run_gs_python_with_timeout() {
   local timeout_s="$1"
@@ -300,21 +292,8 @@ run_build_query_proposal() {
   esac
 }
 
-run_build_query_proposal_with_fallback() {
-  local primary_builder="${QUERY_PROPOSAL_BUILDER}"
-  if run_build_query_proposal; then
-    return 0
-  fi
-  if [[ "${primary_builder}" != "support_only" && "${primary_builder}" != "worldtube_consistency" && "${primary_builder}" != "legacy_support" && "${primary_builder}" != "mask_supported_lifting" && "${QUERY_PROPOSAL_ALLOW_FALLBACK_SUPPORT:-0}" == "1" ]] && ! legacy_entitybank_fallback_disabled; then
-    echo "[warn] proposal builder ${primary_builder} failed for ${QUERY_NAME}; retrying legacy support-only proposal builder" >&2
-    QUERY_PROPOSAL_BUILDER="support_only" run_build_query_proposal
-    return $?
-  fi
-  return 1
-}
-
 run_build_query_proposal_with_relaxed_retry() {
-  if run_build_query_proposal_with_fallback; then
+  if run_build_query_proposal; then
     return 0
   fi
   echo "[warn] query proposal build failed for ${QUERY_NAME}; trying relaxed GSAM2 retry" >&2
@@ -334,24 +313,7 @@ run_build_query_proposal_with_relaxed_retry() {
     "${DATASET_DIR}" \
     "${QUERY_TEXT}" \
     "${QUERY_NAME}"
-  run_build_query_proposal_with_fallback
-}
-
-run_build_query_proposal_legacy() {
-  run_gs_python_with_timeout "${QUERY_PROPOSAL_STAGE_TIMEOUT:-0}" \
-    "${GS_ROOT}/scripts/build_query_proposal_dir.py" \
-    --run-dir "${RUN_DIR}" \
-    --dataset-dir "${DATASET_DIR}" \
-    --tracks-path "${TRACKS_PATH}" \
-    --output-dir "${PROPOSAL_DIR}" \
-    --max-track-frames "${QUERY_MAX_TRACK_FRAMES:-16}" \
-    --proposal-keep-ratio "${QUERY_PROPOSAL_KEEP_RATIO:-0.03}" \
-    --min-gaussians "${QUERY_MIN_GAUSSIANS:-256}" \
-    --max-gaussians "${QUERY_MAX_GAUSSIANS:-4096}" \
-    --opacity-power "${QUERY_OPACITY_POWER:-0.0}" \
-    --cluster-mode "${QUERY_CLUSTER_MODE:-support_only}" \
-    --seed-ratio "${QUERY_SEED_RATIO:-0.05}" \
-    --expansion-factor "${QUERY_EXPANSION_FACTOR:-4.0}"
+  run_build_query_proposal
 }
 
 run_export_entitybank_with_proposal() {
@@ -366,20 +328,6 @@ run_export_entitybank_with_proposal() {
     --proposal-dir "${PROPOSAL_DIR}" \
     --proposal-strict \
     --proposal-supervision-mode "${QUERY_PROPOSAL_SUPERVISION_MODE:-guided}" \
-    --output-dir "${QUERY_ENTITYBANK_DIR}" \
-    --max-entities "${QUERY_MAX_ENTITIES:-12}" \
-    --min-gaussians-per-entity "${min_gaussians_per_entity}"
-}
-
-run_export_entitybank_fallback() {
-  local min_gaussians_per_entity="${QUERY_MIN_GAUSSIANS_PER_ENTITY:-32}"
-  if query_requires_dual_hands; then
-    min_gaussians_per_entity="${QUERY_DUAL_HAND_MIN_GAUSSIANS_PER_ENTITY:-4}"
-  elif query_is_static_set; then
-    min_gaussians_per_entity="${QUERY_STATIC_SET_MIN_GAUSSIANS_PER_ENTITY:-4}"
-  fi
-  gs_python "${GS_ROOT}/scripts/export_entitybank.py" \
-    --run-dir "${RUN_DIR}" \
     --output-dir "${QUERY_ENTITYBANK_DIR}" \
     --max-entities "${QUERY_MAX_ENTITIES:-12}" \
     --min-gaussians-per-entity "${min_gaussians_per_entity}"
@@ -460,23 +408,13 @@ if [[ "${proposal_ready}" == "1" ]]; then
   if query_requires_dual_hands; then
     entity_count="$(query_entitybank_size)"
     if [[ "${entity_count}" -lt 2 ]]; then
-      if [[ "${QUERY_ALLOW_FULLSCENE_FALLBACK:-0}" == "1" ]] && ! legacy_entitybank_fallback_disabled; then
-        echo "[warn] dual-hand query but proposal entitybank has ${entity_count} entities; switching to full-scene entitybank fallback" >&2
-        run_export_entitybank_fallback
-      else
-        echo "[error] dual-hand query but proposal entitybank has only ${entity_count} entities; fallback is disabled" >&2
-        exit 3
-      fi
+      echo "[error] dual-hand query but mask-supported lifting produced only ${entity_count} entities" >&2
+      exit 3
     fi
   fi
 else
-  if [[ "${QUERY_ALLOW_FULLSCENE_FALLBACK:-0}" == "1" ]] && ! legacy_entitybank_fallback_disabled; then
-    echo "[warn] proposal path unavailable for ${QUERY_NAME}; using full-scene entitybank fallback" >&2
-    run_export_entitybank_fallback
-  else
-    echo "[error] proposal path unavailable for ${QUERY_NAME}; full-scene fallback is disabled" >&2
-    exit 2
-  fi
+  echo "[error] mask-supported lifting failed for ${QUERY_NAME}; inspect grounded_sam2 and proposal diagnostics" >&2
+  exit 2
 fi
 
 mkdir -p "${QUERY_RUN_DIR}"

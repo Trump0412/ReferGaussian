@@ -58,12 +58,6 @@ def export_semantic_slots(*args, **kwargs):
     return _fn(*args, **kwargs)
 
 
-def transfer_trase_semantics(*args, **kwargs):
-    from .trase_bridge import transfer_trase_semantics as _fn
-
-    return _fn(*args, **kwargs)
-
-
 def export_semantic_tracks(*args, **kwargs):
     from .tracks import export_semantic_tracks as _fn
 
@@ -82,5 +76,4 @@ __all__ = [
     "export_semantic_slots",
     "export_semantic_tracks",
     "export_segmentation_bootstrap",
-    "transfer_trase_semantics",
 ]

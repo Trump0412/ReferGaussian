@@ -246,6 +246,45 @@ def _feature_matrix(bank: dict[str, np.ndarray], support: LiftingSupport) -> np.
     return ((features - features.mean(axis=0, keepdims=True)) / np.clip(features.std(axis=0, keepdims=True), 1.0e-6, None)).astype(np.float32)
 
 
+def _mask_geometry(mask: np.ndarray) -> tuple[float, float, float]:
+    """Return aspect ratio, bounding-box fill, and image-area fraction for a mask."""
+    binary = np.asarray(mask, dtype=bool)
+    if binary.ndim != 2 or not binary.any():
+        return 1.0, 1.0, 0.0
+    rows, cols = np.nonzero(binary)
+    height, width = binary.shape
+    box_height = max(int(rows.max()) - int(rows.min()) + 1, 1)
+    box_width = max(int(cols.max()) - int(cols.min()) + 1, 1)
+    aspect = max(float(box_width) / float(box_height), float(box_height) / float(box_width))
+    fill = float(binary.sum()) / float(box_height * box_width)
+    area_ratio = float(binary.sum()) / max(float(height * width), 1.0)
+    return aspect, fill, area_ratio
+
+
+def _is_geometrically_thin_mask(mask: np.ndarray) -> bool:
+    """Identify thin or hollow support from mask geometry, never from object names."""
+    if not _env_flag("QUERY_LIFT_GEOMETRY_THIN_RELAXED_GATE", True):
+        return False
+    aspect, fill, area_ratio = _mask_geometry(mask)
+    aspect_min = _env_float("QUERY_LIFT_GEOMETRY_THIN_ASPECT_MIN", 3.0, minimum=1.0)
+    fill_max = _env_float("QUERY_LIFT_GEOMETRY_THIN_FILL_MAX", 0.42, minimum=0.0, maximum=1.0)
+    area_max = _env_float("QUERY_LIFT_GEOMETRY_THIN_AREA_MAX", 0.045, minimum=0.0, maximum=1.0)
+    return bool(area_ratio <= area_max and (aspect >= aspect_min or fill <= fill_max))
+
+
+def _support_is_geometrically_thin(support: LiftingSupport) -> bool:
+    if not support.samples:
+        return False
+    required_fraction = _env_float(
+        "QUERY_LIFT_GEOMETRY_THIN_VOTE_FRACTION",
+        0.45,
+        minimum=0.0,
+        maximum=1.0,
+    )
+    votes = sum(_is_geometrically_thin_mask(sample.mask) for sample in support.samples)
+    return float(votes) / float(len(support.samples)) >= required_fraction
+
+
 def _collect_support(
     variant: dict[str, Any],
     dataset_dir: Path,
@@ -286,7 +325,7 @@ def _collect_support(
         height = int(max(round(float(np.asarray(camera.image_size)[1])), 1))
         mask = _load_mask(frame["mask_path"], width=width, height=height)
         regions = build_mask_regions(mask, core_kernel=5, outer_kernel=17)
-        distance_region = _build_distance_regions(mask, thin_mode=_is_thin_object_phrase(str(variant["base_phrase"])))
+        distance_region = _build_distance_regions(mask, thin_mode=_is_geometrically_thin_mask(mask))
         prepared = prepare_semantic_frame_inputs(
             camera=camera,
             frame_index=int(frame["frame_index"]),
@@ -389,12 +428,6 @@ def _collect_support(
         outer_ratio=outer_mean.astype(np.float32),
         mean_mask_area=float(np.mean(mask_areas)) if mask_areas else 0.0,
     )
-
-
-def _is_thin_object_phrase(phrase: str) -> bool:
-    phrase_lc = str(phrase).lower()
-    keywords = ("cup", "glass", "bottle", "container", "jar", "mug", "vase", "杯", "玻璃", "容器", "瓶")
-    return any(keyword in phrase_lc for keyword in keywords)
 
 
 def _component_labels(points: np.ndarray, ids: np.ndarray, graph_knn: int, radius_scale: float) -> list[np.ndarray]:
@@ -795,7 +828,7 @@ def _selection_mask_metrics(mask: np.ndarray, support: LiftingSupport, device: s
         severe_overfill = max(0.0, area_ratio - 1.55)
         underfill = max(0.0, 0.58 - area_ratio)
         thin_penalty = 0.0
-        if _is_thin_object_phrase(support.base_phrase):
+        if _support_is_geometrically_thin(support):
             thin_penalty = 0.14 * max(0.0, area_ratio - 1.15) + 0.20 * outer_leakage
         score = float(
             1.80 * mean["rendered_iou_stage1"]
@@ -827,7 +860,7 @@ def _selection_mask_metrics(mask: np.ndarray, support: LiftingSupport, device: s
         severe_overfill = max(0.0, area_ratio - 2.25)
         underfill = max(0.0, 0.82 - area_ratio)
         thin_penalty = 0.0
-        if _is_thin_object_phrase(support.base_phrase):
+        if _support_is_geometrically_thin(support):
             thin_penalty = 0.18 * max(0.0, area_ratio - 1.20) + 0.24 * outer_leakage
         score = float(
             mean["rendered_iou_stage1"]
@@ -898,7 +931,7 @@ def _candidate_variants_v2(support: LiftingSupport, bank: dict[str, np.ndarray],
             keep = int(min(max(keep, 1), eligible.size, max_gaussians))
             ids = eligible[np.argsort(-ranking[eligible], kind="mergesort")[:keep]]
             variants.append((f"ranked_recall_top_{keep}", ids.astype(np.int64)))
-    if _is_thin_object_phrase(support.base_phrase) and eligible.size:
+    if _support_is_geometrically_thin(support) and eligible.size:
         thin_ranking = 0.58 * support.full_mean + 0.24 * support.presence + 0.16 * support.core_ratio + 0.12 * support.purity - 0.34 * support.outer_ratio - 0.22 * support.negative_score
         thin_pool = eligible[np.argsort(-thin_ranking[eligible], kind="mergesort")[: int(min(max_gaussians, max(min_gaussians, eligible.size)) )]]
         variants.append(("thin_object_boundary_recall", _top_component_union(points, thin_pool, thin_ranking, graph_knn=graph_knn, radius_scale=radius_scale * 1.10, top_k=4, max_gaussians=max_gaussians)))
@@ -983,7 +1016,7 @@ def _bootstrap_refine_selection(
     force_add = _env_float("QUERY_LIFT_BOOTSTRAP_FORCE_ADD", 0.56, minimum=0.0)
     force_drop = _env_float("QUERY_LIFT_BOOTSTRAP_FORCE_DROP", 0.50, minimum=0.0)
     keep_threshold = _env_float("QUERY_LIFT_BOOTSTRAP_KEEP_THRESHOLD", 0.10)
-    thin_mode = _is_thin_object_phrase(support.base_phrase)
+    thin_mode = _support_is_geometrically_thin(support)
     target_area_ratio = _env_float(
         "QUERY_LIFT_BOOTSTRAP_THIN_TARGET_AREA_RATIO" if thin_mode else "QUERY_LIFT_BOOTSTRAP_TARGET_AREA_RATIO",
         0.30 if thin_mode else 0.35,
@@ -1235,15 +1268,12 @@ def _query_phase_mode_from_plan(query_plan: dict[str, Any] | None) -> str:
         if query_plan.get(key) is not None
     ).lower()
     before_terms = (
-        "之前", "以前", "前的", "开始融化前", "被掰断之前", "被切成两半之前",
         "before", "pre-cut", "pre split", "pre_split", "intact", "empty",
     )
     after_terms = (
-        "之后", "以后", "后的", "被掰断后", "被切成两半后", "融化后",
         "after", "post-cut", "post split", "post_split", "broken", "full", "melted",
     )
     action_terms = (
-        "正在", "过程中", "在火焰下", "被切", "被掰断", "切割", "倒入", "注入",
         "during", "while", "action", "cutting", "breaking", "pouring",
     )
     if any(term in text for term in before_terms):
@@ -1500,7 +1530,7 @@ def _shape_refine_selection(
     if frame_count == 0:
         return seed_ids, {"shape_refine_iters": 0, "shape_refine_best_iou": 0.0}
 
-    thin_mode = _is_thin_object_phrase(support.base_phrase)
+    thin_mode = _support_is_geometrically_thin(support)
 
     # For thin/transparent objects, reduce penalty on outer_ratio and negative_score
     # because Gaussians near the thin surface inherently sit in boundary/outer bands.
@@ -1780,7 +1810,7 @@ def _candidate_variants_hybrid_recall(support: LiftingSupport, bank: dict[str, n
             radius_scale=radius_scale * 1.65,
             max_gaussians=int(min(max(int(max_gaussians), 3072), ordered.size)),
         ))
-        if _is_thin_object_phrase(support.base_phrase):
+        if _support_is_geometrically_thin(support):
             shell_score = (
                 0.38 * support.full_mean
                 + 0.28 * support.presence
@@ -1866,7 +1896,7 @@ def _candidate_variants_shape_v2(support: LiftingSupport, bank: dict[str, np.nda
             ))
 
         # For thin objects, don't force largest component
-        if _is_thin_object_phrase(support.base_phrase):
+        if _support_is_geometrically_thin(support):
             shell_score = (
                 0.38 * support.full_mean
                 + 0.28 * support.presence
@@ -2420,7 +2450,7 @@ def build_mask_supported_lifting_proposal_dir(
             elif mode in {"mask_bootstrap_refine", "bootstrap_refine"}:
                 target = _env_float("QUERY_LIFT_BOOTSTRAP_TARGET_AREA_RATIO", 0.70, minimum=0.05, maximum=2.0)
                 feasible = []
-                thin_object = _is_thin_object_phrase(support.base_phrase)
+                thin_object = _support_is_geometrically_thin(support)
                 for row in scored:
                     passed, reason = _coverage_v4_quality_gate(row, target_area_ratio=target, thin_object=thin_object)
                     row["quality_gate_pass"] = bool(passed)
@@ -2469,7 +2499,7 @@ def build_mask_supported_lifting_proposal_dir(
                     and float(row.get("outer_leakage", 1.0)) < 0.25
                     and float(row.get("precision", 0.0)) > 0.25
                 ]
-                if _is_thin_object_phrase(support.base_phrase):
+                if _support_is_geometrically_thin(support):
                     thin_feasible = [
                         row for row in scored
                         if float(row.get("area_ratio", 0.0)) >= 0.30
