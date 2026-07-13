@@ -980,14 +980,22 @@ def _track_active_mask_test(
     phrase: str,
     test_times: np.ndarray,
 ) -> np.ndarray:
-    mask = np.zeros((int(test_times.shape[0]),), dtype=bool)
     track = _query_track_by_phrase(tracks_payload, phrase)
     if track is None:
-        return mask
+        return np.zeros((int(test_times.shape[0]),), dtype=bool)
+    return _track_frames_active_mask_test(track.get("frames", []), test_times)
+
+
+def _track_frames_active_mask_test(
+    frames: list[dict[str, Any]],
+    test_times: np.ndarray,
+) -> np.ndarray:
+    """Map active Stage-1 mask evidence to the renderer's test-time grid."""
+    mask = np.zeros((int(test_times.shape[0]),), dtype=bool)
     active_times = np.asarray(
         [
             float(frame.get("time_value", 0.0))
-            for frame in track.get("frames", [])
+            for frame in frames
             if bool(frame.get("active")) and frame.get("mask_path")
         ],
         dtype=np.float32,
@@ -1006,6 +1014,24 @@ def _track_active_mask_test(
     mask &= test_times >= float(active_times.min()) - float(tolerance)
     mask &= test_times <= float(active_times.max()) + float(tolerance)
     return mask
+
+
+def _track_active_segments_test_by_object_id(
+    tracks_payload: dict[str, Any] | None,
+    object_id: int,
+    test_times: np.ndarray,
+) -> list[list[int]]:
+    """Return synchronized Stage-1 support for one independently tracked instance."""
+    if not tracks_payload:
+        return []
+    for track in tracks_payload.get("tracks", []):
+        try:
+            track_object_id = int(track.get("object_id"))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if track_object_id == int(object_id):
+            return _ranges_from_mask(_track_frames_active_mask_test(track.get("frames", []), test_times))
+    return []
 
 
 def _track_active_segments_test(
@@ -1711,9 +1737,53 @@ def _multi_hypothesis_instance_selection(
         if wanted_object_ids != matched_object_ids:
             continue
 
+        query_state_mode = _query_state_mode(_normalize_query_state_text(query))
         selected = []
         for candidate in matched:
-            segments = candidate.get("query_relevant_segments_test") or candidate.get("support_segments_test")
+            object_id = int(candidate["stage1_object_id"])
+            stage1_segments = _track_active_segments_test_by_object_id(
+                tracks_payload,
+                object_id,
+                test_times,
+            )
+            if stage1_segments:
+                # Each multi-instance hypothesis has an independent Stage-1
+                # track.  Its final temporal support must stay within that
+                # synchronized evidence; pair-interaction windows are not a
+                # reliable temporal source for a single-subject query.
+                temporal_segments = (
+                    candidate.get("moving_segments_test")
+                    if query_state_mode == "action"
+                    else candidate.get("support_segments_test")
+                ) or candidate.get("support_segments_test")
+                if temporal_segments:
+                    segments = _intersect_ranges(
+                        _merge_ranges(temporal_segments),
+                        stage1_segments,
+                        int(test_times.size),
+                    )
+                else:
+                    segments = []
+                if not segments:
+                    segments = stage1_segments
+
+                plan_start, plan_end = _query_plan_window_test_range(query_plan_payload, test_times)
+                if plan_start is not None or plan_end is not None:
+                    plan_segments = [[
+                        0 if plan_start is None else int(plan_start),
+                        max(int(test_times.size) - 1, 0) if plan_end is None else int(plan_end),
+                    ]]
+                    plan_supported_segments = _intersect_ranges(
+                        segments,
+                        plan_segments,
+                        int(test_times.size),
+                    )
+                    # A coarse planner window must not expand an independently
+                    # tracked entity outside its synchronized Stage-1 support.
+                    if plan_supported_segments:
+                        segments = plan_supported_segments
+            else:
+                segments = candidate.get("query_relevant_segments_test") or candidate.get("support_segments_test")
             if not segments:
                 segments = [[0, max(int(test_times.size) - 1, 0)]]
             selected.append(
@@ -1722,13 +1792,7 @@ def _multi_hypothesis_instance_selection(
                     "role": "entity",
                     "confidence": 1.0,
                     "reason": "Selected as a separately lifted member of the query-compatible instance set.",
-                    "segments": [
-                        _clip_segment_to_plan_window(
-                            [int(segments[0][0]), int(segments[-1][1])],
-                            query_plan_payload=query_plan_payload,
-                            test_times=test_times,
-                        )
-                    ],
+                    "segments": _merge_ranges(segments),
                 }
             )
         return {

@@ -184,6 +184,69 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         self.assertEqual([item["id"] for item in payload["selected"]], [3, 4])
         self.assertTrue(all(item["segments"] == [[0, 9]] for item in payload["selected"]))
 
+    def test_multi_hypothesis_uses_each_instance_synchronized_stage1_support(self) -> None:
+        test_times = np.linspace(0.0, 1.0, num=10)
+        candidates = [
+            {
+                "id": 3,
+                "stage1_object_id": 11,
+                "proposal_alias": "left hand",
+                "proposal_phrase": "left hand",
+                "static_text": "left hand",
+                "quality": 1.0,
+                "support_segments_test": [[0, 9]],
+                "query_relevant_segments_test": [[0, 1]],
+                "moving_segments_test": [[5, 9]],
+            },
+            {
+                "id": 4,
+                "stage1_object_id": 12,
+                "proposal_alias": "left hand",
+                "proposal_phrase": "left hand",
+                "static_text": "left hand",
+                "quality": 1.0,
+                "support_segments_test": [[0, 9]],
+                "query_relevant_segments_test": [[0, 1]],
+                "moving_segments_test": [[5, 9]],
+            },
+        ]
+        tracks = []
+        for object_id, indices in ((11, range(5, 9)), (12, range(6, 10))):
+            tracks.append(
+                {
+                    "object_id": object_id,
+                    "frames": [
+                        {
+                            "active": True,
+                            "mask_path": f"instance_{object_id}_{index}.png",
+                            "time_value": float(test_times[index]),
+                        }
+                        for index in indices
+                    ],
+                }
+            )
+
+        payload = _compose_phrase_grounded_selection(
+            query="The left hand while it is moving.",
+            query_plan_payload={"query_subject_phrases": ["left hand"]},
+            candidates=candidates,
+            pair_candidates=[],
+            test_times=test_times,
+            tracks_payload={
+                "tracks": tracks,
+                "instance_candidate_groups": [
+                    {
+                        "semantic_phrase": "left hand",
+                        "object_ids": [11, 12],
+                        "selection_policy": "multi_hypothesis",
+                    }
+                ],
+            },
+            raw_phrase_payload={"subject_phrases": ["left hand"], "successor_phrases": []},
+        )
+
+        self.assertEqual([item["segments"] for item in payload["selected"]], [[[5, 8]], [[6, 9]]])
+
     def test_qwen_budget_uses_available_large_gpu_memory_without_a_hidden_16gib_cap(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("REFERGAUSSIAN_QWEN_GPU_RESERVE_GIB", None)
