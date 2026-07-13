@@ -46,6 +46,15 @@ TRACKS_PATH="${TRACK_DIR}/grounded_sam2_query_tracks.json"
 if [[ "${GSAM2_REUSE_TRACKS:-0}" == "1" && -f "${TRACKS_PATH}" ]]; then
   echo "Reusing existing GSam2 tracks: ${TRACKS_PATH}"
 else
+LOCAL_ONLY_ARGS=(--local-files-only)
+case "${GSAM2_LOCAL_FILES_ONLY:-1}" in
+  1|true|TRUE|yes|YES) ;;
+  0|false|FALSE|no|NO) LOCAL_ONLY_ARGS=(--no-local-files-only) ;;
+  *)
+    echo "GSAM2_LOCAL_FILES_ONLY must be 0 or 1" >&2
+    exit 2
+    ;;
+esac
 gsam2_python "${GS_ROOT}/scripts/run_grounded_sam2_query.py" \
   --dataset-dir "${DATASET_DIR}" \
   --query-plan-path "${PLAN_PATH}" \
@@ -63,7 +72,8 @@ gsam2_python "${GS_ROOT}/scripts/run_grounded_sam2_query.py" \
   --num-point-prompts "${GSAM2_NUM_POINT_PROMPTS:-16}" \
   --track-window-radius "${GSAM2_TRACK_WINDOW_RADIUS:-160}" \
   --frame-subsample-stride "${GSAM2_FRAME_SUBSAMPLE_STRIDE:-10}" \
-  --num-anchor-seeds "${GSAM2_NUM_ANCHOR_SEEDS:-3}"
+  --num-anchor-seeds "${GSAM2_NUM_ANCHOR_SEEDS:-3}" \
+  "${LOCAL_ONLY_ARGS[@]}"
 fi
 
 echo "${OUTPUT_ROOT}"

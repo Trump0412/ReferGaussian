@@ -21,10 +21,58 @@ for _candidate in (_PROJECT_ROOT, _GSAM2_ROOT):
         sys.path.insert(0, candidate_str)
 
 from sam2.sam2_image_predictor import SAM2ImagePredictor
-from sam2.sam2_video_predictor import SAM2VideoPredictor
 from utils.track_utils import sample_points_from_masks
 
 from .source_images import resolve_dataset_image_entries
+
+
+def _load_pinned_sam2_predictors(
+    model_id: str,
+    sam2_model_revision: str | None,
+    *,
+    local_files_only: bool,
+    device: str,
+) -> tuple[Any, Any]:
+    """Build SAM2 from the exact cached checkpoint revision used by the release."""
+    from huggingface_hub import hf_hub_download
+    from sam2.build_sam import (
+        HF_MODEL_ID_TO_FILENAMES,
+        build_sam2,
+        build_sam2_video_predictor,
+    )
+
+    try:
+        config_name, checkpoint_name = HF_MODEL_ID_TO_FILENAMES[model_id]
+    except KeyError as error:
+        raise ValueError(f"Unsupported SAM2 model id: {model_id}") from error
+
+    try:
+        checkpoint_path = hf_hub_download(
+            repo_id=model_id,
+            filename=checkpoint_name,
+            revision=sam2_model_revision,
+            local_files_only=local_files_only,
+        )
+    except Exception as error:
+        if local_files_only:
+            raise RuntimeError(
+                "Pinned SAM2 weights are unavailable in the local Hugging Face cache. "
+                "Run bash scripts/setup_grounded_sam2.sh before query inference, "
+                "or explicitly set GSAM2_LOCAL_FILES_ONLY=0 to permit a download."
+            ) from error
+        raise
+
+    image_model = build_sam2(
+        config_file=config_name,
+        ckpt_path=checkpoint_path,
+        device=device,
+    )
+    video_predictor = build_sam2_video_predictor(
+        config_file=config_name,
+        ckpt_path=checkpoint_path,
+        device=device,
+    )
+    return SAM2ImagePredictor(image_model), video_predictor
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -434,6 +482,7 @@ def run_grounded_sam2_query(
     track_window_radius: int = 120,
     frame_subsample_stride: int = 10,
     num_anchor_seeds: int = 3,
+    local_files_only: bool = True,
 ) -> Path:
     dataset_dir = Path(dataset_dir)
     query_plan_path = Path(query_plan_path)
@@ -464,6 +513,7 @@ def run_grounded_sam2_query(
             "sam2_model_id": sam2_model_id,
             "grounding_model_revision": grounding_model_revision,
             "sam2_model_revision": sam2_model_revision,
+            "local_files_only": bool(local_files_only),
             "prompt_type": prompt_type,
             "frame_subsample_stride": int(frame_subsample_stride),
             "num_tracking_frames": int(len(image_entries)),
@@ -484,13 +534,32 @@ def run_grounded_sam2_query(
     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    processor = AutoProcessor.from_pretrained(grounding_model_id, revision=grounding_model_revision)
-    grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(
-        grounding_model_id, revision=grounding_model_revision
-    ).to(device)
+    try:
+        processor = AutoProcessor.from_pretrained(
+            grounding_model_id,
+            revision=grounding_model_revision,
+            local_files_only=local_files_only,
+        )
+        grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(
+            grounding_model_id,
+            revision=grounding_model_revision,
+            local_files_only=local_files_only,
+        ).to(device)
+    except Exception as error:
+        if local_files_only:
+            raise RuntimeError(
+                "Pinned Grounding DINO weights are unavailable in the local Hugging Face cache. "
+                "Run bash scripts/setup_grounded_sam2.sh before query inference, "
+                "or explicitly set GSAM2_LOCAL_FILES_ONLY=0 to permit a download."
+            ) from error
+        raise
     grounding_model.eval()
-    image_predictor = SAM2ImagePredictor.from_pretrained(sam2_model_id, revision=sam2_model_revision)
-    video_predictor = SAM2VideoPredictor.from_pretrained(sam2_model_id, revision=sam2_model_revision)
+    image_predictor, video_predictor = _load_pinned_sam2_predictors(
+        sam2_model_id,
+        sam2_model_revision,
+        local_files_only=local_files_only,
+        device=device,
+    )
 
     detections_by_phrase: dict[str, list[dict[str, Any]]] = {}
     for phrase in detector_phrases:
@@ -796,6 +865,7 @@ def run_grounded_sam2_query(
         "sam2_model_id": sam2_model_id,
         "grounding_model_revision": grounding_model_revision,
         "sam2_model_revision": sam2_model_revision,
+        "local_files_only": bool(local_files_only),
         "prompt_type": prompt_type,
         "frame_subsample_stride": int(frame_subsample_stride),
         "num_tracking_frames": int(len(image_entries)),

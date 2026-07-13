@@ -175,6 +175,11 @@ pinned revisions below:
 The default endpoint is `https://huggingface.co`; set `HF_ENDPOINT` only when
 an alternative mirror is explicitly required.
 
+After setup, query inference loads these exact pinned snapshots from the local
+cache by default and does not issue a runtime Hub request. If a snapshot is
+missing, rerun `bash scripts/setup_grounded_sam2.sh`; set
+`GSAM2_LOCAL_FILES_ONLY=0` only when an explicit recovery download is intended.
+
 ## Dataset Setup
 
 ### HyperNeRF

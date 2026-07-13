@@ -59,9 +59,10 @@ fi
 env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 HF_ENDPOINT="${HF_MIRROR}" \
   "${GS_CONDA_BIN}" run --no-capture-output -p "${GSAM2_ENV_PATH}" python - <<PY
 import sys
+from huggingface_hub import hf_hub_download
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 sys.path.insert(0, "${GSAM2_ROOT}")
-from sam2.sam2_video_predictor import SAM2VideoPredictor
+from sam2.build_sam import HF_MODEL_ID_TO_FILENAMES, build_sam2_video_predictor
 
 gdino_model_id = "${GDINO_MODEL_ID}"
 sam2_model_id = "${SAM2_MODEL_ID}"
@@ -70,7 +71,27 @@ sam2_model_revision = "${SAM2_MODEL_REVISION}"
 
 processor = AutoProcessor.from_pretrained(gdino_model_id, revision=gdino_model_revision)
 grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(gdino_model_id, revision=gdino_model_revision)
-predictor = SAM2VideoPredictor.from_pretrained(sam2_model_id, revision=sam2_model_revision)
+config_name, checkpoint_name = HF_MODEL_ID_TO_FILENAMES[sam2_model_id]
+checkpoint_path = hf_hub_download(
+    repo_id=sam2_model_id,
+    filename=checkpoint_name,
+    revision=sam2_model_revision,
+)
+predictor = build_sam2_video_predictor(config_file=config_name, ckpt_path=checkpoint_path)
+
+# Verify that inference can use the fully pinned local cache without a Hub call.
+AutoProcessor.from_pretrained(
+    gdino_model_id, revision=gdino_model_revision, local_files_only=True
+)
+AutoModelForZeroShotObjectDetection.from_pretrained(
+    gdino_model_id, revision=gdino_model_revision, local_files_only=True
+)
+hf_hub_download(
+    repo_id=sam2_model_id,
+    filename=checkpoint_name,
+    revision=sam2_model_revision,
+    local_files_only=True,
+)
 
 print("grounding processor", type(processor).__name__)
 print("grounding model", type(grounding_model).__name__)

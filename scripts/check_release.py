@@ -34,6 +34,7 @@ REQUIRED_RUNTIME_FILES = (
     "refergaussian/semantics/surface_mask_field.py",
     "refergaussian/semantics/mask_supported_lifting.py",
     "refergaussian/semantics/select_qwen_query_entities.py",
+    "refergaussian/semantics/grounded_sam2_backend.py",
     "scripts/build_joint_query_proposal_dir.py",
     "scripts/export_entitybank.py",
     "scripts/render_query_video.py",
@@ -69,6 +70,7 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/eval_baseline.sh": "external/4DGaussians/render.py",
     "scripts/bootstrap_external.sh": "4dgaussians_metrics_cache.patch",
     "patches/4dgaussians_temporal_warp_schedule.patch": "set_temporal_warp_learning_rate",
+    "refergaussian/semantics/grounded_sam2_backend.py": "local_files_only=local_files_only",
 }
 ENGLISH_RUNTIME_FILES = (
     "refergaussian/semantics/qwen_query_planner.py",
@@ -297,6 +299,18 @@ def check_runtime_release_guards() -> list[str]:
     )
     if "--grounding-model-revision" not in query_launch_text or "--sam2-model-revision" not in query_launch_text:
         errors.append("Query launcher must pass pinned Grounded-SAM2 model revisions")
+    if "GSAM2_LOCAL_FILES_ONLY:-1" not in query_launch_text:
+        errors.append("Query launcher must default to local-only pinned Grounded-SAM2 weights")
+    grounded_backend_text = (ROOT / "refergaussian/semantics/grounded_sam2_backend.py").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    for token in (
+        "HF_MODEL_ID_TO_FILENAMES",
+        "revision=sam2_model_revision",
+        "local_files_only=local_files_only",
+    ):
+        if token not in grounded_backend_text:
+            errors.append(f"Grounded-SAM2 runtime must pin local snapshots: {token}")
 
     r4d_download_text = (ROOT / "scripts/download_r4d_bench_qa.sh").read_text(
         encoding="utf-8", errors="replace"
