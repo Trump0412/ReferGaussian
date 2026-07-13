@@ -39,6 +39,7 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/render_query_video.py",
     "scripts/run_query_specific_worldtube_pipeline.sh",
     "scripts/select_qwen_query_entities.py",
+    "scripts/build_4dlangsplat_query_protocol.py",
     "scripts/evaluate_ours_benchmark.py",
 )
 REQUIRED_RUNTIME_TOKENS = {
@@ -47,6 +48,7 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/render_query_video.py": "--eval-profile",
     "scripts/run_query_specific_worldtube_pipeline.sh": "mask_supported_lifting",
     "scripts/select_qwen_query_entities.py": "refergaussian.semantics.select_qwen_query_entities import main",
+    "scripts/build_4dlangsplat_query_protocol.py": "video_annotations.json",
     "scripts/evaluate_ours_benchmark.py": "--query-manifest",
 }
 ENGLISH_RUNTIME_FILES = (

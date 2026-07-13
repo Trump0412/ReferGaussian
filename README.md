@@ -211,6 +211,21 @@ bash scripts/download_4dlangsplat_annotations.sh
 ```
 
 Downloads to `data/benchmarks/4dlangsplat/HyperNeRF-Annotation/`.
+Build a per-scene query protocol from the downloaded temporal annotations
+before running the public evaluator:
+
+```bash
+source scripts/common.sh
+ANN_ROOT=data/benchmarks/4dlangsplat/HyperNeRF-Annotation
+gs_python scripts/build_4dlangsplat_query_protocol.py \
+  --annotation-root "${ANN_ROOT}" \
+  --scene espresso \
+  --output-json "${ANN_ROOT}/espresso/protocol.json"
+```
+
+Repeat the command with `americano`, `split-cookie`, or `chickchicken` when
+evaluating those scenes. The generated protocol is deterministic from
+`video_annotations.json` and is intentionally not tracked with the code.
 
 ### R4D-Bench-QA
 
@@ -253,8 +268,15 @@ SCENE=split-cookie
 GROUP=misc
 RUN_DIR=runs/refergaussian/hypernerf/${SCENE}
 DATASET_DIR=data/hypernerf/${GROUP}/${SCENE}
-PROTOCOL_JSON=data/benchmarks/4dlangsplat/HyperNeRF-Annotation/${SCENE}/protocol.json
-ANNOT_DIR=data/benchmarks/4dlangsplat/HyperNeRF-Annotation/${SCENE}
+ANNOT_ROOT=data/benchmarks/4dlangsplat/HyperNeRF-Annotation
+ANNOT_DIR=${ANNOT_ROOT}/${SCENE}
+PROTOCOL_JSON=${ANNOT_DIR}/protocol.json
+
+source scripts/common.sh
+gs_python scripts/build_4dlangsplat_query_protocol.py \
+  --annotation-root "${ANNOT_ROOT}" \
+  --scene "${SCENE}" \
+  --output-json "${PROTOCOL_JSON}"
 
 bash scripts/run_public_query_protocol.sh \
   "${PROTOCOL_JSON}" \
