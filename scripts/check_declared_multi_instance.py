@@ -30,6 +30,11 @@ def main() -> None:
     parser.add_argument("--tracks-path", required=True)
     parser.add_argument("--entitybank-path", required=True)
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument(
+        "--probe",
+        action="store_true",
+        help="Print 1 when a declared group exists or 0 otherwise, always exiting successfully.",
+    )
     args = parser.parse_args()
 
     group = declared_multi_instance_group(
@@ -38,7 +43,13 @@ def main() -> None:
         _read_json(Path(args.entitybank_path)),
     )
     if group is None:
+        if args.probe:
+            print("0")
+            return
         raise SystemExit(1)
+    if args.probe:
+        print("1")
+        return
     if not args.quiet:
         print(json.dumps(group, sort_keys=True))
 

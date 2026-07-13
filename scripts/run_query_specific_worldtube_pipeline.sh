@@ -505,14 +505,16 @@ gs_python "${GS_ROOT}/scripts/export_native_semantics.py" --run-dir "${QUERY_RUN
 # members structurally.  Only take this path after every member has been
 # lifted; all other queries retain the normal Qwen assignment/selection path.
 AUTO_DECLARED_MULTI_INSTANCE=0
-if [[ "${QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS:-0}" == "1" ]] && \
-  gs_python "${GS_ROOT}/scripts/check_declared_multi_instance.py" \
+if [[ "${QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS:-0}" == "1" ]]; then
+  declared_multi_instance="$(gs_python "${GS_ROOT}/scripts/check_declared_multi_instance.py" \
     --query-plan-path "${OUTPUT_ROOT}/query_plan.json" \
     --tracks-path "${TRACKS_PATH}" \
     --entitybank-path "${QUERY_RUN_DIR}/entitybank/entities.json" \
-    --quiet; then
-  AUTO_DECLARED_MULTI_INSTANCE=1
-  echo "[semantic-fast-path] using declared Stage-1 multi-instance membership"
+    --probe)"
+  if [[ "${declared_multi_instance}" == "1" ]]; then
+    AUTO_DECLARED_MULTI_INSTANCE=1
+    echo "[semantic-fast-path] using declared Stage-1 multi-instance membership"
+  fi
 fi
 
 ASSIGNMENTS_PATH="${QWEN_ASSIGNMENTS_PATH}"
