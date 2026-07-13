@@ -77,10 +77,15 @@ apply_integration_patch() {
 apply_4dgs_patch() {
   local patch_path="$1"
   local label="$2"
-  if git -C "${FOURD_TARGET}" apply --check --whitespace=nowarn "${patch_path}" >/dev/null 2>&1; then
-    git -C "${FOURD_TARGET}" apply --whitespace=nowarn "${patch_path}"
+  local zero_context="${3:-0}"
+  local -a apply_args=(--whitespace=nowarn)
+  if [[ "${zero_context}" == "1" ]]; then
+    apply_args+=(--unidiff-zero)
+  fi
+  if git -C "${FOURD_TARGET}" apply --check "${apply_args[@]}" "${patch_path}" >/dev/null 2>&1; then
+    git -C "${FOURD_TARGET}" apply "${apply_args[@]}" "${patch_path}"
     echo "[done] applied ${label} to 4DGaussians"
-  elif git -C "${FOURD_TARGET}" apply --reverse --check "${patch_path}" >/dev/null 2>&1; then
+  elif git -C "${FOURD_TARGET}" apply --reverse --check "${apply_args[@]}" "${patch_path}" >/dev/null 2>&1; then
     echo "[ok] ${label} already applied"
   else
     echo "[error] 4DGaussians checkout does not match ${label}." >&2
@@ -94,6 +99,7 @@ apply_4dgs_patch \
   "seed-order reproducibility patch"
 apply_4dgs_patch \
   "${ROOT_DIR}/patches/4dgaussians_metrics_cache.patch" \
-  "LPIPS metric-cache patch"
+  "LPIPS metric-cache patch" \
+  "1"
 
 echo "All external dependencies are ready under ${EXTERNAL_DIR}."

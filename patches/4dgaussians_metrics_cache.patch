@@ -1,22 +1,9 @@
 --- a/metrics.py
 +++ b/metrics.py
-@@ -15,7 +15,7 @@ import torch
- import torchvision.transforms.functional as tf
- from utils.loss_utils import ssim
+@@ -18 +18 @@ from utils.loss_utils import ssim
 -from lpipsPyTorch import lpips
 +from lpipsPyTorch import LPIPS
- import json
- from tqdm import tqdm
- from utils.image_utils import psnr
-@@ -65,20 +65,23 @@ def evaluate(model_paths):
-                 renders, gts, image_names = readImages(renders_dir, gt_dir)
- 
-                 ssims = []
-                 psnrs = []
-                 lpipss = []
-                 lpipsa = []
-                 ms_ssims = []
-                 Dssims = []
+@@ -73,7 +73,14 @@ def evaluate(model_paths):
 -                for idx in tqdm(range(len(renders)), desc="Metric evaluation progress"):
 -                    ssims.append(ssim(renders[idx], gts[idx]))
 -                    psnrs.append(psnr(renders[idx], gts[idx]))
