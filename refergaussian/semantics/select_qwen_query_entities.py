@@ -649,17 +649,31 @@ def _query_track_items(tracks_payload: dict[str, Any] | None) -> list[dict[str, 
     return []
 
 
-def _query_track_by_phrase(tracks_payload: dict[str, Any] | None, phrase: str) -> dict[str, Any] | None:
+def _query_track_by_phrase(
+    tracks_payload: dict[str, Any] | None,
+    phrase: str,
+    *,
+    object_id: int | None = None,
+) -> dict[str, Any] | None:
+    track_items = _query_track_items(tracks_payload)
+    if object_id is not None:
+        for track in track_items:
+            try:
+                track_object_id = int(track.get("object_id"))
+            except (TypeError, ValueError):
+                continue
+            if track_object_id == int(object_id):
+                return track
     phrase_tokens = _phrase_tokens(phrase)
     # First: exact match
-    for track in _query_track_items(tracks_payload):
+    for track in track_items:
         if _normalize_phrase(track.get("phrase", "")) == _normalize_phrase(phrase):
             return track
     # Second: token overlap - entity aliases contain the original phrase as a substring
     # e.g. "entity_0003_knife_like_..." ↔ "knife"
     best_track = None
     best_score = 0
-    for track in _query_track_items(tracks_payload):
+    for track in track_items:
         track_tokens = _phrase_tokens(track.get("phrase", ""))
         overlap = len(phrase_tokens & track_tokens)
         if overlap > best_score:
@@ -979,8 +993,10 @@ def _track_active_mask_test(
     tracks_payload: dict[str, Any] | None,
     phrase: str,
     test_times: np.ndarray,
+    *,
+    object_id: int | None = None,
 ) -> np.ndarray:
-    track = _query_track_by_phrase(tracks_payload, phrase)
+    track = _query_track_by_phrase(tracks_payload, phrase, object_id=object_id)
     if track is None:
         return np.zeros((int(test_times.shape[0]),), dtype=bool)
     return _track_frames_active_mask_test(track.get("frames", []), test_times)
@@ -1038,8 +1054,12 @@ def _track_active_segments_test(
     tracks_payload: dict[str, Any] | None,
     phrase: str,
     test_times: np.ndarray,
+    *,
+    object_id: int | None = None,
 ) -> list[list[int]]:
-    return _ranges_from_mask(_track_active_mask_test(tracks_payload, phrase, test_times))
+    return _ranges_from_mask(
+        _track_active_mask_test(tracks_payload, phrase, test_times, object_id=object_id)
+    )
 
 
 def _zscore(values: np.ndarray) -> np.ndarray:
@@ -1174,11 +1194,13 @@ def _track_state_series(
     tracks_payload: dict[str, Any] | None,
     phrase: str,
     test_times: np.ndarray,
+    *,
+    object_id: int | None = None,
 ) -> dict[str, np.ndarray] | None:
     dataset_dir_value = query_plan_payload.get("dataset_dir")
     if not dataset_dir_value:
         return None
-    track = _query_track_by_phrase(tracks_payload, phrase)
+    track = _query_track_by_phrase(tracks_payload, phrase, object_id=object_id)
     if track is None:
         return None
     dataset_dir = Path(dataset_dir_value)
@@ -1265,7 +1287,12 @@ def _track_state_series(
         radius=1,
     )
     return {
-        "valid_mask": _track_active_mask_test(tracks_payload, phrase, test_times),
+        "valid_mask": _track_active_mask_test(
+            tracks_payload,
+            phrase,
+            test_times,
+            object_id=object_id,
+        ),
         "fill_score": fill_score.astype(np.float32),
         "dark_score": dark_score.astype(np.float32),
         "open_score": open_score.astype(np.float32),
@@ -1282,11 +1309,18 @@ def _track_state_segments_test(
     tracks_payload: dict[str, Any] | None,
     phrase: str,
     test_times: np.ndarray,
+    *,
+    object_id: int | None = None,
 ) -> tuple[list[list[int]], dict[str, Any] | None]:
     query_norm = _normalize_query_state_text(query)
     state_mode = _query_state_mode(query_norm)
     frame_count = int(test_times.shape[0])
-    visible_mask = _track_active_mask_test(tracks_payload, phrase, test_times)
+    visible_mask = _track_active_mask_test(
+        tracks_payload,
+        phrase,
+        test_times,
+        object_id=object_id,
+    )
     visible_segments = _ranges_from_mask(visible_mask)
     if state_mode is None:
         return [], {
@@ -1344,7 +1378,13 @@ def _track_state_segments_test(
             "boundary_source": boundary_source,
             "strategy": f"query_state_{state_mode}",
         }
-    series = _track_state_series(query_plan_payload, tracks_payload, phrase, test_times)
+    series = _track_state_series(
+        query_plan_payload,
+        tracks_payload,
+        phrase,
+        test_times,
+        object_id=object_id,
+    )
     if series is None:
         return [], None
     valid_mask = np.asarray(series["valid_mask"], dtype=bool)
@@ -1737,7 +1777,6 @@ def _multi_hypothesis_instance_selection(
         if wanted_object_ids != matched_object_ids:
             continue
 
-        query_state_mode = _query_state_mode(_normalize_query_state_text(query))
         selected = []
         for candidate in matched:
             object_id = int(candidate["stage1_object_id"])
@@ -1751,11 +1790,15 @@ def _multi_hypothesis_instance_selection(
                 # track.  Its final temporal support must stay within that
                 # synchronized evidence; pair-interaction windows are not a
                 # reliable temporal source for a single-subject query.
-                temporal_segments = (
-                    candidate.get("moving_segments_test")
-                    if query_state_mode == "action"
-                    else candidate.get("support_segments_test")
-                ) or candidate.get("support_segments_test")
+                temporal_segments, _temporal_metadata = _track_state_segments_test(
+                    query=query,
+                    query_plan_payload=query_plan_payload,
+                    tracks_payload=tracks_payload,
+                    phrase=str(candidate.get("proposal_phrase") or target_phrase),
+                    test_times=test_times,
+                    object_id=object_id,
+                )
+                temporal_segments = temporal_segments or candidate.get("support_segments_test")
                 if temporal_segments:
                     segments = _intersect_ranges(
                         _merge_ranges(temporal_segments),
