@@ -466,11 +466,10 @@ apply_query_eval_profile() {
       export QUERY_RENDER_STAGE_TIMEOUT=1200
       export QUERY_STAGE_TIMEOUT_KILL_AFTER=30
 
-      # Numeric-only rebuttal/evaluation mode: keep masks/validation, skip heavy
-      # qualitative exports. Public profile keeps its visual evidence behavior.
+      # Numeric-only evaluation mode keeps masks/validation while skipping
+      # heavy qualitative exports. It still runs the complete Qwen planner,
+      # assignment, and selection path used by the released method.
       export QUERY_SKIP_ENTITY_LIBRARY=1
-      export QUERY_SKIP_QWEN_EXPORT=1
-      export QUERY_SKIP_QWEN_SELECTION=1
       export QUERY_FAST_VALIDATION_ONLY=1
       export QUERY_SKIP_VIDEO_EXPORT=1
       export QUERY_SKIP_OVERLAY_FRAME_EXPORT=1

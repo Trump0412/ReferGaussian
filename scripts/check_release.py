@@ -172,6 +172,8 @@ def check_runtime_release_guards() -> list[str]:
     )
     if "QUERY_LIFT_ALLOW_SPARSE_FALLBACK=1" in profile_text:
         errors.append("Published profiles must not enable sparse-candidate fallback")
+    if "QUERY_SKIP_QWEN_EXPORT=1" in profile_text or "QUERY_SKIP_QWEN_SELECTION=1" in profile_text:
+        errors.append("Published profiles must not bypass Qwen semantic assignment or selection")
 
     pipeline_text = (ROOT / "scripts/run_query_specific_worldtube_pipeline.sh").read_text(
         encoding="utf-8", errors="replace"
@@ -194,6 +196,10 @@ def check_runtime_release_guards() -> list[str]:
     )
     if "--warp_enabled" in baseline_eval_text or "temporal_warp_type" in baseline_eval_text:
         errors.append("Baseline evaluation must not enable ReferGaussian temporal warp")
+    for relative_path in ("scripts/train.sh", "scripts/train_baseline.sh"):
+        train_text = (ROOT / relative_path).read_text(encoding="utf-8", errors="replace")
+        if "REFERGAUSSIAN_SEED" not in train_text or "--seed" not in train_text:
+            errors.append(f"Matched reconstruction training must expose an explicit seed: {relative_path}")
 
     query_render_text = (ROOT / "refergaussian/semantics/query_render.py").read_text(
         encoding="utf-8", errors="replace"

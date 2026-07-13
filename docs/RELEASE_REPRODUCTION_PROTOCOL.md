@@ -9,7 +9,7 @@ benchmark result.
 
 For every compared scene, train ReferGaussian and the matched 4D Gaussian
 Splatting baseline from the same source data, scene configuration, iteration
-budget, and metric mode. Run `scripts/eval.sh` and
+budget, explicit `REFERGAUSSIAN_SEED`, and metric mode. Run `scripts/eval.sh` and
 `scripts/eval_baseline.sh` without `GS_SKIP_FULL_METRICS=1` for a final table.
 
 Keep these files for each method:
@@ -71,4 +71,5 @@ warp_enabled: true
 It uses training-free `mask_supported_lifting`, requires actual ReferGaussian
 test renders, and reports an empty Gaussian projection as a failure. It does
 not replace an entity with an all-scene mask, a direct 2D mask, or raw source
-RGB frames.
+RGB frames. The R4D numeric-only profile may skip qualitative video exports,
+but it does not bypass Qwen planning, semantic assignment, or entity selection.

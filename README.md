@@ -261,6 +261,9 @@ Dataset link: [https://huggingface.co/datasets/LiYacheng/r4d-bench-qa](https://h
 ## Training
 
 ```bash
+# Use one explicit seed for a matched ReferGaussian / 4DGS comparison.
+export REFERGAUSSIAN_SEED=6666
+
 # Example: keyboard scene
 bash scripts/train.sh hypernerf misc/keyboard
 
@@ -286,7 +289,7 @@ bash scripts/eval_baseline.sh hypernerf misc/keyboard
 
 The two commands write PSNR / SSIM / LPIPS to their respective run directories.
 For a fair reconstruction comparison, use the same dataset source, 4DGaussians
-scene config, iteration budget, and metric mode for both runs. The wrappers
+scene config, iteration budget, seed, and metric mode for both runs. The wrappers
 write `config.yaml`, `results.json`, and `metrics.json` beside each output for
 audit.
 
