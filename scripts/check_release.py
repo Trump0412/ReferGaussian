@@ -58,6 +58,15 @@ ENGLISH_RUNTIME_FILES = (
     "refergaussian/semantics/select_qwen_query_entities.py",
     "refergaussian/semantics/mask_supported_lifting.py",
 )
+OBJECT_SPECIFIC_ALIAS_TERMS = (
+    "martini glass",
+    "cocktail glass",
+    "wine glass",
+    "drinking glass",
+    "round mouse",
+    "computer mouse",
+    "wireless mouse",
+)
 
 
 def tracked_files() -> list[Path]:
@@ -133,6 +142,16 @@ def check_runtime_release_guards() -> list[str]:
             continue
         if re.search(r"[\u4e00-\u9fff]", path.read_text(encoding="utf-8", errors="replace")):
             errors.append(f"Runtime source must remain English-only: {relative_path}")
+
+    planner_text = (ROOT / "refergaussian/semantics/qwen_query_planner.py").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    selector_text = (ROOT / "refergaussian/semantics/select_qwen_query_entities.py").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    for term in OBJECT_SPECIFIC_ALIAS_TERMS:
+        if term in planner_text or term in selector_text:
+            errors.append(f"Runtime must not contain object-specific alias rule: {term!r}")
 
     lifting_text = (ROOT / "refergaussian/semantics/mask_supported_lifting.py").read_text(
         encoding="utf-8", errors="replace"

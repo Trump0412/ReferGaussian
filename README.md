@@ -317,10 +317,17 @@ and evaluator maps stay aligned:
 ```bash
 OUT=reports/public_time_shape_v4_recall
 source scripts/common.sh
+ANN_ROOT=data/benchmarks/4dlangsplat/HyperNeRF-Annotation
+PROTOCOL_JSON="${OUT}/public_protocol.json"
+gs_python scripts/build_4dlangsplat_query_protocol.py \
+  --annotation-root "${ANN_ROOT}" \
+  --output-json "${PROTOCOL_JSON}"
+
 gs_python scripts/build_public_query_manifest.py \
   --output "${OUT}/manifest.jsonl" \
   --output-root "${OUT}/query_root" \
   --query-set time_sensitive \
+  --protocol-json "${PROTOCOL_JSON}" \
   --profile public_time_shape_v4_recall \
   --gpus 0 1 2
 

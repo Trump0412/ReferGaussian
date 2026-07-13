@@ -281,8 +281,10 @@ def _merge_ranges(ranges: list[list[int]]) -> list[list[int]]:
 
 
 def _canonicalize_phrase(value: Any) -> str:
-    """Normalize English detector aliases without erasing query attributes."""
-    phrase = " ".join(str(value).strip().lower().replace("_", " ").split())
+    """Normalize English typography and number without object-specific aliases."""
+    phrase = " ".join(
+        str(value).strip().lower().replace("_", " ").replace("-", " ").split()
+    )
     if not phrase:
         return ""
     phrase = phrase.strip(" .,!?:;\"'()[]{}")
@@ -290,22 +292,14 @@ def _canonicalize_phrase(value: Any) -> str:
         if phrase.startswith(prefix):
             phrase = phrase[len(prefix):].strip()
     phrase = phrase.strip(" .,!?:;\"'()[]{}")
-    if phrase in {"left-hand", "lefthand", "left hands"}:
+    if phrase in {"lefthand", "left hands"}:
         return "left hand"
-    if phrase in {"right-hand", "righthand", "right hands"}:
+    if phrase in {"righthand", "right hands"}:
         return "right hand"
     if phrase in {"two hands", "both hand", "hands pair"}:
         return "both hands"
     if phrase in {"hand", "hands"}:
         return "hand"
-    if phrase in {"martini glass", "cocktail glass", "wine glass", "drinking glass"}:
-        return "glass cup"
-    if phrase in {"glass", "glasscup", "glass-cup"}:
-        return "glass cup"
-    if phrase in {"mouse pad", "mouse-pad"}:
-        return "mousepad"
-    if phrase in {"round mouse", "computer mouse", "wireless mouse"}:
-        return "mouse"
     return phrase
 
 
@@ -380,6 +374,11 @@ def _phrase_tokens(value: str) -> set[str]:
     return {token for token in _normalize_phrase(value).split() if token}
 
 
+def _compact_phrase(value: str) -> str:
+    """Compare spelling variants such as ``mouse-pad`` and ``mousepad`` generically."""
+    return "".join(re.findall(r"[a-z0-9]+", _normalize_phrase(value)))
+
+
 def _candidate_phrase_score(target: str, candidate: dict[str, Any]) -> float:
     target_norm = _normalize_phrase(target)
     target_tokens = _phrase_tokens(target)
@@ -392,12 +391,15 @@ def _candidate_phrase_score(target: str, candidate: dict[str, Any]) -> float:
     ]
     exact_bonus = 0.0
     best_overlap = 0.0
+    target_compact = _compact_phrase(target_norm)
     for text in texts:
         text_norm = _normalize_phrase(text)
         if not text_norm:
             continue
         if text_norm == target_norm:
             exact_bonus = max(exact_bonus, 1.0)
+        elif target_compact and target_compact == _compact_phrase(text_norm):
+            exact_bonus = max(exact_bonus, 0.9)
         elif text_norm.startswith(target_norm) or target_norm.startswith(text_norm):
             exact_bonus = max(exact_bonus, 0.8)
         elif target_norm and target_norm in text_norm:

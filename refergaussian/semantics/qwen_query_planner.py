@@ -593,8 +593,10 @@ def _normalize_phrase_list(values: Any) -> list[str]:
 
 
 def _canonicalize_phrase(value: Any) -> str:
-    """Normalize English detector aliases without erasing query attributes."""
-    phrase = " ".join(str(value).strip().lower().replace("_", " ").split())
+    """Normalize English typography and number without object-specific aliases."""
+    phrase = " ".join(
+        str(value).strip().lower().replace("_", " ").replace("-", " ").split()
+    )
     if not phrase:
         return ""
     phrase = phrase.strip(" .,!?:;\"'()[]{}")
@@ -602,22 +604,14 @@ def _canonicalize_phrase(value: Any) -> str:
         if phrase.startswith(prefix):
             phrase = phrase[len(prefix):].strip()
     phrase = phrase.strip(" .,!?:;\"'()[]{}")
-    if phrase in {"left-hand", "lefthand", "left hands"}:
+    if phrase in {"lefthand", "left hands"}:
         return "left hand"
-    if phrase in {"right-hand", "righthand", "right hands"}:
+    if phrase in {"righthand", "right hands"}:
         return "right hand"
     if phrase in {"two hands", "both hand", "hands pair"}:
         return "both hands"
     if phrase in {"hand", "hands"}:
         return "hand"
-    if phrase in {"martini glass", "cocktail glass", "wine glass", "drinking glass"}:
-        return "glass cup"
-    if phrase in {"glass", "glasscup", "glass-cup"}:
-        return "glass cup"
-    if phrase in {"mouse pad", "mouse-pad"}:
-        return "mousepad"
-    if phrase in {"round mouse", "computer mouse", "wireless mouse"}:
-        return "mouse"
     return phrase
 
 

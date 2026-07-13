@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import unittest
 
-from refergaussian.semantics.qwen_query_planner import _normalize_plan, _state_detector_phrase_additions
+from refergaussian.semantics.qwen_query_planner import (
+    _canonicalize_phrase,
+    _normalize_plan,
+    _state_detector_phrase_additions,
+)
+from refergaussian.semantics.select_qwen_query_entities import _candidate_phrase_score
 
 
 class QueryPlannerPhraseTest(unittest.TestCase):
@@ -59,6 +64,12 @@ class QueryPlannerPhraseTest(unittest.TestCase):
 
         self.assertEqual(plan["primary_subject_phrases"], ["red block", "blue block"])
         self.assertEqual(plan["query_subject_phrases"], ["red block", "blue block"])
+
+    def test_normalization_keeps_object_names_and_matches_spelling_generically(self) -> None:
+        self.assertEqual(_canonicalize_phrase("cocktail-glass"), "cocktail glass")
+        self.assertEqual(_canonicalize_phrase("mouse-pad"), "mouse pad")
+        score = _candidate_phrase_score("mouse pad", {"proposal_alias": "mousepad"})
+        self.assertGreaterEqual(score, 0.9)
 
 
 if __name__ == "__main__":
