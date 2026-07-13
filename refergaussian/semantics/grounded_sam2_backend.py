@@ -25,6 +25,7 @@ from sam2.sam2_image_predictor import SAM2ImagePredictor
 from utils.track_utils import sample_points_from_masks
 
 from .source_images import resolve_dataset_image_entries
+from .track_windows import required_anchor_window_radius
 
 
 def _load_pinned_sam2_predictors(
@@ -881,10 +882,15 @@ def run_grounded_sam2_query(
         selected_anchors = list(spec["selected_anchors"])
         best = spec.get("best") or selected_anchors[0]
         object_id = int(spec["object_id"])
-        effective_track_window_radius = max(
-            int(track_window_radius),
-            int(np.ceil(float(len(image_entries)) / max(len(selected_anchors), 1))),
+        # Frame indices retain their source-dataset units after subsampling.
+        # Deriving a radius from ``len(image_entries)`` mixes list length with
+        # those units and can leave uncovered gaps between anchor windows.
+        coverage_radius = required_anchor_window_radius(
+            (int(anchor["frame_index"]) for anchor in selected_anchors),
+            first_frame_index=min_frame_index,
+            last_frame_index=max_frame_index,
         )
+        effective_track_window_radius = max(int(track_window_radius), coverage_radius)
         anchors_dir = phrase_output_dir / "anchors"
         anchors_dir.mkdir(parents=True, exist_ok=True)
         combined_segments: dict[int, np.ndarray] = {}
