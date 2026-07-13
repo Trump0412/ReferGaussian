@@ -56,6 +56,14 @@ def _resolve_under_root(path_str: str, root: str) -> str:
     return str(path if path.is_absolute() else Path(root) / path)
 
 
+def _run_relative_path(run_path: str, namespace: str) -> str:
+    """Replace only the release output namespace in a documented run layout."""
+    path = Path(run_path)
+    if path.is_absolute() or not path.parts or path.parts[0] != "refergaussian":
+        return str(path)
+    return str(Path(namespace, *path.parts[1:]))
+
+
 def _time_sensitive_protocol_rows(protocol_path: Path) -> list[tuple[str, str, str]]:
     """Return ``(scene, query_id, query)`` rows from a generated protocol."""
 
@@ -93,6 +101,7 @@ def _build_entry(
     gpu: int,
     run_root: str,
     data_root: str,
+    run_namespace: str,
 ) -> dict[str, object]:
     if contains_cjk(query):
         raise ValueError(f"Public release query must be English: scene={scene} query={query!r}")
@@ -100,7 +109,7 @@ def _build_entry(
     return {
         "query_id": query_id,
         "query": query,
-        "run_dir": _resolve_under_root(run_rel, run_root),
+        "run_dir": _resolve_under_root(_run_relative_path(run_rel, run_namespace), run_root),
         "dataset_dir": _resolve_under_root(dataset_rel, data_root),
         "output_root": output_root,
         "gpu": int(gpu),
@@ -143,6 +152,11 @@ def main() -> int:
         help="Root containing prepared datasets (default: REFERGAUSSIAN_DATA_ROOT or data).",
     )
     parser.add_argument(
+        "--run-namespace",
+        default=os.environ.get("REFERGAUSSIAN_RUN_NAMESPACE", "refergaussian"),
+        help="Run namespace beneath --run-root (default: REFERGAUSSIAN_RUN_NAMESPACE or refergaussian).",
+    )
+    parser.add_argument(
         "--gpus",
         nargs="+",
         type=int,
@@ -156,6 +170,7 @@ def main() -> int:
     output_root = str(args.output_root)
     run_root = str(args.run_root)
     data_root = str(args.data_root)
+    run_namespace = str(args.run_namespace)
     entries: list[dict[str, object]] = []
 
     try:
@@ -183,6 +198,7 @@ def main() -> int:
                     gpu=args.gpus[index % len(args.gpus)],
                     run_root=run_root,
                     data_root=data_root,
+                    run_namespace=run_namespace,
                 )
             )
     except ValueError as exc:
@@ -190,7 +206,10 @@ def main() -> int:
 
     for scene in sorted({str(entry["scene"]) for entry in entries}):
         run_rel, dataset_rel = SCENE_PATHS[scene]
-        _validate_path(f"[{scene}] run_dir", _resolve_under_root(run_rel, run_root))
+        _validate_path(
+            f"[{scene}] run_dir",
+            _resolve_under_root(_run_relative_path(run_rel, run_namespace), run_root),
+        )
         _validate_path(f"[{scene}] dataset_dir", _resolve_under_root(dataset_rel, data_root))
 
     with output_path.open("w", encoding="utf-8") as handle:
@@ -204,6 +223,7 @@ def main() -> int:
     print(f"  Query set: {args.query_set}")
     print(f"  Output root: {output_root}")
     print(f"  Run root: {run_root}")
+    print(f"  Run namespace: {run_namespace}")
     print(f"  Data root: {data_root}")
     for scene in sorted({str(entry["scene"]) for entry in entries}):
         print(f"    {scene}: {sum(entry['scene'] == scene for entry in entries)} queries")

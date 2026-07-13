@@ -182,12 +182,19 @@ def _validate_path(label: str, path_str: str) -> None:
         )
 
 
-def _resolve_under_root(path_str: str, root_env: str, default_root: str) -> str:
+def _resolve_under_root(path_str: str, root: str) -> str:
     path = Path(path_str)
     if path.is_absolute():
         return str(path)
-    root = Path(os.environ.get(root_env, default_root))
-    return str(root / path)
+    return str(Path(root) / path)
+
+
+def _run_relative_path(run_path: str, namespace: str) -> str:
+    """Replace only the release output namespace in a documented run layout."""
+    path = Path(run_path)
+    if path.is_absolute() or not path.parts or path.parts[0] != "refergaussian":
+        return str(path)
+    return str(Path(namespace, *path.parts[1:]))
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +232,21 @@ def main() -> int:
         type=int,
         default=[0, 1, 2],
         help="GPU ids to assign round-robin in the manifest (default: 0 1 2).",
+    )
+    parser.add_argument(
+        "--run-root",
+        default=os.environ.get("REFERGAUSSIAN_RUN_ROOT", "runs"),
+        help="Root containing ReferGaussian outputs (default: REFERGAUSSIAN_RUN_ROOT or runs).",
+    )
+    parser.add_argument(
+        "--data-root",
+        default=os.environ.get("REFERGAUSSIAN_DATA_ROOT", "data"),
+        help="Root containing prepared datasets (default: REFERGAUSSIAN_DATA_ROOT or data).",
+    )
+    parser.add_argument(
+        "--run-namespace",
+        default=os.environ.get("REFERGAUSSIAN_RUN_NAMESPACE", "refergaussian"),
+        help="Run namespace beneath --run-root (default: REFERGAUSSIAN_RUN_NAMESPACE or refergaussian).",
     )
     parser.add_argument(
         "--allow-non-english-query-text",
@@ -324,8 +346,9 @@ def main() -> int:
 
     # --- Build manifest entries ---
     output_root = str(args.output_root)
-    run_root = os.environ.get("REFERGAUSSIAN_RUN_ROOT", "runs")
-    data_root = os.environ.get("REFERGAUSSIAN_DATA_ROOT", "data")
+    run_root = str(args.run_root)
+    data_root = str(args.data_root)
+    run_namespace = str(args.run_namespace)
     entries: list[dict] = []
     query_root_map: dict[str, str] = {}
     dataset_dir_map: dict[str, str] = {}
@@ -333,8 +356,8 @@ def main() -> int:
     for idx, raw_query in enumerate(filtered):
         matched_scene = raw_query["_resolved_scene"]
         run_rel, dataset_rel = SCENE_CONFIG[matched_scene]
-        run_dir = _resolve_under_root(run_rel, "REFERGAUSSIAN_RUN_ROOT", run_root)
-        dataset_dir = _resolve_under_root(dataset_rel, "REFERGAUSSIAN_DATA_ROOT", data_root)
+        run_dir = _resolve_under_root(_run_relative_path(run_rel, run_namespace), run_root)
+        dataset_dir = _resolve_under_root(dataset_rel, data_root)
 
         # Determine the release query text.  Open-source reproduction uses
         # English question text only; legacy mixed-language benchmark files are
@@ -384,8 +407,8 @@ def main() -> int:
     # --- Validate paths (non-fatal warnings) ---
     for scene_name in args.scenes:
         run_rel, dataset_rel = SCENE_CONFIG[scene_name]
-        run_dir = _resolve_under_root(run_rel, "REFERGAUSSIAN_RUN_ROOT", run_root)
-        dataset_dir = _resolve_under_root(dataset_rel, "REFERGAUSSIAN_DATA_ROOT", data_root)
+        run_dir = _resolve_under_root(_run_relative_path(run_rel, run_namespace), run_root)
+        dataset_dir = _resolve_under_root(dataset_rel, data_root)
         _validate_path(f"[{scene_name}] run_dir", run_dir)
         _validate_path(f"[{scene_name}] dataset_dir", dataset_dir)
 
@@ -417,6 +440,7 @@ def main() -> int:
     print(f"Dataset map:{ddm_path}")
     print(f"Output root:{output_root}")
     print(f"Run root:   {run_root}")
+    print(f"Run namespace: {run_namespace}")
     print(f"Data root:  {data_root}")
     for scene_name in args.scenes:
         scene_count = sum(1 for e in entries if e["scene"] == scene_name)

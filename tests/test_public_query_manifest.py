@@ -44,3 +44,9 @@ class PublicQueryManifestTest(unittest.TestCase):
             rows = MANIFEST._time_sensitive_protocol_rows(path)
 
         self.assertEqual(rows, [("espresso", "espresso__the_empty_glass_cup", "the empty glass cup")])
+
+    def test_run_namespace_replaces_only_the_layout_prefix(self) -> None:
+        self.assertEqual(
+            MANIFEST._run_relative_path("refergaussian/hypernerf/espresso", "clean_reproduction"),
+            "clean_reproduction/hypernerf/espresso",
+        )
