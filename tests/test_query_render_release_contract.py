@@ -14,6 +14,7 @@ from PIL import Image
 from refergaussian.semantics.query_render import (
     QueryTrack,
     _apply_render_profile_env_defaults,
+    _frame_mask_at_render_times,
     _find_render_dir,
     _fuse_query_and_cloud_masks,
     _fusion_options_for_profile,
@@ -107,6 +108,15 @@ class QueryRenderReleaseContractTest(unittest.TestCase):
         self.assertIsNotNone(logits)
         restored = 1.0 / (1.0 + np.exp(-logits))
         np.testing.assert_allclose(restored, probabilities, rtol=1.0e-5, atol=1.0e-5)
+
+    def test_selection_segments_keep_their_temporal_meaning_on_new_cameras(self) -> None:
+        active = _frame_mask_at_render_times(
+            [[1, 1]],
+            np.asarray([0.0, 0.5, 1.0], dtype=np.float32),
+            np.asarray([0.0, 0.49, 0.75, 1.0], dtype=np.float32),
+        )
+
+        self.assertEqual(active.astype(int).tolist(), [0, 1, 1, 0])
 
 
 if __name__ == "__main__":

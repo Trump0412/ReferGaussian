@@ -15,6 +15,8 @@ import imageio.v2 as iio_v2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+from .source_images import resolve_dataset_image_entries
+
 try:
     from scipy import ndimage as _ndimage
 except Exception:  # pragma: no cover - optional fallback when scipy is unavailable
@@ -1458,6 +1460,35 @@ def _frame_mask(frame_count: int, segments: list[list[int]]) -> np.ndarray:
     return mask
 
 
+def _frame_mask_at_render_times(
+    segments: list[list[int]],
+    reference_times: np.ndarray,
+    target_times: np.ndarray,
+) -> np.ndarray:
+    """Evaluate selection segments on another camera/time sampling grid.
+
+    Entity selections are defined on the reconstruction test sequence.  A
+    benchmark can request masks from a different set of cameras at the same
+    temporal positions, so re-indexing a segment by the output-list position
+    would change the query's temporal meaning.  Hold the original selection at
+    the nearest reconstruction timestamp instead.
+    """
+    reference = np.asarray(reference_times, dtype=np.float32).reshape(-1)
+    target = np.asarray(target_times, dtype=np.float32).reshape(-1)
+    if target.size == 0:
+        return np.zeros((0,), dtype=bool)
+    if reference.size == 0:
+        raise ValueError("Cannot map query segments without reference render timestamps.")
+
+    reference_mask = _frame_mask(int(reference.size), segments)
+    positions = np.searchsorted(reference, target, side="left")
+    positions = np.clip(positions, 0, int(reference.size) - 1)
+    previous = np.clip(positions - 1, 0, int(reference.size) - 1)
+    choose_previous = np.abs(target - reference[previous]) <= np.abs(reference[positions] - target)
+    nearest = np.where(choose_previous, previous, positions)
+    return reference_mask[nearest]
+
+
 def _load_font(font_size: int) -> ImageFont.ImageFont:
     try:
         return ImageFont.truetype("DejaVuSans.ttf", font_size)
@@ -2048,6 +2079,7 @@ def render_hypernerf_query_video(
     stride: int = 1,
     background_mode: str = "render",
     eval_profile: str | None = None,
+    image_ids: list[str] | None = None,
 ) -> Path:
     run_dir = Path(run_dir)
     dataset_dir = Path(dataset_dir)
@@ -2081,28 +2113,71 @@ def render_hypernerf_query_video(
         raise ValueError(f"Unsupported background_mode: {background_mode}")
 
     source_frame_dir = None
+    source_frame_paths: dict[str, Path] = {}
     render_dir: Path | None = None
     render_files: list[Path]
     hypernerf_ids = _hypernerf_test_ids(dataset_dir)
-    render_dir = _find_render_dir(run_dir)
-    render_files = sorted(render_dir.glob("*.png"))
-    if not render_files:
-        raise FileNotFoundError(f"No frames found in {render_dir}")
-    with Image.open(render_files[0]) as probe:
-        target_size = probe.size
-    if background_mode == "source":
-        # This affects only the visualization backdrop. Entity masks and
-        # geometry still come from the ReferGaussian render and 3D cloud.
-        source_frame_dir = _find_source_frame_dir(dataset_dir, target_size)
+    requested_image_ids = [str(value).strip() for value in image_ids or [] if str(value).strip()]
+    requested_image_ids = list(dict.fromkeys(requested_image_ids))
+
+    # The selection's temporal segments live on the reconstruction test grid.
+    # Keep that grid even when the final entity is projected into an explicit
+    # evaluation-camera set below.
+    reference_render_dir = _find_render_dir(run_dir)
+    reference_render_files = sorted(reference_render_dir.glob("*.png"))
+    if not reference_render_files:
+        raise FileNotFoundError(f"No frames found in {reference_render_dir}")
     if hypernerf_ids is not None:
-        test_ids, test_times = hypernerf_ids
-        if len(test_ids) != len(render_files):
+        reference_ids, reference_times = hypernerf_ids
+        if len(reference_ids) != len(reference_render_files):
             raise ValueError(
-                f"Render frame count ({len(render_files)}) does not match HyperNeRF test ids ({len(test_ids)})"
+                "Render frame count "
+                f"({len(reference_render_files)}) does not match HyperNeRF test ids ({len(reference_ids)})"
             )
     else:
-        # DyNeRF dataset: derive test IDs from model render files.
-        test_ids, test_times = _dynerf_test_ids_from_renders(render_dir)
+        reference_ids, reference_times = _dynerf_test_ids_from_renders(reference_render_dir)
+
+    evaluation_camera_export = bool(requested_image_ids)
+    if evaluation_camera_export:
+        if background_mode != "source":
+            raise ValueError("Explicit image_ids require background_mode='source' so camera/image pairs stay synchronized.")
+        entries = resolve_dataset_image_entries(dataset_dir)
+        entry_by_id = {str(entry["image_id"]): entry for entry in entries}
+        # Retain the complete reconstruction test grid for temporal metrics,
+        # then add exact benchmark cameras for spatial metrics.  A target-only
+        # export could make a sparse active-frame subset look temporally perfect.
+        camera_image_ids = list(dict.fromkeys([*map(str, reference_ids), *requested_image_ids]))
+        missing_ids = [image_id for image_id in camera_image_ids if image_id not in entry_by_id]
+        if missing_ids:
+            raise FileNotFoundError(
+                "Requested evaluation image ids are absent from the dataset: " + ", ".join(missing_ids[:8])
+            )
+        requested_entries = sorted(
+            (entry_by_id[image_id] for image_id in camera_image_ids),
+            key=lambda entry: int(entry["frame_index"]),
+        )
+        render_files = [Path(str(entry["image_path"])) for entry in requested_entries]
+        source_frame_paths = {
+            str(entry["image_id"]): Path(str(entry["image_path"]))
+            for entry in requested_entries
+        }
+        parents = {path.parent for path in source_frame_paths.values()}
+        source_frame_dir = next(iter(parents)) if len(parents) == 1 else None
+        test_ids = [str(entry["image_id"]) for entry in requested_entries]
+        test_times = np.asarray([float(entry["time_value"]) for entry in requested_entries], dtype=np.float32)
+        with Image.open(render_files[0]) as probe:
+            target_size = probe.size
+    else:
+        render_dir = reference_render_dir
+        render_files = reference_render_files
+        test_ids = list(reference_ids)
+        test_times = np.asarray(reference_times, dtype=np.float32)
+        with Image.open(render_files[0]) as probe:
+            target_size = probe.size
+        if background_mode == "source":
+            # This affects only the visualization backdrop. Entity masks and
+            # geometry still come from the ReferGaussian render and 3D cloud.
+            source_frame_dir = _find_source_frame_dir(dataset_dir, target_size)
 
     selection_payload = _read_json(selection_path)
     fusion_options = _fusion_options_for_profile(resolved_eval_profile)
@@ -2112,7 +2187,7 @@ def render_hypernerf_query_video(
         # Negative query: Qwen determined entity doesn't satisfy the query.
         # Produce all-inactive (all-black) binary masks so evaluator can score correctly.
         frame_records = []
-        for frame_index, (test_id, _t) in enumerate(zip(test_ids, test_times)):
+        for frame_index, (test_id, time_value) in enumerate(zip(test_ids, test_times)):
             if save_inactive_binary_masks:
                 bg_file = (
                     render_files[frame_index]
@@ -2132,6 +2207,7 @@ def render_hypernerf_query_video(
             frame_records.append({
                 "frame_index": frame_index,
                 "image_id": str(test_id),
+                "time_value": float(time_value),
                 "query_active": False,
                 "entity_active": False,
             })
@@ -2142,6 +2218,11 @@ def render_hypernerf_query_video(
             "fusion_options": fusion_options,
             "query_intent_mode": _query_intent_mode(str(selection_payload.get("query", "")), track_state_mode=None),
             "empty_selection": True,
+            "camera_export": {
+                "mode": "explicit_source_camera" if evaluation_camera_export else "reconstruction_test_camera",
+                "image_ids": list(test_ids),
+                "requested_image_ids": list(requested_image_ids),
+            },
             "frame_exports": {
                 "overlay_frames": str(overlay_frame_dir),
                 "binary_masks": str(binary_mask_dir),
@@ -2218,7 +2299,11 @@ def render_hypernerf_query_video(
 
     frame_count = len(render_files)
     for entry in role_entries:
-        entry["frame_mask"] = _frame_mask(frame_count, entry["segments"])
+        entry["frame_mask"] = _frame_mask_at_render_times(
+            entry["segments"],
+            np.asarray(reference_times, dtype=np.float32),
+            np.asarray(test_times, dtype=np.float32),
+        )
     active_mask = np.zeros((frame_count,), dtype=bool)
     for entry in role_entries:
         active_mask |= entry["frame_mask"]
@@ -2299,7 +2384,11 @@ def render_hypernerf_query_video(
             if fast_validation_only:
                 frame = Image.new("RGB", target_size, color=(0, 0, 0))
             elif background_mode == "source":
-                source_path = source_frame_dir / f"{image_id}.png"
+                source_path = source_frame_paths.get(str(image_id))
+                if source_path is None and source_frame_dir is not None:
+                    source_path = source_frame_dir / f"{image_id}.png"
+                if source_path is None:
+                    raise FileNotFoundError(f"No source image path resolved for {image_id}")
                 if not source_path.exists():
                     raise FileNotFoundError(f"Missing source frame {source_path}")
                 frame = Image.open(source_path).convert("RGB")
@@ -2666,6 +2755,12 @@ def render_hypernerf_query_video(
         "run_dir": str(run_dir),
         "dataset_dir": str(dataset_dir),
         "native_render": True,
+        "camera_export": {
+            "mode": "explicit_source_camera" if evaluation_camera_export else "reconstruction_test_camera",
+            "image_ids": list(test_ids),
+            "requested_image_ids": list(requested_image_ids),
+            "selection_temporal_reference_frame_count": int(len(reference_times)),
+        },
         "background_mode": background_mode,
         "background_frame_dir": None if source_frame_dir is None else str(source_frame_dir),
         "render_dir": str(render_dir) if render_dir is not None else str(source_frame_dir),

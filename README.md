@@ -522,16 +522,36 @@ gs_python scripts/run_query_batch_two_gpu.py \
   --strict-release \
   --timeout 3600
 
-# 3) Re-evaluate from saved query outputs (no rerun of model inference).
+# 3) Project the fixed Gaussian entities into the official source-camera
+# frames. This reads only published frame ids, never segmentation masks; it
+# keeps the Stage-1 tracks and Qwen selection from step 2 unchanged.
+CAMERA_ROOT="${RUN_ROOT}/source_camera_views"
+gs_python scripts/rerender_query_outputs.py \
+  --manifest "${RUN_ROOT}/manifest.jsonl" \
+  --benchmark data/benchmarks/r4d_bench_qa/benchmark_all_queries.json \
+  --output-root "${CAMERA_ROOT}" \
+  --profile r4d_boundary_gated_v5 \
+  --gpu 0 \
+  --require-complete
+
+# 4) Evaluate the source-camera projections. The renderer retains the full
+# reconstruction test grid for temporal metrics and adds exact official cameras
+# for spatial masks.
 gs_python scripts/evaluate_ours_benchmark.py \
   --benchmark data/benchmarks/r4d_bench_qa/benchmark_all_queries.json \
-  --query-root-map "${RUN_ROOT}/query_root_map.json" \
-  --dataset-dir-map "${RUN_ROOT}/dataset_dir_map.json" \
+  --query-root-map "${CAMERA_ROOT}/query_root_map.json" \
+  --dataset-dir-map "${CAMERA_ROOT}/dataset_dir_map.json" \
   --query-manifest "${RUN_ROOT}/manifest.jsonl" \
-  --output-json "${RUN_ROOT}/official_eval.json" \
-  --output-md "${RUN_ROOT}/official_eval.md" \
+  --output-json "${CAMERA_ROOT}/official_eval.json" \
+  --output-md "${CAMERA_ROOT}/official_eval.md" \
   --require-complete
 ```
+
+The source-camera export is a rendering protocol, not a mask shortcut: each
+foreground pixel remains a selected-Gaussian projection, and the formal profile
+still requires its synchronized Stage-1 boundary gate. The benchmark utility
+extracts only `ground_truth.frames[].frame_id` to identify the published camera
+views; it does not inspect or pass any `segmentation` payload into inference.
 
 The preflight and query pipeline require `phase: refergaussian`,
 `temporal_warp_type: refergaussian`, and `warp_enabled: true` in each run's
@@ -541,8 +561,9 @@ reconstruction as ReferGaussian.
 Output files:
 - `${RUN_ROOT}/query_root_map.json`
 - `${RUN_ROOT}/dataset_dir_map.json`
-- `${RUN_ROOT}/official_eval.json` (per-query Acc/vIoU/tIoU + summary)
-- `${RUN_ROOT}/official_eval.md`
+- `${CAMERA_ROOT}/official_eval.json` (per-query Acc/vIoU/tIoU + summary)
+- `${CAMERA_ROOT}/official_eval.md`
+- `${CAMERA_ROOT}/rerender_summary.json` (camera-export provenance)
 
 Metric rule used in both public and R4D evaluators:
 - Empty-set rule is enabled: if GT and prediction are both empty (temporal union = 0), `vIoU = 1.0` and `tIoU = 1.0`. An empty-GT query with any predicted activity scores `0.0` for both values.

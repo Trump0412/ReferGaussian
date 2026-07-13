@@ -49,6 +49,42 @@ def _read_manifest(path: Path) -> list[dict]:
     return rows
 
 
+def _benchmark_frame_ids_by_query(path: Path) -> dict[str, list[int]]:
+    """Read only published evaluation frame ids, never annotation masks.
+
+    The resulting cameras tell the renderer where to project a fixed Gaussian
+    entity.  Segmentation data is deliberately not parsed or passed into the
+    inference path.
+    """
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    records = payload.get("queries", payload) if isinstance(payload, dict) else payload
+    if not isinstance(records, list):
+        raise ValueError(f"Benchmark must contain a list of query records: {path}")
+    mapping: dict[str, list[int]] = {}
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        query_id = str(record.get("query_id", "")).strip()
+        if not query_id:
+            continue
+        ground_truth = record.get("ground_truth", {})
+        frames = ground_truth.get("frames", []) if isinstance(ground_truth, dict) else []
+        frame_ids: list[int] = []
+        for frame in frames:
+            if not isinstance(frame, dict) or frame.get("frame_id") is None:
+                continue
+            frame_ids.append(int(frame["frame_id"]))
+        mapping[query_id] = sorted(set(frame_ids))
+    return mapping
+
+
+def _benchmark_image_ids(frame_ids: list[int], dataset_dir: Path) -> list[str]:
+    """Map official frame ids to the dataset's source-camera image ids."""
+    if (dataset_dir / "metadata.json").is_file():
+        return [f"{int(frame_id):06d}" for frame_id in frame_ids]
+    return [f"{int(frame_id):04d}" for frame_id in frame_ids]
+
+
 def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -117,6 +153,14 @@ def parse_args() -> argparse.Namespace:
         help="Override the manifest output_root that contains the existing query outputs.",
     )
     parser.add_argument("--profile", required=True, help="Render profile to apply to every query.")
+    parser.add_argument(
+        "--benchmark",
+        default=None,
+        help=(
+            "Optional official benchmark JSON. When supplied, render each fixed Gaussian entity on the "
+            "published frame-id cameras; segmentation payloads are not read."
+        ),
+    )
     parser.add_argument("--query-id", action="append", dest="query_ids", help="Only re-render this official query id; repeat as needed.")
     parser.add_argument("--gpu", type=int, default=None, help="Optional visible GPU index for alpha-splat rendering.")
     parser.add_argument("--fps", type=int, default=6)
@@ -141,6 +185,8 @@ def main() -> int:
     manifest_path = Path(args.manifest).resolve()
     source_output_root = None if args.source_output_root is None else Path(args.source_output_root).resolve()
     target_output_root = Path(args.output_root).resolve()
+    benchmark_path = None if args.benchmark is None else Path(args.benchmark).resolve()
+    benchmark_frame_ids = {} if benchmark_path is None else _benchmark_frame_ids_by_query(benchmark_path)
     requested_ids = None if not args.query_ids else {str(value) for value in args.query_ids}
     rows = _read_manifest(manifest_path)
     if requested_ids is not None:
@@ -170,6 +216,7 @@ def main() -> int:
                 "target_render_dir": str(target_render_dir),
                 "dataset_dir": str(row["dataset_dir"]),
                 "profile": args.profile,
+                "benchmark": None if benchmark_path is None else str(benchmark_path),
                 "started_at_utc": _utc_now(),
             }
             start = time.monotonic()
@@ -180,6 +227,13 @@ def main() -> int:
                     raise FileNotFoundError(f"Missing Qwen selection: {selection_path}")
                 if not Path(str(row["dataset_dir"])).is_dir():
                     raise FileNotFoundError(f"Missing dataset directory: {row['dataset_dir']}")
+                image_ids = None
+                if benchmark_path is not None:
+                    if query_id not in benchmark_frame_ids:
+                        raise ValueError(f"Benchmark has no record for query_id={query_id}")
+                    image_ids = _benchmark_image_ids(benchmark_frame_ids[query_id], Path(str(row["dataset_dir"])))
+                    record["benchmark_frame_ids"] = benchmark_frame_ids[query_id]
+                    record["evaluation_image_ids"] = image_ids
                 if target_render_dir.exists():
                     if not args.force:
                         validation_path = target_render_dir / "validation.json"
@@ -202,6 +256,7 @@ def main() -> int:
                     stride=args.stride,
                     background_mode=args.background_mode,
                     eval_profile=args.profile,
+                    image_ids=image_ids,
                 )
                 validation_path = rendered_dir / "validation.json"
                 if not validation_path.is_file():
@@ -223,6 +278,8 @@ def main() -> int:
     _write_json(target_output_root / "rerender_summary.json", {
         "manifest": str(manifest_path),
         "source_output_root_override": None if source_output_root is None else str(source_output_root),
+        "benchmark": None if benchmark_path is None else str(benchmark_path),
+        "benchmark_segmentation_used": False,
         "profile": args.profile,
         "validation_only": not bool(args.export_visuals),
         "results": results,

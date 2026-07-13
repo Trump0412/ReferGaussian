@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -20,10 +21,24 @@ def main() -> None:
     parser.add_argument("--stride", type=int, default=1)
     parser.add_argument("--background-mode", choices=["render", "source"], default="render")
     parser.add_argument("--eval-profile", default=None, help="Query render evaluation profile (e.g. viou_boost_v1).")
+    parser.add_argument(
+        "--image-ids-json",
+        default=None,
+        help="Optional JSON list (or {image_ids: [...]}) of source-camera image ids for evaluation rendering.",
+    )
     args = parser.parse_args()
 
     if args.eval_profile:
         os.environ["REFERGAUSSIAN_QUERY_EVAL_PROFILE"] = str(args.eval_profile).strip()
+
+    image_ids = None
+    if args.image_ids_json:
+        payload = json.loads(Path(args.image_ids_json).read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            payload = payload.get("image_ids")
+        if not isinstance(payload, list) or not all(str(value).strip() for value in payload):
+            raise ValueError("--image-ids-json must contain a non-empty JSON list of image ids.")
+        image_ids = [str(value).strip() for value in payload]
 
     output_dir = render_hypernerf_query_video(
         run_dir=Path(args.run_dir),
@@ -34,6 +49,7 @@ def main() -> None:
         stride=args.stride,
         background_mode=args.background_mode,
         eval_profile=args.eval_profile,
+        image_ids=image_ids,
     )
     print(output_dir)
 

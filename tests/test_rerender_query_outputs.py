@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.rerender_query_outputs import _paths_for_row
+from scripts.rerender_query_outputs import _benchmark_frame_ids_by_query, _benchmark_image_ids, _paths_for_row
 
 
 class RerenderQueryOutputsTest(unittest.TestCase):
@@ -41,6 +41,33 @@ class RerenderQueryOutputsTest(unittest.TestCase):
             Path("/fresh/output"),
         )
         self.assertEqual(source_root, Path("/fixed/source/cut_lemon_q2"))
+
+    def test_benchmark_camera_export_reads_only_frame_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            benchmark = root / "benchmark.json"
+            benchmark.write_text(
+                """{
+                  "queries": [{
+                    "query_id": "keyboard_q1",
+                    "ground_truth": {
+                      "frames": [
+                        {"frame_id": 10, "masks": [{"segmentation": "must_not_be_read"}]},
+                        {"frame_id": 20, "masks": [{"segmentation": "must_not_be_read"}]}
+                      ]
+                    }
+                  }]
+                }""",
+                encoding="utf-8",
+            )
+            frame_ids = _benchmark_frame_ids_by_query(benchmark)
+            self.assertEqual(frame_ids, {"keyboard_q1": [10, 20]})
+
+            hypernerf = root / "hypernerf"
+            hypernerf.mkdir()
+            (hypernerf / "metadata.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(_benchmark_image_ids(frame_ids["keyboard_q1"], hypernerf), ["000010", "000020"])
+            self.assertEqual(_benchmark_image_ids([10, 20], root / "dynerf"), ["0010", "0020"])
 
 
 if __name__ == "__main__":

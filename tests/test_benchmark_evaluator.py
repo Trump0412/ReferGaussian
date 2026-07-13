@@ -162,6 +162,61 @@ class BenchmarkEvaluatorTest(unittest.TestCase):
         self.assertEqual(result["tIoU"], 1.0)
         self.assertEqual(result["vIoU"], 1.0)
 
+    def test_source_image_canvas_precedes_camera_intrinsics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset_dir = Path(temp_dir) / "dataset"
+            source_dir = dataset_dir / "rgb" / "2x"
+            source_dir.mkdir(parents=True)
+            Image.fromarray(np.zeros((6, 8, 3), dtype=np.uint8), mode="RGB").save(source_dir / "000001.png")
+            camera_dir = dataset_dir / "camera"
+            camera_dir.mkdir()
+            (camera_dir / "0000.json").write_text(
+                json.dumps({"image_size": [16, 12]}), encoding="utf-8"
+            )
+
+            canvas = EVALUATOR._infer_annotation_image_size([], dataset_dir, (12, 16))
+
+        self.assertEqual(canvas, (6, 8))
+
+    def test_exact_source_camera_output_is_preferred_over_nearest_time(self) -> None:
+        polygon = [[2, 1, 5, 1, 5, 4, 2, 4]]
+        query_item = {
+            "query_id": "direct_camera_q1",
+            "ground_truth": {
+                "existence_frames": [0],
+                "frames": [{"frame_id": 0, "masks": [{"segmentation": polygon}]}],
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dataset_dir = root / "dataset"
+            dataset_dir.mkdir()
+            (dataset_dir / "metadata.json").write_text(
+                json.dumps({"000000": {"time_id": 0}}), encoding="utf-8"
+            )
+            query_root = root / "direct_camera_q1"
+            render_root = _write_validation(
+                query_root,
+                [
+                    {"image_id": "000000", "frame_index": 0, "query_active": True},
+                    {"image_id": "000010", "frame_index": 1, "query_active": True},
+                ],
+            )
+            mask_dir = render_root / "binary_masks"
+            mask_dir.mkdir()
+            exact = Image.fromarray(np.zeros((6, 8), dtype=np.uint8), mode="L")
+            ImageDraw.Draw(exact).polygon(
+                [(polygon[0][idx], polygon[0][idx + 1]) for idx in range(0, len(polygon[0]), 2)],
+                fill=255,
+            )
+            exact.save(mask_dir / "00000.png")
+            Image.fromarray(np.zeros((6, 8), dtype=np.uint8), mode="L").save(mask_dir / "00001.png")
+
+            result = EVALUATOR.evaluate_query(query_item, query_root, dataset_dir=dataset_dir)
+
+        self.assertEqual(result["vIoU"], 1.0)
+        self.assertEqual(result["spatial_direct_camera_match_frames"], 1)
+
     def test_missing_spatial_prediction_counts_as_zero_and_fails_spatial_coverage(self) -> None:
         polygon = [[2, 1, 5, 1, 5, 4, 2, 4]]
         query_item = {

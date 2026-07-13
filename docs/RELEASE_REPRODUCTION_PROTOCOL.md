@@ -54,6 +54,15 @@ Release query batches must use
 manifest may set the official query id, query text, run/data/output paths, and
 GPU assignment, but may not contain per-query environment overrides.
 
+After the query pipeline completes, use
+`scripts/rerender_query_outputs.py --benchmark <benchmark.json>` before the
+official evaluator. This renders the already selected Gaussian entity into the
+official frame-id cameras and preserves the reconstruction test grid for
+temporal scoring. The utility reads only `ground_truth.frames[].frame_id` from
+the benchmark to select cameras; it never reads or passes segmentation masks to
+inference. Direct source-camera outputs are preferred by the evaluator over a
+legacy nearest-time test-camera match, which is necessary when the camera moves.
+
 Use `public_time_boundary_gated_v5` for the public protocol and
 `r4d_boundary_gated_v5` for R4D-Bench-QA. Both profiles render the selected
 Gaussian entity first, then apply only a synchronized dilated Stage-1 boundary
@@ -67,6 +76,8 @@ Every final query report must include:
 - expected and valid query counts, with complete coverage required;
 - spatial-frame coverage: a missing rendered prediction at an annotated GT
   frame is scored as zero IoU and makes `--require-complete` fail;
+- source-camera match coverage, including the count of exact official-camera
+  masks used for vIoU;
 - overall Acc/vIoU/tIoU;
 - non-empty-only Acc/vIoU/tIoU;
 - zero-target correctness and false-positive count;

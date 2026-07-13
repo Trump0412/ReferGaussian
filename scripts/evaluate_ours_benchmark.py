@@ -264,6 +264,40 @@ def _load_camera_image_size(dataset_dir: Path | None) -> tuple[int, int] | None:
     return None
 
 
+def _load_source_image_size(dataset_dir: Path | None) -> tuple[int, int] | None:
+    """Return the decoded RGB canvas used for polygon annotations when available.
+
+    HyperNeRF camera JSON files often retain the original acquisition
+    resolution while the benchmark annotations and release renderer operate on
+    a downsampled ``rgb/2x`` image.  Polygon coordinates belong to the decoded
+    image canvas, not necessarily to the intrinsic-camera canvas.
+    """
+    if dataset_dir is None:
+        return None
+    candidates = (
+        dataset_dir / "rgb" / "2x",
+        dataset_dir / "rgb" / "1x",
+        dataset_dir / "rgb" / "4x",
+        dataset_dir / "images",
+        dataset_dir / "cam00" / "images",
+    )
+    for directory in candidates:
+        if not directory.is_dir():
+            continue
+        image_path = next(
+            (path for pattern in ("*.png", "*.jpg", "*.jpeg") for path in sorted(directory.glob(pattern))),
+            None,
+        )
+        if image_path is None:
+            continue
+        try:
+            with Image.open(image_path) as image:
+                return int(image.height), int(image.width)
+        except OSError:
+            continue
+    return None
+
+
 def _infer_annotation_image_size(
     gt_frames: list[dict],
     dataset_dir: Path | None,
@@ -272,9 +306,9 @@ def _infer_annotation_image_size(
     """Infer the correct canvas for R4D polygon and RLE annotations.
 
     Dense masks may use an explicit RLE canvas, while polygon entries often do
-    not. Decoding those polygons on a full-resolution prediction canvas can
-    shift a valid target into the top-left corner. Prefer annotation metadata,
-    then dataset camera metadata, and only then prediction size.
+    not. Prefer an explicitly declared RLE canvas, then the decoded source-image
+    canvas used by the release data, then the prediction canvas. Camera JSON is
+    only a last resort because its intrinsics can be stored at another scale.
     """
     for gt_frame in gt_frames:
         for mask_item in gt_frame.get("masks", []):
@@ -289,7 +323,7 @@ def _infer_annotation_image_size(
                 and int(size[1]) > 0
             ):
                 return int(size[0]), int(size[1])
-    return _load_camera_image_size(dataset_dir) or pred_image_size
+    return _load_source_image_size(dataset_dir) or pred_image_size or _load_camera_image_size(dataset_dir)
 
 
 def _load_manifest_query_ids(path: Path) -> set[str]:
@@ -592,6 +626,7 @@ def evaluate_query(
     mask_missing = 0
     mask_missing_binary = 0
     spatial_gt_mask_frames = 0
+    direct_camera_match_count = 0
 
     # Determine image size for polygon mask decoding.
     # Use the first available rendered binary mask to get (H, W).
@@ -644,6 +679,7 @@ def evaluate_query(
             image_id_str = _frame_id_to_image_id_hypernerf(fid)
             tid = metadata.get(image_id_str)
         else:
+            image_id_str = _frame_id_to_image_id_dynerf(fid)
             tid = int(fid)
 
         if tid is None:
@@ -657,36 +693,43 @@ def evaluate_query(
             continue
         spatial_gt_mask_frames += 1
 
-        # KEY FIX 2: Nearest-neighbor lookup for rendered frame.
-        # GT annotated frames may not align with rendered test frames,
-        # so find the closest rendered frame by time_id.
-        if not sorted_tids:
-            mask_missing += 1
-            iou_count += 1
-            continue
-        pos = bisect.bisect_left(sorted_tids, tid)
-        if pos == 0:
-            nearest_tid = sorted_tids[0]
-        elif pos >= len(sorted_tids):
-            nearest_tid = sorted_tids[-1]
+        # Prefer an exact source-camera output when the renderer exported the
+        # benchmark image id.  Falling back to a nearest reconstruction-test
+        # timestamp is retained for legacy outputs only; it can otherwise
+        # compare a correct 3D entity from a moving camera with a different
+        # camera view's annotation.
+        val_frame = val_by_image_id.get(image_id_str)
+        matched_tid = tid
+        if val_frame is not None:
+            direct_camera_match_count += 1
         else:
-            # Pick whichever of sorted_tids[pos-1] or sorted_tids[pos] is closer
-            before = sorted_tids[pos - 1]
-            after = sorted_tids[pos]
-            nearest_tid = before if (tid - before) <= (after - tid) else after
+            if not sorted_tids:
+                mask_missing += 1
+                iou_count += 1
+                continue
+            pos = bisect.bisect_left(sorted_tids, tid)
+            if pos == 0:
+                nearest_tid = sorted_tids[0]
+            elif pos >= len(sorted_tids):
+                nearest_tid = sorted_tids[-1]
+            else:
+                # Pick whichever of sorted_tids[pos-1] or sorted_tids[pos] is closer
+                before = sorted_tids[pos - 1]
+                after = sorted_tids[pos]
+                nearest_tid = before if (tid - before) <= (after - tid) else after
 
-        if abs(int(nearest_tid) - int(tid)) > max_render_distance:
-            mask_missing += 1
-            iou_count += 1
-            continue
-
-        val_frame = val_by_time_id.get(nearest_tid)
+            if abs(int(nearest_tid) - int(tid)) > max_render_distance:
+                mask_missing += 1
+                iou_count += 1
+                continue
+            val_frame = val_by_time_id.get(nearest_tid)
+            matched_tid = int(nearest_tid)
         if val_frame is None:
             mask_missing += 1
             iou_count += 1
             continue
 
-        pred_active = bool(pred_by_time_id.get(nearest_tid, False))
+        pred_active = bool(pred_by_time_id.get(matched_tid, val_frame.get("query_active", False)))
         frame_idx = int(val_frame["frame_index"])
         mask_found += 1
         iou_count += 1
@@ -760,6 +803,7 @@ def evaluate_query(
         "mask_missing_binary": mask_missing_binary,
         "spatial_gt_mask_frames": spatial_gt_mask_frames,
         "spatial_matched_render_frames": mask_found,
+        "spatial_direct_camera_match_frames": direct_camera_match_count,
         "spatial_coverage_complete": spatial_coverage_complete,
         "vIoU_count": iou_count,
         "validation_path": str(validation_path),
