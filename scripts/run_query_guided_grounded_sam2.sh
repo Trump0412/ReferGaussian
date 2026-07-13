@@ -7,7 +7,15 @@ RUN_DIR="$1"
 DATASET_DIR="$2"
 QUERY_TEXT="$3"
 QUERY_NAME="${4:-$(echo "${QUERY_TEXT}" | tr ' ' '_' | tr -cd '[:alnum:]_-' | cut -c1-80)}"
-OUTPUT_ROOT="${RUN_DIR}/entitybank/query_guided/${QUERY_NAME}"
+if [[ -n "${QUERY_OUTPUT_ROOT_OVERRIDE:-}" ]]; then
+  if [[ "${QUERY_OUTPUT_ROOT_OVERRIDE}" = /* ]]; then
+    OUTPUT_ROOT="${QUERY_OUTPUT_ROOT_OVERRIDE}"
+  else
+    OUTPUT_ROOT="${GS_ROOT}/${QUERY_OUTPUT_ROOT_OVERRIDE}"
+  fi
+else
+  OUTPUT_ROOT="${RUN_DIR}/entitybank/query_guided/${QUERY_NAME}"
+fi
 PLAN_PATH="${OUTPUT_ROOT}/query_plan.json"
 TRACK_DIR="${OUTPUT_ROOT}/grounded_sam2"
 

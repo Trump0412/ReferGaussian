@@ -387,6 +387,11 @@ strict v4 path.
 For paper-style batched reruns, prefer the manifest-based runner so query ids, output roots,
 and evaluator maps stay aligned:
 
+Each manifest row owns one query output root. The Stage-1 plan and tracks,
+Gaussian proposal diagnostics, final render, and validation file are written
+under that same root, which makes an interrupted batch directly inspectable and
+safe to resume without mixing artifacts from different queries.
+
 ```bash
 OUT=reports/public_time_shape_v4_recall
 source scripts/common.sh

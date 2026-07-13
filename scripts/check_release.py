@@ -69,6 +69,7 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/validate_refergaussian_run.py": "validate_refergaussian_run",
     "scripts/eval_baseline.sh": "external/4DGaussians/render.py",
     "scripts/bootstrap_external.sh": "4dgaussians_metrics_cache.patch",
+    "scripts/run_query_guided_grounded_sam2.sh": "QUERY_OUTPUT_ROOT_OVERRIDE",
     "patches/4dgaussians_temporal_warp_schedule.patch": "set_temporal_warp_learning_rate",
     "refergaussian/semantics/grounded_sam2_backend.py": "local_files_only=local_files_only",
 }
@@ -301,6 +302,8 @@ def check_runtime_release_guards() -> list[str]:
         errors.append("Query launcher must pass pinned Grounded-SAM2 model revisions")
     if "GSAM2_LOCAL_FILES_ONLY:-1" not in query_launch_text:
         errors.append("Query launcher must default to local-only pinned Grounded-SAM2 weights")
+    if "QUERY_OUTPUT_ROOT_OVERRIDE" not in query_launch_text:
+        errors.append("Query launcher must honor the batch query output root")
     grounded_backend_text = (ROOT / "refergaussian/semantics/grounded_sam2_backend.py").read_text(
         encoding="utf-8", errors="replace"
     )
