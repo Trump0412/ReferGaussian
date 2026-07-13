@@ -53,6 +53,27 @@ clone_checkout_repo "4DGaussians" "${FOURD_REPO_URL}" "${FOURD_REPO_REF}" "train
 clone_checkout_repo "Grounded-SAM-2" "${GSAM2_REPO_URL}" "${GSAM2_REPO_REF}" "sam2/__init__.py"
 
 FOURD_TARGET="${EXTERNAL_DIR}/4DGaussians"
+integration_patch_present() {
+  [[ -f "${FOURD_TARGET}/utils/config_utils.py" ]] \
+    && grep -q "from refergaussian.temporal import" "${FOURD_TARGET}/train.py" \
+    && grep -q "apply_config_file" "${FOURD_TARGET}/train.py"
+}
+
+apply_integration_patch() {
+  local patch_path="${ROOT_DIR}/patches/4dgaussians_refergaussian.patch"
+  if git -C "${FOURD_TARGET}" apply --check --whitespace=nowarn "${patch_path}" >/dev/null 2>&1; then
+    git -C "${FOURD_TARGET}" apply --whitespace=nowarn "${patch_path}"
+    echo "[done] applied ReferGaussian integration patch to 4DGaussians"
+  elif integration_patch_present; then
+    # A later release patch may touch train.py, so a whole-patch reverse check
+    # is no longer a reliable idempotency test for this integration patch.
+    echo "[ok] ReferGaussian integration patch already applied"
+  else
+    echo "[error] 4DGaussians checkout does not match the ReferGaussian integration patch." >&2
+    exit 4
+  fi
+}
+
 apply_4dgs_patch() {
   local patch_path="$1"
   local label="$2"
@@ -67,9 +88,7 @@ apply_4dgs_patch() {
   fi
 }
 
-apply_4dgs_patch \
-  "${ROOT_DIR}/patches/4dgaussians_refergaussian.patch" \
-  "ReferGaussian integration patch"
+apply_integration_patch
 apply_4dgs_patch \
   "${ROOT_DIR}/patches/4dgaussians_seed_order.patch" \
   "seed-order reproducibility patch"
