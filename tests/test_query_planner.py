@@ -118,6 +118,35 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         self.assertEqual(plan["primary_subject_phrases"], ["red block", "blue block"])
         self.assertEqual(plan["query_subject_phrases"], ["red block", "blue block"])
 
+    def test_counted_leading_subject_survives_a_compact_vlm_plan(self) -> None:
+        plan = _normalize_plan(
+            {
+                "video_inventory_phrases": ["hands", "keyboard"],
+                "primary_subject_phrases": ["hands"],
+                "query_subject_phrases": ["hands"],
+                "must_track_phrases": ["hands"],
+            },
+            "Both hands that are actively typing on the keyboard.",
+        )
+
+        self.assertEqual(plan["primary_subject_phrases"], ["both hands"])
+        self.assertEqual(plan["query_subject_phrases"], ["both hands"])
+        self.assertEqual(plan["requested_instance_count"], 2)
+        self.assertIn("hand", plan["detector_phrases"])
+
+    def test_counted_subject_preserves_modifiers_without_an_object_lexicon(self) -> None:
+        plan = _normalize_plan(
+            {
+                "video_inventory_phrases": ["red cups", "table"],
+                "primary_subject_phrases": ["red cups"],
+                "query_subject_phrases": ["red cups"],
+            },
+            "The two red cups while they are being moved.",
+        )
+
+        self.assertEqual(plan["query_subject_phrases"], ["two red cups"])
+        self.assertEqual(plan["requested_instance_count"], 2)
+
     def test_normalization_keeps_object_names_and_matches_spelling_generically(self) -> None:
         self.assertEqual(_canonicalize_phrase("cocktail-glass"), "cocktail glass")
         self.assertEqual(_canonicalize_phrase("mouse-pad"), "mouse pad")

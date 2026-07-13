@@ -83,6 +83,10 @@ Rules:
 - `primary_subject_phrases` must name the grammatical referent requested by the query. For a singular
   relational or action query such as "the X while it acts on Y", include only X; Y is context unless the
   query explicitly asks for both entities or for a set.
+- Preserve an explicit requested cardinality in `primary_subject_phrases` and `query_subject_phrases`.
+  For example, keep "both hands", "two cups", or "a pair of shoes" rather than silently reducing them
+  to "hands", "cups", or "shoes". The count belongs to the semantic query, even when the detector later
+  uses a count-neutral noun phrase.
 - `query_subject_phrases` should contain only the minimum nouns needed to answer the query.
 - `detector_phrases` should normally equal `query_subject_phrases + query_successor_phrases`, and not include unrelated context objects.
 - Do not include non-subject context objects in `detector_phrases` unless they are truly required by the query itself.
@@ -733,6 +737,56 @@ def _leading_query_subject_phrases(query: str, candidates: list[str]) -> list[st
     return [matches[0][1]]
 
 
+def _leading_counted_subject_spec(query: str) -> tuple[str, int] | None:
+    """Recover a leading English counted subject that a planner may simplify.
+
+    The vision planner is allowed to use compact noun phrases, but an explicit
+    cardinality in the original question is a semantic constraint rather than
+    optional wording.  This grammar-only recovery deliberately accepts just a
+    leading noun phrase and rejects coordinated sets, which already have an
+    explicit multi-subject representation in the plan.
+    """
+    query_text = " ".join(str(query).strip().lower().replace("_", " ").split())
+    clause = re.search(
+        r"\b(?:while|when|as|before|after|during|until|once|that|which|who)\b",
+        query_text,
+    )
+    prefix = query_text[: clause.start()] if clause else query_text
+    prefix = re.split(r"\b(?:is|are|was|were|has|have|had|does|do|did|will|can|should)\b", prefix, maxsplit=1)[0]
+    prefix = _canonicalize_phrase(prefix)
+    if prefix.startswith("the "):
+        prefix = prefix[4:].strip()
+    if " and " in prefix or " or " in prefix:
+        return None
+
+    match = re.fullmatch(r"(?P<count>both|two|three)\s+(?:(?:of\s+)?(?:the\s+)?)?(?P<subject>[a-z0-9][a-z0-9 ]*)", prefix)
+    if match:
+        subject = _canonicalize_phrase(match.group("subject"))
+        if subject:
+            count_word = str(match.group("count"))
+            return (f"{count_word} {subject}", {"both": 2, "two": 2, "three": 3}[count_word])
+
+    pair_match = re.fullmatch(r"(?:(?:a\s+)?pair\s+of)\s+(?:(?:the\s+)?)?(?P<subject>[a-z0-9][a-z0-9 ]*)", prefix)
+    if pair_match:
+        subject = _canonicalize_phrase(pair_match.group("subject"))
+        if subject:
+            return (f"pair of {subject}", 2)
+    return None
+
+
+def _counted_subject_matches_plan(counted_phrase: str, planned_phrases: list[str]) -> bool:
+    """Check noun-head agreement without relying on an object vocabulary."""
+    counted_tokens = re.findall(r"[a-z0-9]+", _canonicalize_phrase(counted_phrase))
+    if not counted_tokens:
+        return False
+    counted_head = _singularize_counted_token(counted_tokens[-1])
+    for phrase in planned_phrases:
+        tokens = re.findall(r"[a-z0-9]+", _canonicalize_phrase(phrase))
+        if tokens and _singularize_counted_token(tokens[-1]) == counted_head:
+            return True
+    return False
+
+
 def _normalize_phase_transition_hints(values: Any, valid_phrases: set[str]) -> list[dict[str, Any]]:
     hints: list[dict[str, Any]] = []
     seen: set[tuple[str, int | None, int | None]] = set()
@@ -896,6 +950,11 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         leading_subjects = _leading_query_subject_phrases(query, query_subject_phrases)
         if leading_subjects:
             query_subject_phrases = leading_subjects
+    counted_subject_spec = None if is_exclusion_query else _leading_counted_subject_spec(query)
+    if counted_subject_spec is not None:
+        counted_subject_phrase, _ = counted_subject_spec
+        if _counted_subject_matches_plan(counted_subject_phrase, query_subject_phrases):
+            query_subject_phrases = [counted_subject_phrase]
     primary_subject_phrases = query_subject_phrases[:]
 
     state_detector_phrases = _state_detector_phrase_additions(
@@ -968,6 +1027,7 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         "must_track_phrases": must_track_phrases,
         "action_window_hint": action_window_hint,
         "support_window_hint": support_window_hint,
+        "requested_instance_count": 1 if counted_subject_spec is None else int(counted_subject_spec[1]),
         "absent_query": bool(absent_query),
         "empty_query": bool(absent_query),
         "empty_reason": notes if absent_query else "",

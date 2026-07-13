@@ -176,7 +176,20 @@ _INSTANCE_RELATION_TOKENS = frozenset(
 )
 
 
-def _instance_candidate_head_phrase(phrase: str) -> str:
+def _singularize_instance_head_token(token: str) -> str:
+    """Use a conservative English singular for count-neutral detector heads."""
+    if not token.isalpha() or len(token) <= 3:
+        return token
+    if token.endswith("ies") and len(token) > 4:
+        return token[:-3] + "y"
+    if token.endswith(("ches", "shes", "sses", "xes", "zes", "ses")):
+        return token[:-2]
+    if token.endswith("s") and not token.endswith("ss"):
+        return token[:-1]
+    return token
+
+
+def _instance_candidate_head_phrase(phrase: str, *, requested_instance_count: int = 1) -> str:
     """Return a broad noun-head detector phrase for a compositional referent.
 
     This is intentionally grammar-level rather than category-level.  It lets
@@ -185,8 +198,12 @@ def _instance_candidate_head_phrase(phrase: str) -> str:
     semantic resolution.  It is only used by the opt-in multi-instance profile.
     """
     tokens = re.findall(r"[a-z0-9]+", str(phrase).strip().lower())
+    removed_count_prefix = False
     while tokens and tokens[0] in {"a", "an", "the", "both", "two", "three"}:
+        removed_count_prefix = removed_count_prefix or tokens[0] in {"both", "two", "three"}
         tokens.pop(0)
+    if len(tokens) == 1 and (removed_count_prefix or int(requested_instance_count) > 1):
+        return _singularize_instance_head_token(str(tokens[0]))
     if len(tokens) < 2:
         return ""
     for index, token in enumerate(tokens):
@@ -195,7 +212,7 @@ def _instance_candidate_head_phrase(phrase: str) -> str:
             break
     if len(tokens) < 2:
         return ""
-    return str(tokens[-1])
+    return _singularize_instance_head_token(str(tokens[-1]))
 
 
 def _select_instance_anchor_detections(
@@ -603,6 +620,10 @@ def run_grounded_sam2_query(
     must_track_phrases = [str(item).strip() for item in query_plan.get("must_track_phrases", []) if str(item).strip()]
     successor_phrases = [str(item).strip() for item in query_plan.get("query_successor_phrases", []) if str(item).strip()]
     subject_phrases = [str(item).strip() for item in query_plan.get("query_subject_phrases", []) if str(item).strip()]
+    try:
+        requested_instance_count = max(1, int(query_plan.get("requested_instance_count", 1)))
+    except (TypeError, ValueError):
+        requested_instance_count = 1
     enable_instance_candidates = _env_flag("GSAM2_ENABLE_INSTANCE_CANDIDATES", False)
     max_instance_candidates = max(2, int(os.environ.get("GSAM2_INSTANCE_MAX_CANDIDATES", "2")))
     instance_policy = str(os.environ.get("GSAM2_INSTANCE_RESOLUTION_POLICY", "multi_hypothesis")).strip().lower()
@@ -617,7 +638,10 @@ def run_grounded_sam2_query(
     candidate_head_by_phrase: dict[str, str] = {}
     if enable_instance_candidates and len(subject_phrases) == 1:
         subject_phrase = subject_phrases[0]
-        candidate_head = _instance_candidate_head_phrase(subject_phrase)
+        candidate_head = _instance_candidate_head_phrase(
+            subject_phrase,
+            requested_instance_count=requested_instance_count,
+        )
         if candidate_head and candidate_head != _normalize_query_text(subject_phrase).rstrip("."):
             candidate_head_by_phrase[subject_phrase] = candidate_head
 
