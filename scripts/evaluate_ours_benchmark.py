@@ -99,6 +99,36 @@ def _safe_div(num: float, den: float) -> float:
     return float(num) / float(den) if den > 0 else 0.0
 
 
+def _densify_sparse_temporal_prediction(
+    prediction_by_time_id: dict[int, bool],
+    total_frames: int,
+) -> np.ndarray:
+    """Project sparse test-frame labels onto the benchmark's dense time grid.
+
+    HyperNeRF test renders are commonly sampled sparsely from a dense video.
+    A label at each rendered test timestamp represents the temporal cell around
+    that timestamp, not a claim that every unrendered frame is negative.  This
+    uses a nearest-sample hold for tIoU only; sampled-frame accuracy and all
+    spatial mask comparisons retain their observed-frame semantics.
+    """
+    dense = np.zeros((max(int(total_frames), 0),), dtype=bool)
+    if dense.size == 0 or not prediction_by_time_id:
+        return dense
+    time_ids = sorted(
+        int(time_id)
+        for time_id in prediction_by_time_id
+        if 0 <= int(time_id) < dense.size
+    )
+    if not time_ids:
+        return dense
+    for index, time_id in enumerate(time_ids):
+        start = 0 if index == 0 else (int(time_ids[index - 1]) + int(time_id)) // 2 + 1
+        end = dense.size - 1 if index == len(time_ids) - 1 else (int(time_id) + int(time_ids[index + 1])) // 2
+        if bool(prediction_by_time_id[int(time_id)]):
+            dense[start : end + 1] = True
+    return dense
+
+
 def _mask_iou(pred: np.ndarray, gt: np.ndarray) -> float:
     p = np.asarray(pred, dtype=bool)
     g = np.asarray(gt, dtype=bool)
@@ -512,17 +542,15 @@ def evaluate_query(
     # -----------------------------------------------------------------------
     # Temporal IoU (tIoU) - full timeline comparison
     # -----------------------------------------------------------------------
-    # Build full binary arrays over total_frames
+    # Build full binary arrays over total_frames. The renderer only emits the
+    # reconstruction test grid, so densify its temporal labels before comparing
+    # them with the benchmark's dense ground-truth interval.
     gt_full = np.zeros(total_frames, dtype=bool)
-    pred_full = np.zeros(total_frames, dtype=bool)
+    pred_full = _densify_sparse_temporal_prediction(pred_by_time_id, total_frames)
 
     for tid in gt_time_ids:
         if 0 <= tid < total_frames:
             gt_full[tid] = True
-    for tid, active in pred_by_time_id.items():
-        if 0 <= tid < total_frames and active:
-            pred_full[tid] = True
-
     temporal_inter = int(np.logical_and(pred_full, gt_full).sum())
     temporal_union = int(np.logical_or(pred_full, gt_full).sum())
     pred_active_count = int(pred_full.sum())
@@ -721,6 +749,8 @@ def evaluate_query(
         "total_frames": total_frames,
         "gt_active_count": gt_active_count,
         "pred_active_count": pred_active_count,
+        "pred_sampled_active_count": int(sum(bool(active) for active in pred_by_time_id.values())),
+        "temporal_prediction_interpolation": "nearest_sample_hold",
         "empty_query_correct": bool(gt_active_count == 0 and pred_active_count == 0),
         "temporal_inter": temporal_inter,
         "temporal_union": temporal_union,

@@ -36,6 +36,17 @@ def _write_validation(query_root: Path, frames: list[dict]) -> Path:
 
 
 class BenchmarkEvaluatorTest(unittest.TestCase):
+    def test_sparse_temporal_predictions_are_densified_without_changing_sample_labels(self) -> None:
+        dense = EVALUATOR._densify_sparse_temporal_prediction(
+            {2: False, 6: True, 10: True},
+            total_frames=13,
+        )
+
+        self.assertEqual(dense.astype(int).tolist(), [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1])
+        self.assertFalse(dense[2])
+        self.assertTrue(dense[6])
+        self.assertTrue(dense[10])
+
     def test_coverage_marks_missing_manifest_outputs_incomplete(self) -> None:
         coverage = EVALUATOR.coverage_summary(
             ["query_a", "query_b"],
