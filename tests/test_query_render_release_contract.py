@@ -9,12 +9,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+from PIL import Image
 
 from refergaussian.semantics.query_render import (
+    QueryTrack,
     _apply_render_profile_env_defaults,
     _find_render_dir,
+    _fuse_query_and_cloud_masks,
+    _fusion_options_for_profile,
     _opacity_logits_from_probabilities,
     _query_intent_mode,
+    _query_track_match_for_time,
 )
 
 
@@ -46,6 +51,54 @@ class QueryRenderReleaseContractTest(unittest.TestCase):
             self.assertEqual(os.environ["GS_QUERY_ALPHA_MAX_SPLAT_RADIUS"], "18")
             self.assertEqual(os.environ["GS_QUERY_ALPHA_REQUIRE_SUCCESS"], "1")
             self.assertEqual(os.environ["GS_QUERY_ALPHA_REQUIRE_OPACITY"], "1")
+
+    def test_v5_profile_enforces_synchronized_boundary_gated_gaussians(self) -> None:
+        with patch.dict(os.environ, {"GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY": "1"}, clear=True):
+            _apply_render_profile_env_defaults("public_time_boundary_gated_v5")
+
+            self.assertEqual(os.environ["GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY"], "0")
+            self.assertEqual(os.environ["GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY"], "1")
+            self.assertEqual(os.environ["GS_QUERY_ALLOW_DIRECT_2D_MASKS"], "0")
+
+            options = _fusion_options_for_profile("public_time_boundary_gated_v5")
+            query_mask = np.zeros((48, 48), dtype=bool)
+            query_mask[14:34, 14:34] = True
+            cloud_mask = np.zeros((48, 48), dtype=bool)
+            cloud_mask[8:40, 8:40] = True
+            fused, _, _, source = _fuse_query_and_cloud_masks(
+                query_mask,
+                cloud_mask,
+                fusion_options=options,
+            )
+
+            self.assertIsNotNone(fused)
+            self.assertIn("gaussian", str(source))
+            self.assertFalse(str(source).startswith("query_track"))
+            self.assertFalse(np.any(np.asarray(fused, dtype=bool) & ~cloud_mask))
+
+            ring_cloud = cloud_mask.copy()
+            ring_cloud[22:26, 22:26] = False
+            fused_ring, _, _, _ = _fuse_query_and_cloud_masks(
+                query_mask,
+                ring_cloud,
+                fusion_options=options,
+            )
+            self.assertIsNotNone(fused_ring)
+            self.assertFalse(np.any(np.asarray(fused_ring, dtype=bool) & ~ring_cloud))
+
+    def test_v5_rejects_stale_stage1_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mask_path = Path(temp_dir) / "mask.png"
+            Image.fromarray(np.full((16, 16), 255, dtype=np.uint8)).save(mask_path)
+            track = QueryTrack(
+                phrase="target",
+                frames=[{"frame_index": 0, "time_value": 0.0, "mask_path": str(mask_path)}],
+            )
+            with patch.dict(os.environ, {"GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY": "0"}, clear=True):
+                mask, meta = _query_track_match_for_time(track, time_value=0.8, tolerance=0.01, strict=True)
+
+            self.assertIsNone(mask)
+            self.assertEqual(meta["stage1_match_mode"], "strict_rejected_stale")
 
     def test_probability_opacity_round_trips_to_logits(self) -> None:
         probabilities = np.asarray([0.1, 0.5, 0.9], dtype=np.float32)

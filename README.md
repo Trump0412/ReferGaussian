@@ -363,8 +363,8 @@ Reproducible profile switch:
 # Public release default behavior
 export QUERY_EVAL_PROFILE=default
 
-# Current vIoU-repair profile used by the latest reproducibility runbook
-export QUERY_EVAL_PROFILE=public_time_shape_v4_recall
+# Formal release profile: synchronized boundary-gated Gaussian projection
+export QUERY_EVAL_PROFILE=public_time_boundary_gated_v5
 ```
 
 The active profile and its effective fusion parameters are written into each
@@ -378,11 +378,13 @@ unconstrained full-scene entity. Query inference also requires the exact
 ReferGaussian test renders produced by `scripts/eval.sh`; raw source RGB
 frames are not used as a surrogate render.
 
-For the released v4 profiles, the final entity mask is rendered with the same
-selected-Gaussian alpha-splat geometry used during multi-frame lifting. Stage-1
-masks provide boundary supervision only; they never replace the final Gaussian
-entity mask, and legacy point-disk or convex-hull rendering is not used by the
-strict v4 path.
+For the formal boundary-gated profiles, the final entity mask is rendered with
+the selected-Gaussian alpha-splat geometry used during multi-frame lifting and
+then intersected with a small dilation of the synchronized Stage-1 boundary
+mask. This is a geometric gate, not a 2D-mask replacement: every foreground
+pixel in the final output must remain supported by the selected Gaussian
+projection. The profile rejects stale Stage-1 matches and records boundary
+coverage, direct-mask use, and cloud support in `validation.json`.
 
 For paper-style batched reruns, prefer the manifest-based runner so query ids, output roots,
 and evaluator maps stay aligned:
@@ -393,7 +395,7 @@ under that same root, which makes an interrupted batch directly inspectable and
 safe to resume without mixing artifacts from different queries.
 
 ```bash
-OUT=reports/public_time_shape_v4_recall
+OUT=reports/public_time_boundary_gated_v5
 source scripts/common.sh
 ANN_ROOT=data/benchmarks/4dlangsplat/HyperNeRF-Annotation
 PROTOCOL_JSON="${OUT}/public_protocol.json"
@@ -406,7 +408,7 @@ gs_python scripts/build_public_query_manifest.py \
   --output-root "${OUT}/query_root" \
   --query-set time_sensitive \
   --protocol-json "${PROTOCOL_JSON}" \
-  --profile public_time_shape_v4_recall \
+  --profile public_time_boundary_gated_v5 \
   --gpus 0 1 2
 
 gs_python scripts/preflight_query_batch.py \
@@ -416,7 +418,7 @@ gs_python scripts/preflight_query_batch.py \
 
 gs_python scripts/run_query_batch_two_gpu.py \
   --manifest "${OUT}/manifest.jsonl" \
-  --profile public_time_shape_v4_recall \
+  --profile public_time_boundary_gated_v5 \
   --gpu 0 1 2 \
   --force-rerun \
   --strict-release \
@@ -465,8 +467,8 @@ masks and `validation.json` rather than videos or overlays:
 ```bash
 gs_python scripts/rerender_query_outputs.py \
   --manifest "${OUT}/manifest.jsonl" \
-  --output-root reports/public_time_shape_v4_alpha_rerender \
-  --profile public_time_shape_v4_recall \
+  --output-root reports/public_time_boundary_gated_v5_rerender \
+  --profile public_time_boundary_gated_v5 \
   --gpu 0 \
   --require-complete
 ```
@@ -480,11 +482,11 @@ reruns or changes the original selection and never uses a full-scene fallback.
 ```bash
 # Optional: profile switch for reproducible ablation
 # export QUERY_EVAL_PROFILE=default
-# export QUERY_EVAL_PROFILE=r4d_shape_v4_recall
+# export QUERY_EVAL_PROFILE=r4d_boundary_gated_v5
 
 # 1) Build a manifest with official query ids.
 source scripts/common.sh
-RUN_ROOT=reports/r4d_bench_public_time_shape_v4
+RUN_ROOT=reports/r4d_bench_boundary_gated_v5
 gs_python scripts/build_r4d_query_manifest.py \
   --benchmark data/benchmarks/r4d_bench_qa/benchmark_all_queries.json \
   --scenes coffee_martini sear_steak cut_roasted_beef \
@@ -501,7 +503,7 @@ gs_python scripts/preflight_query_batch.py \
 # 2) Run the query pipeline.
 gs_python scripts/run_query_batch_two_gpu.py \
   --manifest "${RUN_ROOT}/manifest.jsonl" \
-  --profile r4d_shape_v4_recall \
+  --profile r4d_boundary_gated_v5 \
   --gpu 0 1 2 \
   --force-rerun \
   --strict-release \

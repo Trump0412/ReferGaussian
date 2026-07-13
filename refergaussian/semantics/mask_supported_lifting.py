@@ -94,7 +94,14 @@ def _lifting_mode() -> str:
             # coverage-oriented env var defaults (set by the calling shell profile).
             if normalized == "mask_coverage_refine_v3":
                 return "mask_shape_refine_v2"
-            if normalized in {"mask_coverage_refine_v4", "public_time_shape_v4_recall", "shape_v4_recall"}:
+            if normalized in {
+                "mask_coverage_refine_v4",
+                "public_time_shape_v4_recall",
+                "shape_v4_recall",
+                "public_time_boundary_gated_v5",
+                "boundary_gated_gaussian_v5",
+                "r4d_boundary_gated_v5",
+            }:
                 return "mask_bootstrap_refine"
             return normalized
     if _env_flag("QUERY_LIFT_HYBRID_RECALL", False):
@@ -3036,9 +3043,14 @@ def build_mask_supported_lifting_proposal_dir(
                 "cluster_mode": f"mask_supported_lifting:{_lifting_mode()}",
                 "lifting_mode": _lifting_mode(),
                 "final_profile_expected": (
-                    "public_time_shape_v4_recall"
-                    if _lifting_mode() in {"mask_bootstrap_refine", "bootstrap_refine", "mask_coverage_refine_v4"}
-                    else ("boundary_shape_v2" if _lifting_mode() in {"mask_shape_refine_v2", "shape_refine_v2"} else "boundary_refine_v1")
+                    str(os.environ.get("QUERY_EVAL_PROFILE", "")).strip().lower()
+                    if str(os.environ.get("QUERY_EVAL_PROFILE", "")).strip().lower()
+                    in {"public_time_boundary_gated_v5", "r4d_boundary_gated_v5"}
+                    else (
+                        "public_time_shape_v4_recall"
+                        if _lifting_mode() in {"mask_bootstrap_refine", "bootstrap_refine", "mask_coverage_refine_v4"}
+                        else ("boundary_shape_v2" if _lifting_mode() in {"mask_shape_refine_v2", "shape_refine_v2"} else "boundary_refine_v1")
+                    )
                 ),
                 "max_track_frames": int(max_track_frames),
                 "min_gaussians": int(min_gaussians),

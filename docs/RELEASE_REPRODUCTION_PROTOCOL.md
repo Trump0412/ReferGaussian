@@ -48,6 +48,12 @@ Release query batches must use
 manifest may set the official query id, query text, run/data/output paths, and
 GPU assignment, but may not contain per-query environment overrides.
 
+Use `public_time_boundary_gated_v5` for the public protocol and
+`r4d_boundary_gated_v5` for R4D-Bench-QA. Both profiles render the selected
+Gaussian entity first, then apply only a synchronized dilated Stage-1 boundary
+gate. A stale nearest-frame boundary or a direct 2D-mask output makes the query
+run fail after saving its diagnostics; it cannot enter a release aggregate.
+
 ## Reporting Rules
 
 Every final query report must include:
@@ -78,5 +84,7 @@ warp_enabled: true
 It uses training-free `mask_supported_lifting`, requires actual ReferGaussian
 test renders, and reports an empty Gaussian projection as a failure. It does
 not replace an entity with an all-scene mask, a direct 2D mask, or raw source
-RGB frames. The R4D numeric-only profile may skip qualitative video exports,
-but it does not bypass Qwen planning, semantic assignment, or entity selection.
+RGB frames. Formal profiles keep the final prediction Gaussian-supported and
+record Stage-1 boundary coverage for every active selected entity. The R4D
+numeric-only profile may skip qualitative video exports, but it does not bypass
+Qwen planning, semantic assignment, or entity selection.

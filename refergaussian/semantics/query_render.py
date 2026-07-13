@@ -63,6 +63,31 @@ ROLE_COLORS = {
 }
 
 
+# v4 remains available for reproducing earlier exploratory runs. These profiles
+# are the auditable release path: a selected Gaussian entity is rendered first,
+# then clipped by a synchronized Stage-1 boundary neighborhood. The Stage-1
+# mask is never a standalone final prediction.
+_FORMAL_BOUNDARY_GATED_PROFILES = frozenset(
+    {
+        "public_time_boundary_gated_v5",
+        "boundary_gated_gaussian_v5",
+        "r4d_boundary_gated_v5",
+    }
+)
+_COVERAGE_RENDER_PROFILES = frozenset(
+    {
+        "public_time_shape_v3",
+        "mask_coverage_refine_v3",
+        "public_time_shape_v4_recall",
+        "mask_coverage_refine_v4",
+        "shape_v4_recall",
+        "r4d_shape_v4_recall",
+        "r4d_time_shape_v4_recall",
+        *_FORMAL_BOUNDARY_GATED_PROFILES,
+    }
+)
+
+
 @dataclass
 class TrackSample:
     entity_id: int
@@ -205,6 +230,14 @@ def _resolve_eval_profile(explicit_profile: str | None = None) -> str:
     return "default"
 
 
+def _is_coverage_render_profile(eval_profile: str | None) -> bool:
+    return _resolve_eval_profile(eval_profile) in _COVERAGE_RENDER_PROFILES
+
+
+def _is_formal_boundary_gated_profile(eval_profile: str | None) -> bool:
+    return _resolve_eval_profile(eval_profile) in _FORMAL_BOUNDARY_GATED_PROFILES
+
+
 def _query_intent_mode(query_text: str, track_state_mode: str | None = None) -> str:
     text = " ".join(str(query_text).strip().lower().split())
     if not text:
@@ -301,7 +334,7 @@ def _fusion_options_for_profile(eval_profile: str) -> dict[str, Any]:
         options["align_query_track_to_cloud"] = _env_flag("GS_QUERY_ALIGN_TRACK_TO_CLOUD", False)
         options["allow_cloud_only_with_query"] = _env_flag("GS_QUERY_ALLOW_CLOUD_ONLY_WITH_QUERY", True)
         options["strict_gaussian_projection"] = _env_flag("GS_QUERY_STRICT_GAUSSIAN_PROJECTION", True)
-    if normalized in {"public_time_shape_v3", "mask_coverage_refine_v3", "public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall", "r4d_shape_v4_recall", "r4d_time_shape_v4_recall"}:
+    if _is_coverage_render_profile(normalized):
         options["support_kernel"] = _odd_kernel(_env_int("GS_QUERY_FUSE_SUPPORT_KERNEL", 7))
         options["state_kernel"] = _odd_kernel(_env_int("GS_QUERY_FUSE_STATE_KERNEL", 9))
         options["expand_kernel"] = _odd_kernel(_env_int("GS_QUERY_FUSE_EXPAND_KERNEL", 11))
@@ -330,14 +363,15 @@ def _apply_render_profile_env_defaults(eval_profile: str) -> None:
     if normalized not in {"boundary_refine_v1", "public_boundary_v1", "mask_boundary_refine",
                           "boundary_shape_v2", "mask_shape_refine_v2",
                           "public_time_shape_v3", "mask_coverage_refine_v3",
-                          "public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall", "r4d_shape_v4_recall", "r4d_time_shape_v4_recall"}:
+                          *_COVERAGE_RENDER_PROFILES}:
         return
-    if normalized in {"public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall", "r4d_shape_v4_recall", "r4d_time_shape_v4_recall"}:
+    if _is_coverage_render_profile(normalized):
+        is_formal_boundary_profile = _is_formal_boundary_gated_profile(normalized)
         defaults = {
-            "REFERGAUSSIAN_QUERY_EVAL_PROFILE": "public_time_shape_v4_recall",
+            "REFERGAUSSIAN_QUERY_EVAL_PROFILE": normalized if is_formal_boundary_profile else "public_time_shape_v4_recall",
             "GS_QUERY_TRACK_FALLBACK_SCALE": "1.0",
             "GS_QUERY_TRACK_STRICT_FALLBACK_SCALE": "1.0",
-            "GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY": "1",
+            "GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY": "0" if is_formal_boundary_profile else "1",
             "GS_QUERY_CLOUD_BOX_EXPANSION": "0",
             "GS_QUERY_CLOUD_RENDER_MODE": "gaussian_alpha",
             "GS_QUERY_ALPHA_GATE_THRESHOLD": "0.01",
@@ -371,6 +405,7 @@ def _apply_render_profile_env_defaults(eval_profile: str) -> None:
             "GS_QUERY_ALLOW_CLOUD_ONLY_WITH_QUERY": "0",
             "GS_QUERY_STRICT_GAUSSIAN_PROJECTION": "1",
             "GS_QUERY_REQUIRE_STAGE1_TRACKS": "1",
+            "GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY": "1" if is_formal_boundary_profile else "0",
             "GS_QUERY_EXPORT_ENTITY_LIFECYCLE": "1",
         }
     elif normalized in {"public_time_shape_v3", "mask_coverage_refine_v3"}:
@@ -456,6 +491,23 @@ def _apply_render_profile_env_defaults(eval_profile: str) -> None:
         }
     for key, value in defaults.items():
         os.environ.setdefault(key, value)
+    if _is_formal_boundary_gated_profile(normalized):
+        # Formal profiles are intentionally not overrideable through inherited
+        # shell state. The strict runner also clears inherited tuning, but this
+        # guard keeps direct Python entry points on the same contract.
+        os.environ.update(
+            {
+                "REFERGAUSSIAN_QUERY_EVAL_PROFILE": normalized,
+                "GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY": "0",
+                "GS_QUERY_REQUIRE_STAGE1_TRACKS": "1",
+                "GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY": "1",
+                "GS_QUERY_FUSE_CLIP_TO_QUERY_TRACK": "1",
+                "GS_QUERY_FUSE_PREFER_CLIPPED_CLOUD": "1",
+                "GS_QUERY_ALLOW_CLOUD_ONLY_WITH_QUERY": "0",
+                "GS_QUERY_ALLOW_DIRECT_2D_MASKS": "0",
+                "GS_QUERY_STRICT_GAUSSIAN_PROJECTION": "1",
+            }
+        )
 
 
 def _merge_ranges(frame_indices: list[int]) -> list[list[int]]:
@@ -704,6 +756,51 @@ def _query_track_match_for_time(
     if time_delta <= max(1.0e-6, float(tolerance)):
         meta["stage1_match_mode"] = "strict_exact_or_near" if strict else "legacy_exact_or_near"
     return mask, meta
+
+
+def _stage1_boundary_coverage_summary(
+    frame_records: list[dict[str, Any]],
+    *,
+    required: bool,
+) -> dict[str, Any]:
+    """Summarize the per-active-role Stage-1 boundary matches for auditing."""
+    active_role_count = 0
+    matched_role_count = 0
+    stale_matches: list[dict[str, Any]] = []
+    missing_matches: list[dict[str, Any]] = []
+    for frame_record in frame_records:
+        if not bool(frame_record.get("query_active", False)):
+            continue
+        for role_record in frame_record.get("roles", []):
+            if not bool(role_record.get("active", False)):
+                continue
+            active_role_count += 1
+            match_mode = str(role_record.get("stage1_match_mode", "missing_track"))
+            evidence = {
+                "frame_index": int(frame_record.get("frame_index", -1)),
+                "entity_id": int(role_record.get("entity_id", -1)),
+                "role": str(role_record.get("role", "other")),
+                "match_mode": match_mode,
+                "time_delta": role_record.get("stage1_match_time_delta"),
+                "tolerance": role_record.get("stage1_match_tolerance"),
+            }
+            if bool(role_record.get("stage1_mask_matched", False)):
+                matched_role_count += 1
+            else:
+                missing_matches.append(evidence)
+            if "stale" in match_mode:
+                stale_matches.append(evidence)
+
+    return {
+        "required": bool(required),
+        "active_role_frame_count": int(active_role_count),
+        "matched_role_frame_count": int(matched_role_count),
+        "coverage": float(matched_role_count / active_role_count) if active_role_count else 1.0,
+        "stale_match_count": int(len(stale_matches)),
+        "missing_match_count": int(len(missing_matches)),
+        "stale_examples": stale_matches[:20],
+        "missing_examples": missing_matches[:20],
+    }
 
 
 def _query_track_mask_for_time(track: QueryTrack | None, time_value: float, tolerance: float = 0.012) -> np.ndarray | None:
@@ -1148,6 +1245,11 @@ def _fuse_query_and_cloud_masks(
             continue
         mask = _close_binary_mask(mask, kernel_size=int(options["close_kernel"]))
         mask = _open_binary_mask(mask, kernel_size=int(options["open_kernel"]))
+        if bool(options.get("strict_gaussian_projection", False)):
+            # Morphological cleanup may fill a small hole or bridge a narrow
+            # gap. The formal contract keeps only pixels still supported by
+            # the selected Gaussian projection after that cleanup.
+            mask &= np.asarray(cloud_binary, dtype=bool)
         mask = _drop_small_components(mask, min_area=int(options["min_component_area"]))
         if not mask.any():
             continue
@@ -1674,9 +1776,9 @@ def _project_entity_cloud_mask(
     focal = float(camera.focal_length) * 0.5 * (float(scale_x) + float(scale_y))
     resolved_profile = _resolve_eval_profile(eval_profile)
     boundary_profile = resolved_profile in {"boundary_refine_v1", "public_boundary_v1", "mask_boundary_refine"}
-    coverage_profile = resolved_profile in {"public_time_shape_v3", "mask_coverage_refine_v3", "public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall", "r4d_shape_v4_recall", "r4d_time_shape_v4_recall"}
+    coverage_profile = _is_coverage_render_profile(resolved_profile)
     strict_projection = (boundary_profile or coverage_profile) and _env_flag("GS_QUERY_STRICT_GAUSSIAN_PROJECTION", True)
-    radius_scale = _env_float("GS_QUERY_CLOUD_POINT_RADIUS_SCALE", 0.42 if boundary_profile else (0.95 if resolved_profile in {"public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall", "r4d_shape_v4_recall", "r4d_time_shape_v4_recall"} else 0.75), minimum=0.05)
+    radius_scale = _env_float("GS_QUERY_CLOUD_POINT_RADIUS_SCALE", 0.42 if boundary_profile else (0.95 if coverage_profile else 0.75), minimum=0.05)
     if (boundary_profile or coverage_profile) and not strict_projection and not bool(stage1_boundary_available):
         radius_scale *= _env_float("GS_QUERY_CLOUD_NO_STAGE1_RADIUS_MULT", 0.35, minimum=0.05, maximum=2.0)
     radius_min = _env_int("GS_QUERY_CLOUD_POINT_RADIUS_MIN", 1 if (boundary_profile or coverage_profile) else 3, minimum=1)
@@ -2059,7 +2161,11 @@ def render_hypernerf_query_video(
     query_tracks = _resolve_query_tracks(selection_path)
     require_query_tracks = _env_flag(
         "GS_QUERY_REQUIRE_STAGE1_TRACKS",
-        resolved_eval_profile in {"public_time_shape_v4_recall", "mask_coverage_refine_v4", "shape_v4_recall", "r4d_shape_v4_recall", "r4d_time_shape_v4_recall"},
+        _is_coverage_render_profile(resolved_eval_profile),
+    )
+    require_synchronized_boundaries = _env_flag(
+        "GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY",
+        _is_formal_boundary_gated_profile(resolved_eval_profile),
     )
     if require_query_tracks and not query_tracks:
         raise FileNotFoundError(
@@ -2545,6 +2651,10 @@ def render_hypernerf_query_video(
 
     active_indices = [record["frame_index"] for record in frame_records if record["query_active"]]
     contact_indices = [record["frame_index"] for record in frame_records if record["contact_active"]]
+    boundary_coverage = _stage1_boundary_coverage_summary(
+        frame_records,
+        required=require_synchronized_boundaries,
+    )
     payload = {
         "schema_version": 1,
         "query": selection_payload.get("query", "query"),
@@ -2583,7 +2693,12 @@ def render_hypernerf_query_video(
             for entry in role_entries
         ],
         "video_export_disabled": bool(skip_video_export),
-        "binary_mask_semantics": "union_of_fused_or_cloud_entity_masks_only",
+        "binary_mask_semantics": (
+            "union_of_synchronized_boundary_gated_gaussian_entity_masks"
+            if _is_formal_boundary_gated_profile(resolved_eval_profile)
+            else "union_of_fused_or_cloud_entity_masks_only"
+        ),
+        "stage1_boundary_coverage": boundary_coverage,
         "entity_lifecycle_exported": bool(export_lifecycle),
         "area_fraction_summary": {
             "stage1_mean": float(np.mean([record["stage1_area_fraction"] for record in frame_records])) if frame_records else 0.0,
@@ -2614,4 +2729,12 @@ def render_hypernerf_query_video(
         "frames": frame_records,
     }
     _write_json(output_dir / "validation.json", payload)
+    if require_synchronized_boundaries and (
+        int(boundary_coverage["missing_match_count"]) > 0
+        or int(boundary_coverage["stale_match_count"]) > 0
+    ):
+        raise RuntimeError(
+            "Formal boundary-gated rendering requires synchronized Stage-1 masks for every "
+            "active selected entity. See validation.json stage1_boundary_coverage for diagnostics."
+        )
     return output_dir

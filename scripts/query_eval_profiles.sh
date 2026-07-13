@@ -72,6 +72,8 @@ apply_query_eval_profile() {
   unset GS_QUERY_CLOUD_POINT_RADIUS_MAX
   unset GS_QUERY_FUSE_RECOVERY_MIN_QUERY_RECALL
   unset GS_QUERY_FINAL_ERODE_KERNEL
+  unset GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY
+  unset GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY
 
   case "${profile}" in
     ""|default|paper_default)
@@ -430,6 +432,23 @@ apply_query_eval_profile() {
       export GS_QUERY_FUSE_QUERY_WEIGHT="${GS_QUERY_FUSE_QUERY_WEIGHT:-0.58}"
       export GS_QUERY_FUSE_CLOUD_WEIGHT="${GS_QUERY_FUSE_CLOUD_WEIGHT:-0.18}"
       ;;
+    public_time_boundary_gated_v5|boundary_gated_gaussian_v5)
+      apply_query_eval_profile public_time_shape_v4_recall
+      export QUERY_EVAL_PROFILE="public_time_boundary_gated_v5"
+      export REFERGAUSSIAN_QUERY_EVAL_PROFILE="public_time_boundary_gated_v5"
+
+      # Formal release contract: Stage-1 provides only a synchronized boundary
+      # gate for a rendered Gaussian entity. No stale nearest-frame mask and no
+      # direct 2D-mask candidate may enter the final prediction.
+      export GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY=0
+      export GS_QUERY_REQUIRE_STAGE1_TRACKS=1
+      export GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY=1
+      export GS_QUERY_FUSE_CLIP_TO_QUERY_TRACK=1
+      export GS_QUERY_FUSE_PREFER_CLIPPED_CLOUD=1
+      export GS_QUERY_ALLOW_CLOUD_ONLY_WITH_QUERY=0
+      export GS_QUERY_ALLOW_DIRECT_2D_MASKS=0
+      export GS_QUERY_STRICT_GAUSSIAN_PROJECTION=1
+      ;;
     r4d_shape_v4_recall|r4d_time_shape_v4_recall)
       apply_query_eval_profile public_time_shape_v4_recall
       export QUERY_EVAL_PROFILE="r4d_shape_v4_recall"
@@ -506,8 +525,24 @@ apply_query_eval_profile() {
       export QUERY_SAVE_KEY_FRAMES=0
       export GS_QUERY_EXPORT_ENTITY_LIFECYCLE=0
       ;;
+    r4d_boundary_gated_v5)
+      apply_query_eval_profile r4d_shape_v4_recall
+      export QUERY_EVAL_PROFILE="r4d_boundary_gated_v5"
+      export REFERGAUSSIAN_QUERY_EVAL_PROFILE="r4d_boundary_gated_v5"
+
+      # Use the same audited boundary-gated Gaussian contract as public v5,
+      # while retaining the dataset-agnostic R4D action-window policy above.
+      export GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY=0
+      export GS_QUERY_REQUIRE_STAGE1_TRACKS=1
+      export GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY=1
+      export GS_QUERY_FUSE_CLIP_TO_QUERY_TRACK=1
+      export GS_QUERY_FUSE_PREFER_CLIPPED_CLOUD=1
+      export GS_QUERY_ALLOW_CLOUD_ONLY_WITH_QUERY=0
+      export GS_QUERY_ALLOW_DIRECT_2D_MASKS=0
+      export GS_QUERY_STRICT_GAUSSIAN_PROJECTION=1
+      ;;
     *)
-      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, r4d_shape_v4_recall)" >&2
+      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, public_time_boundary_gated_v5, r4d_shape_v4_recall, r4d_boundary_gated_v5)" >&2
       return 2
       ;;
   esac

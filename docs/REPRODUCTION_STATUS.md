@@ -25,6 +25,9 @@ The release gate and regression suite verify the executable contract:
 
 - no source-RGB, full-scene, direct-2D-mask, sparse-entity, or relaxed-GSAM
   default fallback in the published query path;
+- formal v5 outputs are selected-Gaussian projections gated only by synchronized
+  Stage-1 boundary neighborhoods; stale boundary matches fail with an auditable
+  `validation.json` record rather than contributing a score;
 - Qwen planning, semantic assignment, and entity selection remain enabled in
   published profiles;
 - Gaussian membership refinement ranks candidates by rendered multi-frame
