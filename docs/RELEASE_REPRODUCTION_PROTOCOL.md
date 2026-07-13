@@ -32,6 +32,12 @@ Run the per-scene evaluator with `--require-complete`, then combine the four
 JSON reports with `scripts/aggregate_public_query_evaluations.py
 --expected-queries 9 --require-complete`.
 
+Before launching a query batch, run `GSAM2_INSTALL_EDITABLE=1 bash
+scripts/setup_grounded_sam2.sh` and `gsam2_python
+scripts/check_query_runtime.py --require-qwen`. The pipeline repeats both
+runtime provenance checks before Stage-1 so that a missing Qwen checkpoint or
+an unrelated editable SAM2 package fails before expensive inference begins.
+
 ## R4D-Bench-QA Protocol
 
 The fixed release protocol contains 58 English queries across eight scenes:

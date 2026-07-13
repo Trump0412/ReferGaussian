@@ -11,6 +11,13 @@ DATASET_DIR="$2"
 QUERY_TEXT="$3"
 QUERY_NAME="${4:-$(echo "${QUERY_TEXT}" | tr ' ' '_' | tr -cd '[:alnum:]_-' | cut -c1-80)}"
 
+# Validate external, non-versioned assets before allocating detector/VLM GPU work.
+gsam2_python "${GS_ROOT}/scripts/check_grounded_sam2_import.py" \
+  --grounded-sam2-root "${GS_ROOT}/external/Grounded-SAM-2"
+if [[ "${QUERY_SKIP_QWEN_EXPORT:-0}" != "1" || "${QUERY_SKIP_QWEN_SELECTION:-0}" != "1" ]]; then
+  gsam2_python "${GS_ROOT}/scripts/check_query_runtime.py" --require-qwen
+fi
+
 if [[ -n "${QUERY_OUTPUT_ROOT_OVERRIDE:-}" ]]; then
   if [[ "${QUERY_OUTPUT_ROOT_OVERRIDE}" = /* ]]; then
     OUTPUT_ROOT="${QUERY_OUTPUT_ROOT_OVERRIDE}"

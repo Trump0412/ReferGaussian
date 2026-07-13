@@ -117,7 +117,8 @@ bash scripts/bootstrap_external.sh
 bash scripts/setup_baseline_env.sh cuda121
 
 # Semantic pipeline (Grounded-SAM2)
-bash scripts/setup_grounded_sam2.sh
+# Installs the pinned checkout into its dedicated environment.
+GSAM2_INSTALL_EDITABLE=1 bash scripts/setup_grounded_sam2.sh
 ```
 
 ## Verification
@@ -165,6 +166,13 @@ Override the model location with:
 export REFERGAUSSIAN_QWEN_MODEL=/path/to/Qwen3-VL-8B-Instruct
 ```
 
+Validate the checkpoint before a long query batch. This is also performed by
+the release pipeline before it allocates Stage-1 GPU work:
+
+```bash
+gsam2_python scripts/check_query_runtime.py --require-qwen
+```
+
 ### SAM2 and Grounding DINO (Grounded-SAM2 pipeline)
 
 Downloaded automatically during `bash scripts/setup_grounded_sam2.sh` at the
@@ -179,6 +187,9 @@ After setup, query inference loads these exact pinned snapshots from the local
 cache by default and does not issue a runtime Hub request. If a snapshot is
 missing, rerun `bash scripts/setup_grounded_sam2.sh`; set
 `GSAM2_LOCAL_FILES_ONLY=0` only when an explicit recovery download is intended.
+The setup command installs the pinned checkout editably by default and verifies
+that both `sam2` and its optional extension resolve from this repository rather
+than another project's Grounded-SAM2 installation.
 
 ## Dataset Setup
 

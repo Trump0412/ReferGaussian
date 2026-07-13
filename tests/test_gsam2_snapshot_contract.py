@@ -34,6 +34,19 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
         self.assertIn("hf_hub_download(", text)
         self.assertIn("revision=sam2_model_revision", text)
         self.assertIn("local_files_only=True", text)
+        self.assertIn("GSAM2_INSTALL_EDITABLE:-1", text)
+        self.assertIn("sam2 imported from another checkout", text)
+
+    def test_query_pipeline_checks_external_model_and_sam2_provenance_first(self) -> None:
+        text = (ROOT / "scripts" / "run_query_specific_worldtube_pipeline.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("check_grounded_sam2_import.py", text)
+        self.assertIn("check_query_runtime.py", text)
+
+    def test_provenance_checker_rejects_foreign_sam2_extension(self) -> None:
+        text = (ROOT / "scripts" / "check_grounded_sam2_import.py").read_text(encoding="utf-8")
+        self.assertIn("sam2._C resolved outside", text)
 
 
 if __name__ == "__main__":

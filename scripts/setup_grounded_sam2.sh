@@ -17,7 +17,9 @@ SAM2_MODEL_ID="${GSAM2_SAM2_MODEL_ID:-facebook/sam2-hiera-large}"
 GDINO_MODEL_ID="${GSAM2_GDINO_MODEL_ID:-IDEA-Research/grounding-dino-base}"
 SAM2_MODEL_REVISION="${GSAM2_SAM2_MODEL_REVISION:-e6a8e8809b8f1bfa2238b6d080f3d05cc76bd251}"
 GDINO_MODEL_REVISION="${GSAM2_GROUNDING_MODEL_REVISION:-12bdfa3120f3e7ec7b434d90674b3396eccf88eb}"
-INSTALL_EDITABLE="${GSAM2_INSTALL_EDITABLE:-0}"
+# The query scripts must import the pinned checkout below, not an editable SAM2
+# package left by another project in the same conda environment.
+INSTALL_EDITABLE="${GSAM2_INSTALL_EDITABLE:-1}"
 
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY ftp_proxy FTP_PROXY
 export HF_ENDPOINT="${HF_MIRROR}"
@@ -94,6 +96,18 @@ hf_hub_download(
     revision=sam2_model_revision,
     local_files_only=True,
 )
+
+from pathlib import Path
+import importlib.util
+package_file = Path(__import__("sam2").__file__).resolve()
+source_root = Path("${GSAM2_ROOT}").resolve()
+if source_root not in package_file.parents:
+    raise RuntimeError(f"sam2 imported from another checkout: {package_file}")
+extension = importlib.util.find_spec("sam2._C")
+if extension and extension.origin:
+    extension_path = Path(extension.origin).resolve()
+    if source_root not in extension_path.parents:
+        raise RuntimeError(f"sam2._C imported from another checkout: {extension_path}")
 
 print("grounding processor", type(processor).__name__)
 print("grounding model", type(grounding_model).__name__)

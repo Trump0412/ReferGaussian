@@ -206,13 +206,11 @@ class QwenVisionTeacher:
 
 
 def _resolve_qwen_model(explicit_path: str | None = None) -> Path:
-    if explicit_path:
-        return Path(explicit_path)
-    if DEFAULT_QWEN_MODEL.exists():
-        return DEFAULT_QWEN_MODEL
-    raise FileNotFoundError(
-        f"Unable to resolve a local Qwen model. Expected {DEFAULT_QWEN_MODEL} or pass an explicit path."
-    )
+    # Keep assignment and planning on one documented resolution contract.
+    # In particular, do not capture REFERGAUSSIAN_QWEN_MODEL at import time.
+    from .qwen_query_planner import _resolve_qwen_model as resolve_planner_qwen_model
+
+    return resolve_planner_qwen_model(explicit_path)
 
 
 def _read_simple_yaml(path: Path) -> dict[str, Any]:

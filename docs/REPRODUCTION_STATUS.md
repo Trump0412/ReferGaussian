@@ -30,6 +30,9 @@ The release gate and regression suite verify the executable contract:
   `validation.json` record rather than contributing a score;
 - Qwen planning, semantic assignment, and entity selection remain enabled in
   published profiles;
+- the query entry point checks the configured Qwen checkpoint before Stage-1
+  and verifies that SAM2 resolves from the pinned release checkout, preventing
+  a shared-environment package from silently changing a released run;
 - Gaussian membership refinement ranks candidates by rendered multi-frame
   overlap rather than proxy evidence alone;
 - public and R4D evaluators reject incomplete query or spatial-frame coverage;

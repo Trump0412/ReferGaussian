@@ -40,6 +40,8 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/render_query_video.py",
     "scripts/rerender_query_outputs.py",
     "scripts/run_query_specific_worldtube_pipeline.sh",
+    "scripts/check_query_runtime.py",
+    "scripts/check_grounded_sam2_import.py",
     "scripts/select_qwen_query_entities.py",
     "scripts/build_4dlangsplat_query_protocol.py",
     "scripts/download_hf_snapshot.py",
@@ -70,6 +72,8 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/eval_baseline.sh": "external/4DGaussians/render.py",
     "scripts/bootstrap_external.sh": "4dgaussians_metrics_cache.patch",
     "scripts/run_query_guided_grounded_sam2.sh": "QUERY_OUTPUT_ROOT_OVERRIDE",
+    "scripts/check_query_runtime.py": "--require-qwen",
+    "scripts/check_grounded_sam2_import.py": "sam2._C",
     "patches/4dgaussians_temporal_warp_schedule.patch": "set_temporal_warp_learning_rate",
     "refergaussian/semantics/grounded_sam2_backend.py": "local_files_only=local_files_only",
 }
@@ -212,6 +216,10 @@ def check_runtime_release_guards() -> list[str]:
         errors.append("Published query pipeline must not enable relaxed GSAM2 retry by default")
     if "require_refergaussian_run" not in pipeline_text:
         errors.append("Published query pipeline must validate the ReferGaussian training identity")
+    if "check_query_runtime.py" not in pipeline_text:
+        errors.append("Published query pipeline must validate the Qwen checkpoint before Stage-1")
+    if "check_grounded_sam2_import.py" not in pipeline_text:
+        errors.append("Published query pipeline must validate Grounded-SAM2 import provenance")
 
     grounded_sam_text = (ROOT / "scripts/run_query_guided_grounded_sam2.sh").read_text(
         encoding="utf-8", errors="replace"
@@ -329,6 +337,10 @@ def check_runtime_release_guards() -> list[str]:
     readme_text = (ROOT / "README.md").read_text(encoding="utf-8", errors="replace")
     if "gsam2_python scripts/download_hf_snapshot.py" not in readme_text:
         errors.append("README must download Qwen with the Grounded-SAM2 environment")
+    if "scripts/check_query_runtime.py --require-qwen" not in readme_text:
+        errors.append("README must document the Qwen runtime preflight")
+    if "GSAM2_INSTALL_EDITABLE=1" not in readme_text:
+        errors.append("README must document the pinned Grounded-SAM2 install mode")
     if "--require-complete" not in readme_text:
         errors.append("README must require complete coverage for final benchmark reports")
     if "--strict-release" not in readme_text:
