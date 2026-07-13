@@ -233,6 +233,10 @@ def evaluate_query(
     union_count = 0
     overlap_count = 0
     gt_mask_frames = 0
+    matched_render_frames = 0
+    missing_render_frames = 0
+    missing_binary_mask_frames = 0
+    unmapped_gt_mask_frames = 0
 
     gt_object_masks = gt_masks_by_object.get(target_object, {})
     pred_full_mask, rendered_rows = _rendered_activity_mask(frame_rows, metadata_payload=metadata_payload, total_frames=total_frames)
@@ -269,16 +273,20 @@ def evaluate_query(
     max_distance = int(max(2, int(np.median(time_diffs)) // 2 + 1)) if time_diffs.size else 2
     for image_id, gt_mask in gt_object_masks.items():
         if image_id not in metadata_payload:
+            unmapped_gt_mask_frames += 1
             continue
         time_id = int(metadata_payload[image_id]["time_id"])
-        row = _nearest_render_row(time_id=time_id, rendered_rows=rendered_rows, max_distance=max_distance)
-        if row is None:
-            continue
-        gt_mask_frames += 1
         pred_active = bool(pred_full_mask[time_id])
         gt_active = bool(gt_full_mask[time_id])
-        if pred_active or gt_active:
-            union_count += 1
+        if not (pred_active or gt_active):
+            continue
+        gt_mask_frames += 1
+        union_count += 1
+        row = _nearest_render_row(time_id=time_id, rendered_rows=rendered_rows, max_distance=max_distance)
+        if row is None:
+            missing_render_frames += 1
+            continue
+        matched_render_frames += 1
         if pred_active and gt_active:
             overlap_count += 1
             pred_mask_path = binary_mask_dir / f"{int(row['frame_index']):05d}.png"
@@ -287,6 +295,7 @@ def evaluate_query(
                     pred_mask = np.asarray(image.convert("L"), dtype=np.uint8) > 0
             else:
                 pred_mask = np.zeros_like(gt_mask)
+                missing_binary_mask_frames += 1
             iou_sum += _mask_iou(pred_mask, gt_mask)
 
     predicted_ranges = validation_payload.get("active_segments", [])
@@ -304,6 +313,8 @@ def evaluate_query(
         warnings.append("high_acc_low_tiou")
     if viou < 0.10 and union_count > 0:
         warnings.append("viou_below_10_check_entity_match")
+    if missing_render_frames or missing_binary_mask_frames or unmapped_gt_mask_frames:
+        warnings.append("missing_spatial_prediction")
 
     return {
         "query_slug": query_slug,
@@ -312,6 +323,15 @@ def evaluate_query(
         "frames_evaluated": int(len(frame_rows)),
         "timeline_frames_evaluated": int(total_frames),
         "gt_mask_frames": int(gt_mask_frames),
+        "spatial_matched_render_frames": int(matched_render_frames),
+        "spatial_missing_render_frames": int(missing_render_frames),
+        "spatial_missing_binary_mask_frames": int(missing_binary_mask_frames),
+        "spatial_unmapped_gt_mask_frames": int(unmapped_gt_mask_frames),
+        "spatial_coverage_complete": bool(
+            missing_render_frames == 0
+            and missing_binary_mask_frames == 0
+            and unmapped_gt_mask_frames == 0
+        ),
         "Acc": acc,
         "vIoU": viou,
         "temporal_tIoU": temporal_iou,
@@ -365,6 +385,19 @@ def summarize_query_results(valid: list[dict], query_count: int) -> dict:
         "zero_target_queries": int(len(empty)),
         "zero_target_correct": int(sum(bool(row.get("empty_query_correct")) for row in empty)),
         "zero_target_false_positive": int(sum(not bool(row.get("empty_query_correct")) for row in empty)),
+        "spatial_gt_mask_frames": int(sum(int(row.get("gt_mask_frames", 0)) for row in valid)),
+        "spatial_matched_render_frames": int(
+            sum(int(row.get("spatial_matched_render_frames", 0)) for row in valid)
+        ),
+        "spatial_missing_render_frames": int(
+            sum(int(row.get("spatial_missing_render_frames", 0)) for row in valid)
+        ),
+        "spatial_missing_binary_mask_frames": int(
+            sum(int(row.get("spatial_missing_binary_mask_frames", 0)) for row in valid)
+        ),
+        "spatial_unmapped_gt_mask_frames": int(
+            sum(int(row.get("spatial_unmapped_gt_mask_frames", 0)) for row in valid)
+        ),
         "warning_count": int(sum(len(item.get("score_warnings", [])) for item in valid)),
     }
 
@@ -377,11 +410,18 @@ def coverage_summary(expected_query_ids: list[str], rows: list[dict]) -> dict:
         for query_id in expected_query_ids
         if id_to_row.get(query_id, {}).get("Acc") is None
     ]
+    spatial_incomplete = [
+        query_id
+        for query_id in expected_query_ids
+        if id_to_row.get(query_id, {}).get("Acc") is not None
+        and not bool(id_to_row.get(query_id, {}).get("spatial_coverage_complete", True))
+    ]
     return {
         "expected_queries": int(len(expected_query_ids)),
         "valid_queries": int(len(expected_query_ids) - len(missing)),
         "missing_query_ids": missing,
-        "complete": not missing,
+        "spatial_incomplete_query_ids": spatial_incomplete,
+        "complete": not missing and not spatial_incomplete,
     }
 
 
@@ -525,6 +565,9 @@ def main() -> None:
             f"`{summary_pct(summary['nonempty_only']['vIoU'])}` / "
             f"`{summary_pct(summary['nonempty_only']['temporal_tIoU'])}`",
             f"- zero-target correctness: `{summary['zero_target_correct']} / {summary['zero_target_queries']}`",
+            f"- spatial frames: `{summary['spatial_matched_render_frames']} / {summary['spatial_gt_mask_frames']}` matched "
+            f"(missing render/mask/unmapped: `{summary['spatial_missing_render_frames']}` / "
+            f"`{summary['spatial_missing_binary_mask_frames']}` / `{summary['spatial_unmapped_gt_mask_frames']}`)",
             f"- warnings: `{summary['warning_count']}`",
             "",
             "| Query | Acc(%) | vIoU(%) | tIoU(%) | tPrec(%) | tRec(%) | Target | Warnings | Pred Segments | GT Segments |",
@@ -543,7 +586,8 @@ def main() -> None:
         raise SystemExit(
             "Incomplete public evaluation: "
             f"{coverage['valid_queries']} / {coverage['expected_queries']} valid. "
-            f"Missing: {', '.join(coverage['missing_query_ids'][:10])}"
+            f"Missing queries: {', '.join(coverage['missing_query_ids'][:10]) or 'none'}; "
+            f"spatially incomplete: {', '.join(coverage['spatial_incomplete_query_ids'][:10]) or 'none'}"
         )
 
 

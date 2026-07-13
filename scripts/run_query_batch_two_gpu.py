@@ -31,6 +31,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PIPELINE_SCRIPT = REPO_ROOT / "scripts" / "run_query_specific_worldtube_pipeline.sh"
+_RELEASE_CONFIG_PREFIXES = ("QUERY_", "GS_QUERY_", "GSAM2_")
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +74,14 @@ def parse_args() -> argparse.Namespace:
         "--allow-failures",
         action="store_true",
         help="Keep the batch process exit code at 0 even if some queries fail; failures are still logged.",
+    )
+    parser.add_argument(
+        "--strict-release",
+        action="store_true",
+        help=(
+            "Require --force-rerun, reject manifest environment overrides, and "
+            "clear inherited query/GSAM tuning variables."
+        ),
     )
     return parser.parse_args()
 
@@ -129,6 +138,21 @@ def group_by_gpu(items: list[dict], gpus: list[int]) -> dict[int, list[dict]]:
     return groups
 
 
+def validate_release_manifest(items: list[dict], profile: str) -> list[str]:
+    """Return release-contract violations without changing exploratory manifests."""
+    errors: list[str] = []
+    for item in items:
+        query_id = str(item.get("query_id", "<unknown>"))
+        if item.get("env") not in (None, {}):
+            errors.append(f"{query_id}: strict release manifests cannot contain an env override")
+        item_profile = str(item.get("profile") or profile)
+        if item_profile != profile:
+            errors.append(
+                f"{query_id}: manifest profile {item_profile!r} differs from --profile {profile!r}"
+            )
+    return errors
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -158,6 +182,13 @@ def _append_jsonl(path: str, record: dict) -> None:
         fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
 
 
+def _clear_inherited_release_tuning(env: dict[str, str]) -> None:
+    """Keep model/path variables but remove mutable query-pipeline tuning."""
+    for key in list(env):
+        if key.startswith(_RELEASE_CONFIG_PREFIXES):
+            env.pop(key, None)
+
+
 # ---------------------------------------------------------------------------
 # Single-query execution
 # ---------------------------------------------------------------------------
@@ -168,6 +199,7 @@ def run_one_query(
     profile: str,
     force_rerun: bool,
     timeout: int,
+    strict_release: bool,
 ) -> dict:
     """Execute one query via the pipeline shell script.
 
@@ -193,8 +225,12 @@ def run_one_query(
 
     # Build environment
     env = dict(os.environ)
+    if strict_release:
+        _clear_inherited_release_tuning(env)
     env["CUDA_VISIBLE_DEVICES"] = str(gpu)
     env["QUERY_EVAL_PROFILE"] = item_profile
+    if strict_release:
+        env["REFERGAUSSIAN_STRICT_RELEASE"] = "1"
     if force_rerun:
         env["QUERY_FORCE_RERUN"] = "1"
     env["QUERY_OUTPUT_ROOT_OVERRIDE"] = query_output_root
@@ -222,7 +258,8 @@ def run_one_query(
         lf.write(f"[{_utc_now()}] CMD   {' '.join(cmd)}\n")
         lf.write(f"[{_utc_now()}] CWD   {REPO_ROOT}\n")
         lf.write(f"[{_utc_now()}] ENV   CUDA_VISIBLE_DEVICES={gpu}  "
-                 f"QUERY_EVAL_PROFILE={item_profile}  force_rerun={force_rerun}\n")
+                 f"QUERY_EVAL_PROFILE={item_profile}  force_rerun={force_rerun}  "
+                 f"strict_release={strict_release}\n")
         if item_env:
             lf.write(f"[{_utc_now()}] ENV_OVERRIDES {json.dumps(item_env, ensure_ascii=False)}\n")
         lf.write(f"{'=' * 60}\n\n")
@@ -321,6 +358,7 @@ def run_one_query(
         "log_path": log_file,
         "profile": item_profile,
         "force_rerun": bool(force_rerun),
+        "strict_release": bool(strict_release),
         "env_overrides": item_env,
         "started_at_utc": started_at_utc,
         "finished_at_utc": _utc_now(),
@@ -339,6 +377,7 @@ def _gpu_worker(
     profile: str,
     force_rerun: bool,
     timeout: int,
+    strict_release: bool,
     results: list[dict],
     lock: threading.Lock,
 ) -> None:
@@ -352,6 +391,7 @@ def _gpu_worker(
             profile=profile,
             force_rerun=force_rerun,
             timeout=timeout,
+            strict_release=strict_release,
         )
 
         with lock:
@@ -387,6 +427,15 @@ def main() -> int:
     if not items:
         print("ERROR: no valid items in manifest", file=sys.stderr)
         return 1
+    if args.strict_release:
+        if not args.force_rerun:
+            print("ERROR: --strict-release requires --force-rerun", file=sys.stderr)
+            return 1
+        release_errors = validate_release_manifest(items, args.profile)
+        if release_errors:
+            for error in release_errors:
+                print(f"ERROR: release manifest violation: {error}", file=sys.stderr)
+            return 1
 
     # Partition by GPU
     groups = group_by_gpu(items, args.gpu)
@@ -395,6 +444,7 @@ def main() -> int:
     print(f"GPUs: {args.gpu}")
     print(f"Profile: {args.profile}")
     print(f"Force rerun: {args.force_rerun}")
+    print(f"Strict release: {args.strict_release}")
     print(f"Per-query timeout: {args.timeout}s")
     for gpu, gpu_items in groups.items():
         print(f"  GPU {gpu}: {len(gpu_items)} queries")
@@ -417,6 +467,7 @@ def main() -> int:
                 "profile": args.profile,
                 "force_rerun": args.force_rerun,
                 "timeout": args.timeout,
+                "strict_release": args.strict_release,
                 "results": results,
                 "lock": lock,
             },
@@ -468,6 +519,7 @@ def main() -> int:
             "gpus": args.gpu,
             "profile": args.profile,
             "force_rerun": args.force_rerun,
+            "strict_release": args.strict_release,
             "started_at_utc": started_at_utc,
             "finished_at_utc": _utc_now(),
             "allow_failures": bool(args.allow_failures),

@@ -130,6 +130,32 @@ class PublicProtocolEvaluatorTest(unittest.TestCase):
         self.assertEqual(result["vIoU"], 1.0)
         self.assertEqual(result["temporal_tIoU"], 1.0)
 
+    def test_missing_spatial_prediction_is_zero_and_marks_coverage_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mask_dir = Path(temp_dir) / "binary_masks"
+            mask_dir.mkdir()
+            target_mask = np.zeros((5, 6), dtype=np.uint8)
+            target_mask[1:4, 2:5] = 255
+            Image.fromarray(target_mask, mode="L").save(mask_dir / "00000.png")
+            result = EVALUATOR.evaluate_query(
+                query_item=_query([[0, 10]]),
+                validation_payload=_validation(mask_dir, [True]),
+                metadata_payload={"0000": {"time_id": 0}, "0010": {"time_id": 10}},
+                gt_masks_by_object={
+                    "target": {"0000": target_mask > 0, "0010": target_mask > 0}
+                },
+                top_level_objects=["target"],
+            )
+
+        self.assertEqual(result["gt_mask_frames"], 2)
+        self.assertEqual(result["spatial_matched_render_frames"], 1)
+        self.assertEqual(result["spatial_missing_render_frames"], 1)
+        self.assertFalse(result["spatial_coverage_complete"])
+        self.assertEqual(result["vIoU"], 0.5)
+        coverage = EVALUATOR.coverage_summary(["target_q1"], [result])
+        self.assertFalse(coverage["complete"])
+        self.assertEqual(coverage["spatial_incomplete_query_ids"], ["target_q1"])
+
 
 if __name__ == "__main__":
     unittest.main()

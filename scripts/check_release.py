@@ -42,10 +42,12 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/build_4dlangsplat_query_protocol.py",
     "scripts/download_hf_snapshot.py",
     "scripts/aggregate_public_query_evaluations.py",
+    "scripts/evaluate_public_query_protocol.py",
     "scripts/evaluate_ours_benchmark.py",
     "scripts/validate_refergaussian_run.py",
     "scripts/train_baseline.sh",
     "scripts/eval_baseline.sh",
+    "patches/4dgaussians_seed_order.patch",
 )
 REQUIRED_RUNTIME_TOKENS = {
     "scripts/build_joint_query_proposal_dir.py": "mask_supported_lifting",
@@ -56,9 +58,12 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/build_4dlangsplat_query_protocol.py": "video_annotations.json",
     "scripts/download_hf_snapshot.py": "resolved_revision",
     "scripts/aggregate_public_query_evaluations.py": "--require-complete",
-    "scripts/evaluate_ours_benchmark.py": "--query-manifest",
+    "scripts/evaluate_public_query_protocol.py": "spatial_coverage_complete",
+    "scripts/evaluate_ours_benchmark.py": "spatial_coverage_complete",
+    "scripts/run_query_batch_two_gpu.py": "--strict-release",
     "scripts/validate_refergaussian_run.py": "validate_refergaussian_run",
     "scripts/eval_baseline.sh": "external/4DGaussians/render.py",
+    "scripts/bootstrap_external.sh": "4dgaussians_seed_order.patch",
 }
 ENGLISH_RUNTIME_FILES = (
     "refergaussian/semantics/qwen_query_planner.py",
@@ -211,6 +216,14 @@ def check_runtime_release_guards() -> list[str]:
     )
     if "--warp_enabled" in baseline_eval_text or "temporal_warp_type" in baseline_eval_text:
         errors.append("Baseline evaluation must not enable ReferGaussian temporal warp")
+    seed_patch_text = (ROOT / "patches" / "4dgaussians_seed_order.patch").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    seed_after_safe_state = seed_patch_text.find("+    setup_seed(args.seed)") > seed_patch_text.find(
+        "    safe_state(args.quiet)"
+    )
+    if not seed_after_safe_state:
+        errors.append("4DGaussians seed-order patch must restore the requested seed after safe_state")
     for relative_path in ("scripts/train.sh", "scripts/train_baseline.sh"):
         train_text = (ROOT / relative_path).read_text(encoding="utf-8", errors="replace")
         if "REFERGAUSSIAN_SEED" not in train_text or "--seed" not in train_text:
@@ -283,6 +296,8 @@ def check_runtime_release_guards() -> list[str]:
         errors.append("README must download Qwen with the Grounded-SAM2 environment")
     if "--require-complete" not in readme_text:
         errors.append("README must require complete coverage for final benchmark reports")
+    if "--strict-release" not in readme_text:
+        errors.append("README must use the strict-release query runner for final benchmark reports")
     return errors
 
 

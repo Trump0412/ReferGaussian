@@ -262,6 +262,7 @@ Dataset link: [https://huggingface.co/datasets/LiYacheng/r4d-bench-qa](https://h
 
 ```bash
 # Use one explicit seed for a matched ReferGaussian / 4DGS comparison.
+# bootstrap_external.sh applies the seed-order patch so this seed is effective.
 export REFERGAUSSIAN_SEED=6666
 
 # Example: keyboard scene
@@ -387,6 +388,7 @@ gs_python scripts/run_query_batch_two_gpu.py \
   --profile public_time_shape_v4_recall \
   --gpu 0 1 2 \
   --force-rerun \
+  --strict-release \
   --timeout 3600
 ```
 
@@ -453,6 +455,7 @@ gs_python scripts/run_query_batch_two_gpu.py \
   --profile r4d_shape_v4_recall \
   --gpu 0 1 2 \
   --force-rerun \
+  --strict-release \
   --timeout 3600
 
 # 3) Re-evaluate from saved query outputs (no rerun of model inference).

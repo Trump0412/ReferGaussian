@@ -491,6 +491,10 @@ def evaluate_query(
         gt_time_ids = set()
         gt_min_tid = -1
         gt_max_tid = -1
+    if gt_time_ids:
+        # Do not truncate unrendered ground-truth time to the last prediction.
+        # The temporal union must retain those frames as false negatives.
+        total_frames = max(int(total_frames), int(max(gt_time_ids)) + 1)
 
     # -----------------------------------------------------------------------
     # Temporal accuracy (Acc) - evaluated over all rendered frames
@@ -558,6 +562,8 @@ def evaluate_query(
     iou_count = 0
     mask_found = 0
     mask_missing = 0
+    mask_missing_binary = 0
+    spatial_gt_mask_frames = 0
 
     # Determine image size for polygon mask decoding.
     # Use the first available rendered binary mask to get (H, W).
@@ -593,6 +599,17 @@ def evaluate_query(
                     merged = merged | m
             gt_frame_masks[fid] = merged
 
+    rendered_time_diffs = (
+        np.diff(np.asarray(sorted_tids, dtype=np.int32))
+        if len(sorted_tids) >= 2
+        else np.asarray([], dtype=np.int32)
+    )
+    max_render_distance = (
+        int(max(2, int(np.median(rendered_time_diffs)) // 2 + 1))
+        if rendered_time_diffs.size
+        else 2
+    )
+
     for fid, gt_mask in gt_frame_masks.items():
         # Map frame_id → time_id
         if ds_type == "hypernerf" and metadata:
@@ -603,13 +620,21 @@ def evaluate_query(
 
         if tid is None:
             mask_missing += 1
+            iou_count += 1
             continue
+
+        gt_active = tid in gt_time_ids
+        if not gt_active:
+            # vIoU is defined at annotated active frames only.
+            continue
+        spatial_gt_mask_frames += 1
 
         # KEY FIX 2: Nearest-neighbor lookup for rendered frame.
         # GT annotated frames may not align with rendered test frames,
         # so find the closest rendered frame by time_id.
         if not sorted_tids:
             mask_missing += 1
+            iou_count += 1
             continue
         pos = bisect.bisect_left(sorted_tids, tid)
         if pos == 0:
@@ -622,28 +647,24 @@ def evaluate_query(
             after = sorted_tids[pos]
             nearest_tid = before if (tid - before) <= (after - tid) else after
 
+        if abs(int(nearest_tid) - int(tid)) > max_render_distance:
+            mask_missing += 1
+            iou_count += 1
+            continue
+
         val_frame = val_by_time_id.get(nearest_tid)
         if val_frame is None:
             mask_missing += 1
+            iou_count += 1
             continue
 
         pred_active = bool(pred_by_time_id.get(nearest_tid, False))
-        gt_active = tid in gt_time_ids  # whether this GT frame is in the active range
-
-        # vIoU: only compute at frames where GT is active (GT annotated frame)
-        # If pred is also active → compute IoU of masks
-        # If pred not active but GT is → IoU = 0 (entity present but not detected)
-        if not gt_active:
-            # GT says entity not active at this frame → skip for vIoU
-            continue
-
         frame_idx = int(val_frame["frame_index"])
         mask_found += 1
+        iou_count += 1
 
         if binary_mask_dir is None or not binary_mask_dir.exists():
             # No mask output dir
-            iou_sum += 0.0
-            iou_count += 1
             continue
 
         pred_mask_path = binary_mask_dir / f"{frame_idx:05d}.png"
@@ -659,11 +680,11 @@ def evaluate_query(
                 iou = _mask_iou(pred_mask, gt_mask)
             else:
                 iou = 0.0
+                mask_missing_binary += 1
         else:
             # Pred not active but GT is active → IoU = 0
             iou = 0.0
         iou_sum += iou
-        iou_count += 1
 
     # Empty-set rule: if GT and prediction are both empty over timeline,
     # count vIoU as 1.0 (100%) when the empty answer is correct.
@@ -678,6 +699,13 @@ def evaluate_query(
         warnings.append("viou_below_10_check_entity_match")
     if temporal_recall < 0.50 and gt_active_count > 0:
         warnings.append("low_temporal_recall")
+    spatial_coverage_complete = bool(
+        (gt_active_count == 0 or spatial_gt_mask_frames > 0)
+        and mask_missing == 0
+        and mask_missing_binary == 0
+    )
+    if not spatial_coverage_complete:
+        warnings.append("missing_spatial_prediction")
 
     return {
         "query_id": query_id,
@@ -699,6 +727,10 @@ def evaluate_query(
         "score_warnings": warnings,
         "mask_found": mask_found,
         "mask_missing": mask_missing,
+        "mask_missing_binary": mask_missing_binary,
+        "spatial_gt_mask_frames": spatial_gt_mask_frames,
+        "spatial_matched_render_frames": mask_found,
+        "spatial_coverage_complete": spatial_coverage_complete,
         "vIoU_count": iou_count,
         "validation_path": str(validation_path),
         "binary_mask_dir_used": str(binary_mask_dir) if binary_mask_dir is not None else None,
@@ -737,6 +769,14 @@ def summarize_query_results(valid: list[dict], total_queries: int) -> dict:
         "zero_target_queries": int(len(empty)),
         "zero_target_correct": int(sum(bool(row.get("empty_query_correct")) for row in empty)),
         "zero_target_false_positive": int(sum(not bool(row.get("empty_query_correct")) for row in empty)),
+        "spatial_gt_mask_frames": int(sum(int(row.get("spatial_gt_mask_frames", 0)) for row in valid)),
+        "spatial_matched_render_frames": int(
+            sum(int(row.get("spatial_matched_render_frames", 0)) for row in valid)
+        ),
+        "spatial_missing_render_frames": int(sum(int(row.get("mask_missing", 0)) for row in valid)),
+        "spatial_missing_binary_mask_frames": int(
+            sum(int(row.get("mask_missing_binary", 0)) for row in valid)
+        ),
         "warning_count": int(sum(len(row.get("score_warnings", [])) for row in valid)),
     }
     return summary
@@ -750,11 +790,18 @@ def coverage_summary(expected_query_ids: list[str], rows: list[dict]) -> dict:
         for query_id in expected_query_ids
         if id_to_row.get(query_id, {}).get("Acc") is None
     ]
+    spatial_incomplete = [
+        query_id
+        for query_id in expected_query_ids
+        if id_to_row.get(query_id, {}).get("Acc") is not None
+        and not bool(id_to_row.get(query_id, {}).get("spatial_coverage_complete", True))
+    ]
     return {
         "expected_queries": int(len(expected_query_ids)),
         "valid_queries": int(len(expected_query_ids) - len(missing)),
         "missing_query_ids": missing,
-        "complete": not missing,
+        "spatial_incomplete_query_ids": spatial_incomplete,
+        "complete": not missing and not spatial_incomplete,
     }
 
 
@@ -906,6 +953,9 @@ def main() -> None:
                 if summary["nonempty_only"]["Acc"] is not None
                 else "- Non-empty Acc/vIoU/tIoU: `n/a`",
                 f"- Zero-target correctness: `{summary['zero_target_correct']} / {summary['zero_target_queries']}`",
+                f"- Spatial frames: `{summary['spatial_matched_render_frames']} / {summary['spatial_gt_mask_frames']}` matched "
+                f"(missing render/mask: `{summary['spatial_missing_render_frames']}` / "
+                f"`{summary['spatial_missing_binary_mask_frames']}`)",
                 f"- warnings: `{summary['warning_count']}`",
                 "",
                 "| Query | Status | Acc(%) | vIoU(%) | tIoU(%) | tPrec(%) | tRec(%) | Warnings |",
@@ -924,7 +974,8 @@ def main() -> None:
         raise SystemExit(
             "Incomplete R4D evaluation: "
             f"{coverage['valid_queries']} / {coverage['expected_queries']} valid. "
-            f"Missing: {', '.join(coverage['missing_query_ids'][:10])}"
+            f"Missing queries: {', '.join(coverage['missing_query_ids'][:10]) or 'none'}; "
+            f"spatially incomplete: {', '.join(coverage['spatial_incomplete_query_ids'][:10]) or 'none'}"
         )
 
 

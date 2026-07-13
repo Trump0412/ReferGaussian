@@ -43,11 +43,18 @@ The benchmark includes 42 non-empty queries, 16 zero-target queries, and 20
 multi-target queries. Final R4D evaluation must use the official query id
 manifest and `scripts/evaluate_ours_benchmark.py --require-complete`.
 
+Release query batches must use
+`scripts/run_query_batch_two_gpu.py --strict-release --force-rerun`. A strict
+manifest may set the official query id, query text, run/data/output paths, and
+GPU assignment, but may not contain per-query environment overrides.
+
 ## Reporting Rules
 
 Every final query report must include:
 
 - expected and valid query counts, with complete coverage required;
+- spatial-frame coverage: a missing rendered prediction at an annotated GT
+  frame is scored as zero IoU and makes `--require-complete` fail;
 - overall Acc/vIoU/tIoU;
 - non-empty-only Acc/vIoU/tIoU;
 - zero-target correctness and false-positive count;

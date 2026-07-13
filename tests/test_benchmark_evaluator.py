@@ -151,6 +151,43 @@ class BenchmarkEvaluatorTest(unittest.TestCase):
         self.assertEqual(result["tIoU"], 1.0)
         self.assertEqual(result["vIoU"], 1.0)
 
+    def test_missing_spatial_prediction_counts_as_zero_and_fails_spatial_coverage(self) -> None:
+        polygon = [[2, 1, 5, 1, 5, 4, 2, 4]]
+        query_item = {
+            "query_id": "missing_frame_q1",
+            "ground_truth": {
+                "existence_frames": [0, 10],
+                "frames": [
+                    {"frame_id": 0, "masks": [{"segmentation": polygon}]},
+                    {"frame_id": 10, "masks": [{"segmentation": polygon}]},
+                ],
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            query_root = Path(temp_dir) / "missing_frame_q1"
+            render_root = _write_validation(
+                query_root,
+                [{"image_id": "0000", "frame_index": 0, "query_active": True}],
+            )
+            mask_dir = render_root / "binary_masks"
+            mask_dir.mkdir()
+            image = Image.fromarray(np.zeros((6, 8), dtype=np.uint8), mode="L")
+            ImageDraw.Draw(image).polygon(
+                [(polygon[0][idx], polygon[0][idx + 1]) for idx in range(0, len(polygon[0]), 2)],
+                fill=255,
+            )
+            image.save(mask_dir / "00000.png")
+            result = EVALUATOR.evaluate_query(query_item, query_root)
+
+        self.assertEqual(result["spatial_gt_mask_frames"], 2)
+        self.assertEqual(result["spatial_matched_render_frames"], 1)
+        self.assertEqual(result["mask_missing"], 1)
+        self.assertFalse(result["spatial_coverage_complete"])
+        self.assertEqual(result["vIoU"], 0.5)
+        coverage = EVALUATOR.coverage_summary(["missing_frame_q1"], [result])
+        self.assertFalse(coverage["complete"])
+        self.assertEqual(coverage["spatial_incomplete_query_ids"], ["missing_frame_q1"])
+
 
 if __name__ == "__main__":
     unittest.main()
