@@ -440,6 +440,10 @@ def _component_labels(points: np.ndarray, ids: np.ndarray, graph_knn: int, radiu
     distances = tree.query(local_points, k=k)[0]
     neighbor = distances[:, -1] if distances.ndim > 1 else distances.reshape(-1)
     radius = max(_safe_quantile(neighbor, 0.75, 0.02) * float(radius_scale), 1.0e-4)
+    # Query every radius neighborhood in one SciPy call.  The former per-point
+    # Python calls were equivalent, but became a substantial CPU bottleneck for
+    # large entities during the ten-round coverage refinement.
+    neighborhoods = _radius_neighbor_lists(tree, local_points, radius)
     visited = np.zeros((ids.size,), dtype=bool)
     components: list[np.ndarray] = []
     for start in range(ids.size):
@@ -453,7 +457,7 @@ def _component_labels(points: np.ndarray, ids: np.ndarray, graph_knn: int, radiu
             node = int(queue[head])
             head += 1
             component.append(node)
-            for neighbor_id in tree.query_ball_point(local_points[node], r=radius):
+            for neighbor_id in neighborhoods[node]:
                 neighbor_id = int(neighbor_id)
                 if visited[neighbor_id]:
                     continue
@@ -462,6 +466,31 @@ def _component_labels(points: np.ndarray, ids: np.ndarray, graph_knn: int, radiu
         components.append(ids[np.asarray(component, dtype=np.int64)])
     components.sort(key=lambda item: int(item.size), reverse=True)
     return components
+
+
+def _radius_neighbor_lists(
+    tree: cKDTree,
+    points: np.ndarray,
+    radius: float,
+) -> list[np.ndarray]:
+    """Return exact radius neighborhoods using a batched, deterministic query.
+
+    Batched queries keep the same candidates as calling ``query_ball_point`` for
+    each point, while avoiding thousands of Python-to-SciPy transitions.  The
+    compatibility fallback supports older SciPy releases that lack ``workers``
+    or ``return_sorted``.
+    """
+    locations = np.asarray(points, dtype=np.float32)
+    try:
+        raw = tree.query_ball_point(
+            locations,
+            r=float(radius),
+            workers=-1,
+            return_sorted=True,
+        )
+    except TypeError:
+        raw = tree.query_ball_point(locations, r=float(radius))
+    return [np.asarray(neighbors, dtype=np.int64) for neighbors in list(raw)]
 
 
 def _top_component_union(points: np.ndarray, ids: np.ndarray, scores: np.ndarray, graph_knn: int, radius_scale: float, top_k: int, max_gaussians: int) -> np.ndarray:
@@ -975,15 +1004,14 @@ def _safe_graph_expand_from_selection(
         distances = cKDTree(local_points).query(local_points, k=k)[0]
         neighbor = distances[:, -1] if distances.ndim > 1 else distances.reshape(-1)
         radius = max(_safe_quantile(neighbor, 0.80, 0.025) * float(radius_scale), 1.0e-4)
-    neighbor_set: set[int] = set()
-    for gid in ids.tolist():
-        for nid in tree.query_ball_point(points[int(gid)], r=radius):
-            nid = int(nid)
-            if nid not in ids:
-                neighbor_set.add(nid)
-    if not neighbor_set:
+    neighbor_lists = _radius_neighbor_lists(tree, points[ids], radius)
+    neighbor_parts = [neighbors for neighbors in neighbor_lists if neighbors.size]
+    if not neighbor_parts:
         return ids
-    candidates = np.asarray(sorted(neighbor_set), dtype=np.int64)
+    candidates = np.unique(np.concatenate(neighbor_parts).astype(np.int64))
+    candidates = np.setdiff1d(candidates, ids, assume_unique=True)
+    if candidates.size == 0:
+        return ids
     inside_score = 0.34 * support.distance_positive_score + 0.22 * support.full_mean + 0.18 * support.presence + 0.16 * support.positive_score + 0.10 * support.support_score
     penalty = 0.28 * support.distance_negative_score + 0.18 * support.outer_ratio + 0.10 * support.negative_score
     score = inside_score - penalty
