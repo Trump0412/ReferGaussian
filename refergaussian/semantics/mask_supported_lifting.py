@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import re
 import time
 from typing import Any
 
@@ -88,6 +89,115 @@ def _env_flag(name: str, default: bool = False) -> bool:
     if text in {"0", "false", "no", "off"}:
         return False
     return bool(default)
+
+
+def _entity_role_scope() -> str:
+    """Return the requested scope for expensive 3D entity construction.
+
+    Grounded-SAM2 may expand one query subject into several state-specific
+    detector prompts. Those prompts are useful perception evidence, but they
+    do not all need a separate Gaussian lifting pass. The default retains the
+    historical all-track behavior; profiles must opt in to subject scoping.
+    """
+    raw = str(os.environ.get("QUERY_LIFT_ENTITY_ROLE_SCOPE", "all")).strip().lower()
+    normalized = "_".join(raw.replace("-", "_").split())
+    if normalized in {"", "all", "all_tracks", "full"}:
+        return "all"
+    if normalized in {"primary_subject", "primary", "subject", "subjects"}:
+        return "primary_subject"
+    raise ValueError(
+        "QUERY_LIFT_ENTITY_ROLE_SCOPE must be one of all or primary_subject, "
+        f"got {raw!r}"
+    )
+
+
+def _canonical_role_phrase(value: Any) -> str:
+    """Normalize an English planner or Stage-1 phrase for role comparison."""
+    text = str(value or "").strip().lower()
+    # Instance/phase aliases identify alternate hypotheses of the same noun;
+    # keep the noun phrase when determining whether it is a query subject.
+    text = text.split("__", 1)[0]
+    text = re.sub(r"\binstance\s+\d+\b", " ", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def _query_subject_role_phrases(query_plan: dict[str, Any] | None) -> list[str]:
+    if not isinstance(query_plan, dict):
+        return []
+    phrases: list[str] = []
+    for key in ("primary_subject_phrases", "query_subject_phrases", "must_track_phrases"):
+        values = query_plan.get(key, [])
+        if isinstance(values, str):
+            values = [values]
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            phrase = _canonical_role_phrase(value)
+            if phrase and phrase not in phrases:
+                phrases.append(phrase)
+    return phrases
+
+
+def _filter_tracks_for_entity_roles(
+    tracks: list[dict[str, Any]],
+    query_plan: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Keep only directly answerable subject tracks when a profile opts in.
+
+    Relation-context tracks remain in the original Stage-1 JSON for geometric
+    disambiguation. This function only controls which tracks pay the costly
+    training-free Gaussian lifting cost, so no 2D output is promoted to a
+    final answer.
+    """
+    scope = _entity_role_scope()
+    original = list(tracks)
+    info: dict[str, Any] = {
+        "scope": scope,
+        "input_track_count": int(len(original)),
+        "output_track_count": int(len(original)),
+        "subject_phrases": [],
+        "match_mode": "all_tracks",
+        "skipped_track_phrases": [],
+    }
+    if scope == "all":
+        return original, info
+
+    subject_phrases = _query_subject_role_phrases(query_plan)
+    info["subject_phrases"] = subject_phrases
+    if not subject_phrases:
+        info["match_mode"] = "scope_unresolved_no_subject"
+        return original, info
+
+    direct = [
+        track
+        for track in original
+        if _canonical_role_phrase(track.get("phrase")) in set(subject_phrases)
+    ]
+    selected = direct
+    if direct:
+        info["match_mode"] = "direct_subject_phrase"
+    else:
+        subject_tokens = [set(phrase.split()) for phrase in subject_phrases]
+        selected = []
+        for track in original:
+            track_tokens = set(_canonical_role_phrase(track.get("phrase")).split())
+            if track_tokens and any(tokens.issubset(track_tokens) for tokens in subject_tokens):
+                selected.append(track)
+        if selected:
+            info["match_mode"] = "relaxed_subject_phrase"
+        else:
+            # Preserve the original candidate set rather than silently dropping
+            # every entity when the planner and detector use incompatible names.
+            selected = original
+            info["match_mode"] = "scope_unresolved_no_matching_track"
+
+    selected_ids = {id(track) for track in selected}
+    info["output_track_count"] = int(len(selected))
+    info["skipped_track_phrases"] = [
+        str(track.get("phrase", "")) for track in original if id(track) not in selected_ids
+    ]
+    return selected, info
 
 
 def _lifting_mode() -> str:
@@ -2757,6 +2867,15 @@ def build_mask_supported_lifting_proposal_dir(
     tracks = [track for track in track_payload.get("tracks", []) if str(track.get("status", "")) == "seeded"]
     if not tracks:
         raise ValueError(f"No seeded phrase tracks found in {tracks_path}")
+    tracks, entity_role_scope = _filter_tracks_for_entity_roles(tracks, query_plan)
+    if not tracks:
+        raise ValueError(f"No tracks remain after entity-role filtering for {tracks_path}")
+    print(
+        "[mask_supported_lifting] entity-role scope="
+        f"'{entity_role_scope['scope']}' match={entity_role_scope['match_mode']} "
+        f"tracks={entity_role_scope['output_track_count']}/{entity_role_scope['input_track_count']}",
+        flush=True,
+    )
 
     phrase_rows: list[dict[str, Any]] = []
     entities_json_rows: list[dict[str, Any]] = []
@@ -3149,6 +3268,7 @@ def build_mask_supported_lifting_proposal_dir(
                     "gate_threshold": float(gate_threshold),
                     "graph_knn": int(graph_knn),
                     "graph_radius_scale": float(graph_radius_scale),
+                    "entity_role_scope": entity_role_scope,
                     "training_free": True,
                     "empty_reason": "no_candidate_passed_quality_gate_or_no_support",
                 },
@@ -3217,6 +3337,7 @@ def build_mask_supported_lifting_proposal_dir(
                 "gate_threshold": float(gate_threshold),
                 "graph_knn": int(graph_knn),
                 "graph_radius_scale": float(graph_radius_scale),
+                "entity_role_scope": entity_role_scope,
                 "training_free": True,
             },
         },

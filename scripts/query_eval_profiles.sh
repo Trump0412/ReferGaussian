@@ -86,6 +86,8 @@ apply_query_eval_profile() {
   unset QUERY_RENDERER_GEOMETRY_FINAL_TIMEOUT
   unset QUERY_LIFT_MASK_AWARE_PREFILTER
   unset QUERY_LIFT_MASK_AWARE_PREFILTER_MARGIN
+  unset QUERY_LIFT_ENTITY_ROLE_SCOPE
+  unset QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT
 
   case "${profile}" in
     ""|default|paper_default)
@@ -584,6 +586,15 @@ apply_query_eval_profile() {
       # membership remains validated by multi-frame Gaussian rendering.
       export QUERY_LIFT_MASK_AWARE_PREFILTER=1
       export QUERY_LIFT_MASK_AWARE_PREFILTER_MARGIN="${QUERY_LIFT_MASK_AWARE_PREFILTER_MARGIN:-48}"
+      # Detector prompt expansion is retained for Stage-1 evidence, while only
+      # the planner's answerable subject roles receive costly 3D lifting.
+      # This is role-based rather than scene- or object-specific.
+      export QUERY_LIFT_ENTITY_ROLE_SCOPE="${QUERY_LIFT_ENTITY_ROLE_SCOPE:-primary_subject}"
+      # R4D evaluates the selected entity's existence trajectory. State words
+      # identify the referent but do not replace its full 4D lifecycle with a
+      # shorter temporal-answer window. Public time-sensitive profiles leave
+      # this unset and retain their state-window semantics.
+      export QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT=1
       export GS_QUERY_CLOUD_RENDER_MODE=gaussian_alpha
       export GS_QUERY_ALPHA_REQUIRE_SUCCESS=1
       export GS_QUERY_ALPHA_REQUIRE_OPACITY=1

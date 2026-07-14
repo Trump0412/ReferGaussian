@@ -348,6 +348,17 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return bool(default)
 
 
+def _uses_entity_lifecycle_temporal_output() -> bool:
+    """Whether this benchmark asks for the selected entity's full lifetime.
+
+    This is a task-level output contract, not an object or scene rule. The
+    normal/public path retains query-state windows; profiles that evaluate
+    persistent entity tracks can explicitly request the full synchronized
+    Stage-1-supported lifecycle instead.
+    """
+    return _env_flag("QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT", False)
+
+
 def _env_float(name: str, default: float, *, minimum: float | None = None, maximum: float | None = None) -> float:
     raw = os.environ.get(name)
     try:
@@ -1277,6 +1288,8 @@ def _query_plan_window_test_range(
     query_plan_payload: dict[str, Any],
     test_times: np.ndarray,
 ) -> tuple[int | None, int | None]:
+    if _uses_entity_lifecycle_temporal_output():
+        return None, None
     refined_window = query_plan_payload.get("refined_temporal_window") or {}
     start_frame = refined_window.get("start_frame_index")
     end_frame = refined_window.get("end_frame_index")
@@ -1805,6 +1818,14 @@ def _track_state_segments_test(
         object_id=object_id,
     )
     visible_segments = _ranges_from_mask(visible_mask)
+    if _uses_entity_lifecycle_temporal_output():
+        lifecycle_segments = visible_segments or [[0, max(frame_count - 1, 0)]]
+        return lifecycle_segments, {
+            "state_mode": "entity_lifecycle",
+            "visible_segments_test": visible_segments,
+            "derived_segments_test": lifecycle_segments,
+            "strategy": "synchronized_entity_lifecycle",
+        }
     if state_mode is None:
         return [], {
             "state_mode": "support",
@@ -2294,7 +2315,10 @@ def _multi_hypothesis_instance_selection(
                     segments = stage1_segments
 
                 plan_start, plan_end = _query_plan_window_test_range(query_plan_payload, test_times)
-                if plan_start is not None or plan_end is not None:
+                if (
+                    not _uses_entity_lifecycle_temporal_output()
+                    and (plan_start is not None or plan_end is not None)
+                ):
                     plan_segments = [[
                         0 if plan_start is None else int(plan_start),
                         max(int(test_times.size) - 1, 0) if plan_end is None else int(plan_end),
@@ -2492,6 +2516,71 @@ def _compose_phrase_grounded_selection(
     subject_ids, subject_phrases = _dedupe_subject_selection(subject_ids, subject_phrases)
     split_keywords = ("broken", "pieces", "halves", "split", "cracked")
     intact_keywords = ("complete", "whole", "intact", "unbroken")
+    if _uses_entity_lifecycle_temporal_output() and subject_ids:
+        selected_rows = []
+        for subject_id in subject_ids:
+            subject_row = next(
+                (candidate for candidate in candidates if int(candidate["id"]) == int(subject_id)),
+                None,
+            )
+            if subject_row is None:
+                continue
+            lifecycle_object_id = subject_row.get("stage1_object_id")
+            try:
+                lifecycle_object_id = int(lifecycle_object_id)
+            except (TypeError, ValueError):
+                lifecycle_object_id = None
+            lifecycle_segments = (
+                _track_active_segments_test_by_object_id(
+                    tracks_payload,
+                    lifecycle_object_id,
+                    test_times,
+                )
+                if tracks_payload is not None and lifecycle_object_id is not None
+                else []
+            )
+            if not lifecycle_segments:
+                lifecycle_segments = _merge_ranges(
+                    subject_row.get("support_segments_test", [])
+                    or subject_row.get("query_relevant_segments_test", [])
+                    or subject_row.get("moving_segments_test", [])
+                    or [[0, int(len(test_times) - 1)]]
+                )
+            selected_rows.append(
+                {
+                    "id": int(subject_row["id"]),
+                    "role": "entity",
+                    "confidence": 1.0,
+                    "reason": "Selected the synchronized full entity lifecycle for this benchmark task.",
+                    "segments": _merge_ranges(lifecycle_segments),
+                }
+            )
+        if selected_rows:
+            return {
+                "query": query,
+                "selected": selected_rows,
+                "empty": False,
+                "notes": (
+                    f"Subjects={subject_phrases}; Selection source=entity_lifecycle; "
+                    "Temporal output=entity_lifecycle"
+                ),
+                "selection_mode": "qwen_plan_entity_lifecycle",
+                "temporal_output_mode": "entity_lifecycle",
+                "subject_phrases": subject_phrases,
+                "successor_phrases": successor_phrases,
+                "subject_phrase_matches": subject_matches,
+                "successor_phrase_matches": successor_matches,
+                "contact_pair": {
+                    "entity_a": int(subject_ids[0]),
+                    "entity_b": int(subject_ids[1]) if len(subject_ids) > 1 else -1,
+                    "entity_a_phrase": str(subject_phrases[0]) if subject_phrases else "",
+                    "entity_b_phrase": str(subject_phrases[1]) if len(subject_phrases) > 1 else "",
+                    "contact_segments_test": [],
+                    "source": "entity_lifecycle",
+                },
+                "relation_disambiguation": relation_disambiguation,
+                "raw_output": raw_output,
+            }
     if len(subject_ids) == 1:
         subject_id = int(subject_ids[0])
         subject_row = next((candidate for candidate in candidates if int(candidate["id"]) == subject_id), None)
@@ -2814,6 +2903,8 @@ def _compose_phrase_grounded_selection(
             f"Selection source={selection_source}",
             f"Segments={merged_selected_ranges}",
         ]
+        if _uses_entity_lifecycle_temporal_output():
+            notes_parts.append("Temporal output=entity_lifecycle")
         if split_frame is not None:
             notes_parts.append(f"Mask split frame={int(split_frame)}")
         if track_state_meta:
@@ -2844,6 +2935,9 @@ def _compose_phrase_grounded_selection(
             "empty": False,
             "notes": "; ".join(notes_parts),
             "selection_mode": "qwen_plan_single_subject",
+            "temporal_output_mode": (
+                "entity_lifecycle" if _uses_entity_lifecycle_temporal_output() else "query_state_window"
+            ),
             "subject_phrases": subject_phrases,
             "successor_phrases": successor_phrases,
             "subject_phrase_matches": subject_matches,
