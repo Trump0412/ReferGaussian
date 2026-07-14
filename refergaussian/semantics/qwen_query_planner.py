@@ -58,6 +58,7 @@ Return exactly one JSON object with keys:
 - primary_subject_phrases: array of the exact entity or entities requested by the query, excluding action context
 - query_subject_phrases: array of short static noun phrases for the primary query objects only
 - required_identity_attributes: array of visible identity attributes that must be true of the requested entity for a non-empty answer
+- temporal_state_attributes: array of query attributes that describe a time-varying state rather than persistent identity
 - query_successor_phrases: array of short static noun phrases that appear only after a query-driven state change, such as "object fragments"
 - phase_transition_hints: array of objects, each with keys {{phrase, last_pre_change_slot, first_post_change_slot, reason}}
 - detector_phrases: array of short static noun phrases to detect and track
@@ -93,6 +94,9 @@ Rules:
   whether the referent exists, such as a color, material, texture, or permanent appearance. For example, return ["white"]
   for "the white chocolate" and ["metal"] for "the metal tool". Do not put temporal state words there, including
   before/after, melting, broken, or moving; those describe an entity's lifecycle rather than whether the entity exists.
+- `temporal_state_attributes` must contain state conditions that identify a phase of an existing entity, such as ["solid"]
+  for "the solid chocolate before it starts melting" or ["broken"] for "the broken object after it splits". Never put
+  a category head, color, material, or other persistent identity attribute in this field.
 - If a requested identity attribute is absent, treat this as a ZERO / DISTRACTOR QUERY. Do not silently replace it with
   the closest object of the same broad category.
 - `detector_phrases` should normally equal `query_subject_phrases + query_successor_phrases`, and not include unrelated context objects.
@@ -642,6 +646,65 @@ def _canonicalize_phrase(value: Any) -> str:
     return phrase
 
 
+def _phrase_token_set(value: Any) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", _canonicalize_phrase(value)))
+
+
+def _attribute_is_covered_by_phrase(attribute: str, phrase: str) -> bool:
+    attribute_tokens = _phrase_token_set(attribute)
+    phrase_tokens = _phrase_token_set(phrase)
+    return bool(attribute_tokens) and attribute_tokens.issubset(phrase_tokens)
+
+
+def _filter_identity_attributes(
+    *,
+    identity_attributes: list[str],
+    temporal_state_attributes: list[str],
+    query_subject_phrases: list[str],
+    temporal_hints: list[str],
+    query_profile: dict[str, Any],
+) -> tuple[list[str], list[dict[str, str]]]:
+    """Keep persistent attributes while removing syntactically grounded state labels.
+
+    This is intentionally vocabulary-free. The vision planner declares the two
+    scopes, while the normalizer removes category heads and, for explicitly
+    temporal queries, resolves a contradictory declaration from an ``initial
+    ... state`` or ``final ... phase`` hint. That makes the gate conservative
+    without encoding scene, object, color, or action names.
+    """
+    subject_tokens: set[str] = set()
+    for phrase in query_subject_phrases:
+        subject_tokens.update(_phrase_token_set(phrase))
+    temporal_anchors = ("initial", "final", "state", "phase", "before", "after", "during", "process")
+    temporal_hint_phrases = [
+        phrase
+        for phrase in temporal_hints
+        if any(anchor in _phrase_token_set(phrase) for anchor in temporal_anchors)
+    ]
+    is_temporal_query = bool(
+        query_profile.get("asks_before_state")
+        or query_profile.get("asks_after_state")
+        or query_profile.get("asks_action_window")
+    )
+    kept: list[str] = []
+    filtered: list[dict[str, str]] = []
+    for attribute in identity_attributes:
+        attribute_tokens = _phrase_token_set(attribute)
+        if attribute_tokens and attribute_tokens.issubset(subject_tokens):
+            filtered.append({"attribute": attribute, "reason": "subject_head"})
+            continue
+        if any(_attribute_is_covered_by_phrase(attribute, phrase) for phrase in temporal_state_attributes):
+            filtered.append({"attribute": attribute, "reason": "planner_temporal_state"})
+            continue
+        if is_temporal_query and any(
+            _attribute_is_covered_by_phrase(attribute, phrase) for phrase in temporal_hint_phrases
+        ):
+            filtered.append({"attribute": attribute, "reason": "temporal_hint"})
+            continue
+        kept.append(attribute)
+    return kept, filtered
+
+
 def _singularize_counted_token(token: str) -> str:
     """Provide a conservative English singular form only for count phrases."""
     if not token.isalpha() or len(token) <= 3:
@@ -972,6 +1035,10 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
     if isinstance(raw_identity_attributes, str):
         raw_identity_attributes = [raw_identity_attributes]
     required_identity_attributes = _normalize_phrase_list(raw_identity_attributes)[:4]
+    raw_temporal_state_attributes = raw_payload.get("temporal_state_attributes", [])
+    if isinstance(raw_temporal_state_attributes, str):
+        raw_temporal_state_attributes = [raw_temporal_state_attributes]
+    temporal_state_attributes = _normalize_phrase_list(raw_temporal_state_attributes)[:4]
     raw_optional_phrases = _normalize_phrase_list(raw_payload.get("optional_phrases", []))[:6]
     must_track_phrases = _normalize_phrase_list(raw_payload.get("must_track_phrases", []))[:3]
     temporal_hints = _normalize_phrase_list(raw_payload.get("temporal_hints", []))[:4]
@@ -1018,6 +1085,13 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         if _counted_subject_matches_plan(counted_subject_phrase, query_subject_phrases):
             query_subject_phrases = [counted_subject_phrase]
     primary_subject_phrases = query_subject_phrases[:]
+    required_identity_attributes, identity_attribute_filter = _filter_identity_attributes(
+        identity_attributes=required_identity_attributes,
+        temporal_state_attributes=temporal_state_attributes,
+        query_subject_phrases=query_subject_phrases,
+        temporal_hints=temporal_hints,
+        query_profile=query_profile,
+    )
     relation_context_phrases = _relation_context_phrases(
         query,
         query_subject_phrases=query_subject_phrases,
@@ -1088,6 +1162,8 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         "primary_subject_phrases": primary_subject_phrases,
         "query_subject_phrases": query_subject_phrases,
         "required_identity_attributes": required_identity_attributes,
+        "temporal_state_attributes": temporal_state_attributes,
+        "identity_attribute_filter": identity_attribute_filter,
         "relation_context_phrases": relation_context_phrases,
         "query_successor_phrases": query_successor_phrases,
         "detector_phrases": detector_phrases,

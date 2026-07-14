@@ -130,6 +130,29 @@ class QueryPlannerPhraseTest(unittest.TestCase):
 
         self.assertEqual(plan["required_identity_attributes"], ["white"])
 
+    def test_temporal_state_and_subject_head_do_not_enter_identity_gate(self) -> None:
+        plan = _normalize_plan(
+            {
+                "video_inventory_phrases": ["chocolate bar", "tray"],
+                "primary_subject_phrases": ["chocolate bar"],
+                "query_subject_phrases": ["chocolate bar"],
+                # Exercise the temporal-hint recovery path when a VLM omits
+                # the new temporal_state_attributes field.
+                "required_identity_attributes": ["solid", "chocolate"],
+                "temporal_hints": ["initial solid state", "melting process"],
+            },
+            "The solid chocolate before it starts melting.",
+        )
+
+        self.assertEqual(plan["required_identity_attributes"], [])
+        self.assertEqual(
+            plan["identity_attribute_filter"],
+            [
+                {"attribute": "solid", "reason": "temporal_hint"},
+                {"attribute": "chocolate", "reason": "subject_head"},
+            ],
+        )
+
     def test_content_state_is_derived_from_the_query(self) -> None:
         phrases = _state_detector_phrase_additions(
             "the vessel with liquid above the midpoint",
