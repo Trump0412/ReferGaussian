@@ -168,6 +168,51 @@ Rules:
 """
 
 
+EXCLUSION_SET_PROMPT_TEMPLATE = """You are selecting the answer members of an exclusion-style
+set-valued referring query from a query-specific ReferGaussian 4D entity library. You will receive a
+natural-language query, a query plan, candidate aliases, and ordered Stage 1 mask-overlay crops for every
+candidate.
+
+The requested answer is a semantic foreground set, not a mechanical list of every detector track. Decide
+which visibly distinct entities belong after applying the explicit exclusions in the query. Use the visual
+evidence, the full-video plan, and each candidate's role to make that membership decision.
+
+Query:
+{query}
+
+Query plan:
+{query_plan_json}
+
+Candidate aliases:
+{candidate_json}
+
+Candidate visual evidence:
+{candidate_visual_evidence_json}
+
+Return exactly one JSON object with keys:
+- query: original query
+- subject_phrases: array of candidate aliases that belong in the final answer set
+- successor_phrases: empty array unless the query explicitly requests a successor state
+- excluded_active_tool_aliases: array of candidate aliases that visibly act as an active instrument during an event
+- verified_identity_attributes: array containing every visibly verified attribute from query_plan.required_identity_attributes
+- notes: short string
+
+Rules:
+- Candidate aliases must come from the candidate aliases only.
+- Apply every explicit exclusion in the query. Do not include an excluded candidate in subject_phrases.
+- Select all and only the visibly distinct foreground entities that remain in the requested answer set.
+  Do not interpret "all objects" as every raw detector track: omit a scene-level background/support proxy,
+  a duplicate proxy mask, or an incidental contextual track unless the query explicitly asks for it.
+- Exclude an active instrument used only to cause an event unless the query explicitly requests that
+  instrument. Record it in excluded_active_tool_aliases when it is visible.
+- A candidate marked scene_spanning_support_proxy is a large, scene-level support-mask proxy. Exclude it
+  unless the user explicitly names that entity in the query.
+- The supplied images are ordered exactly as candidate_visual_evidence_json. Treat their Stage 1 mask
+  overlays as the visual grounding evidence; aliases and noisy motion summaries alone are insufficient.
+- Keep aliases and notes in English only. Output valid JSON only.
+"""
+
+
 TEMPORAL_EXPANSION_FACTOR = 2.5
 
 
@@ -2312,6 +2357,158 @@ def _compose_static_set_selection(
     }
 
 
+def _candidate_selection_label(candidate: dict[str, Any]) -> str:
+    return str(
+        candidate.get("proposal_alias")
+        or candidate.get("proposal_phrase")
+        or candidate.get("static_text")
+        or ""
+    )
+
+
+def _filter_vlm_confirmed_active_tools(
+    candidates: list[dict[str, Any]],
+    *,
+    query: str,
+    qwen_active_tool_ids: set[int],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Remove only VLM-confirmed active tools that the query does not request."""
+    retained: list[dict[str, Any]] = []
+    excluded: list[dict[str, Any]] = []
+    for candidate in candidates:
+        candidate_id = int(candidate.get("id", -1))
+        if candidate_id in qwen_active_tool_ids and not _query_explicitly_names_candidate(query, candidate):
+            excluded.append(
+                {
+                    "id": candidate_id,
+                    "alias": _candidate_selection_label(candidate),
+                    "reason": "vlm_confirmed_active_tool",
+                }
+            )
+            continue
+        retained.append(candidate)
+    return retained, excluded
+
+
+def _compose_exclusion_set_selection(
+    *,
+    query: str,
+    candidates: list[dict[str, Any]],
+    test_times: np.ndarray,
+    qwen_ran: bool,
+    qwen_subjects: list[str],
+    qwen_active_tool_ids: set[int],
+    subject_ids: list[int],
+    successor_phrases: list[str],
+    successor_matches: dict[str, list[int]],
+    raw_output: str,
+) -> dict[str, Any]:
+    """Finalize an exclusion answer from visually grounded set membership.
+
+    The previous implementation intentionally discarded the VLM's answer set and
+    selected every detector track not named by ``except``. That turns incidental
+    tracks, active instruments, and scene-scale support masks into Gaussian
+    entities. Here visual set membership is the normal path; deterministic
+    completion is reserved for an unavailable/empty VLM answer and is labelled
+    explicitly for diagnosis.
+    """
+    excluded_phrases = _extract_exclusion_phrases(query)
+    explicitly_excluded_rows = [
+        candidate
+        for candidate in candidates
+        if any(_candidate_matches_phrase(candidate, phrase) for phrase in excluded_phrases)
+    ]
+    explicitly_excluded_ids = {int(candidate["id"]) for candidate in explicitly_excluded_rows}
+
+    visual_member_ids = {int(entity_id) for entity_id in subject_ids}
+    visual_members = [
+        candidate
+        for candidate in candidates
+        if int(candidate.get("id", -1)) in visual_member_ids
+        and int(candidate.get("id", -1)) not in explicitly_excluded_ids
+    ]
+    has_visual_membership = bool(qwen_ran and qwen_subjects and visual_members)
+    if has_visual_membership:
+        inclusion_rows = visual_members
+        selection_source = "qwen_visual_exclusion_set"
+    else:
+        inclusion_rows = [
+            candidate
+            for candidate in candidates
+            if int(candidate.get("id", -1)) not in explicitly_excluded_ids
+        ]
+        selection_source = "deterministic_exclusion_completion"
+
+    inclusion_rows, excluded_active_tools = _filter_vlm_confirmed_active_tools(
+        inclusion_rows,
+        query=query,
+        qwen_active_tool_ids=qwen_active_tool_ids,
+    )
+    inclusion_rows, excluded_scene_proxies = _filter_static_scene_proxy_candidates(
+        inclusion_rows,
+        query=query,
+    )
+
+    full_range = [[0, max(int(len(test_times) - 1), 0)]]
+    force_full_range = os.environ.get("QUERY_EXCLUSION_FULL_RANGE_FALLBACK", "1") == "1"
+    selected_rows: list[dict[str, Any]] = []
+    for candidate in inclusion_rows:
+        if force_full_range:
+            segments = full_range
+        else:
+            segments = _merge_ranges(
+                candidate.get("support_segments_test", [])
+                or candidate.get("query_relevant_segments_test", [])
+                or candidate.get("moving_segments_test", [])
+                or full_range
+            )
+        selected_rows.append(
+            {
+                "id": int(candidate["id"]),
+                "role": "entity",
+                "confidence": 1.0,
+                "reason": (
+                    "Exclusion query: visually grounded foreground-set membership after "
+                    f"explicit exclusions. Subject phrase='{_candidate_selection_label(candidate)}'."
+                ),
+                "segments": segments,
+            }
+        )
+    subject_phrases = [_candidate_selection_label(candidate) for candidate in inclusion_rows]
+    subject_ids_out = [int(candidate["id"]) for candidate in inclusion_rows]
+    explicit_filter_rows = [
+        {
+            "id": int(candidate["id"]),
+            "alias": _candidate_selection_label(candidate),
+            "reason": "explicit_query_exclusion",
+        }
+        for candidate in explicitly_excluded_rows
+    ]
+    return {
+        "query": query,
+        "selected": selected_rows,
+        "empty": not bool(selected_rows),
+        "notes": (
+            f"Exclusion query: selected {len(selected_rows)} entities via {selection_source}. "
+            f"Subjects={subject_phrases}. Explicit exclusions={explicit_filter_rows}. "
+            f"Excluded active tools={excluded_active_tools}. Excluded scene proxies={excluded_scene_proxies}. "
+            f"full_range_fallback={force_full_range}"
+        ),
+        "selection_mode": selection_source,
+        "subject_phrases": subject_phrases,
+        "successor_phrases": successor_phrases,
+        "subject_phrase_matches": {"__exclusion_candidates__": subject_ids_out},
+        "successor_phrase_matches": successor_matches,
+        "contact_pair": None,
+        "raw_output": raw_output,
+        "selection_filters": {
+            "explicit_query_exclusions": explicit_filter_rows,
+            "excluded_vlm_confirmed_active_tools": excluded_active_tools,
+            "excluded_scene_spanning_support_proxies": excluded_scene_proxies,
+        },
+    }
+
+
 def _query_state_mode(query_norm: str) -> str | None:
     padded = f" {query_norm} "
     if "above the midpoint" in query_norm or "above midpoint" in query_norm or "midpoint of the cup" in query_norm:
@@ -3138,9 +3335,6 @@ def _compose_phrase_grounded_selection(
         query_state_mode=query_state_mode,
         is_exclusion_query=is_exclusion_query,
     )
-    if is_exclusion_query:
-        qwen_subjects = []
-        qwen_successors = []
     subject_limit = 8 if is_set_query else 3
     qwen_subjects = _expand_counted_subject_phrases(qwen_subjects, limit=subject_limit)
     plan_subjects = _expand_counted_subject_phrases(plan_subjects, limit=subject_limit)
@@ -3160,7 +3354,11 @@ def _compose_phrase_grounded_selection(
     # If Qwen actually ran (raw_phrase_payload is not None) and explicitly returned empty subject_phrases,
     # respect that as "no matching entity" — do NOT fall back to plan_subjects.
     qwen_ran = raw_phrase_payload is not None
-    if (
+    if is_exclusion_query:
+        # Exclusion prompts return the final answer set directly. Plan subjects
+        # describe the exclusions/context and must not overwrite that visual set.
+        subject_phrases = qwen_subjects if qwen_ran else []
+    elif (
         not is_set_query
         and query_state_mode is not None
         and len(plan_subjects) >= 2
@@ -3223,7 +3421,7 @@ def _compose_phrase_grounded_selection(
             "contact_pair": None,
             "raw_output": raw_output,
         }
-    if is_exclusion_query and not subject_ids and candidates:
+    if is_exclusion_query and not subject_ids and candidates and not qwen_ran:
         subject_ids = [int(candidate["id"]) for candidate in candidates]
         subject_phrases = [
             str(candidate.get("proposal_phrase") or candidate.get("static_text") or ("entity_%s" % candidate["id"]))
@@ -3231,18 +3429,18 @@ def _compose_phrase_grounded_selection(
         ]
         subject_matches = {"__all__": [int(candidate["id"]) for candidate in candidates]}
     subject_ids, subject_phrases = _dedupe_subject_selection(subject_ids, subject_phrases)
+    qwen_active_tool_ids: set[int] = set()
+    if qwen_ran and qwen_active_tool_phrases:
+        try:
+            resolved_tool_ids, _tool_matches = _select_phrase_ids(
+                candidates,
+                qwen_active_tool_phrases,
+                allow_missing=True,
+            )
+        except ValueError:
+            resolved_tool_ids = []
+        qwen_active_tool_ids = {int(entity_id) for entity_id in resolved_tool_ids}
     if query_state_mode == "static":
-        qwen_active_tool_ids: set[int] = set()
-        if qwen_ran and qwen_active_tool_phrases:
-            try:
-                resolved_tool_ids, _tool_matches = _select_phrase_ids(
-                    candidates,
-                    qwen_active_tool_phrases,
-                    allow_missing=True,
-                )
-            except ValueError:
-                resolved_tool_ids = []
-            qwen_active_tool_ids = {int(entity_id) for entity_id in resolved_tool_ids}
         return _compose_static_set_selection(
             query=query,
             candidates=candidates,
@@ -3253,6 +3451,19 @@ def _compose_phrase_grounded_selection(
             subject_ids=subject_ids,
             subject_phrases=subject_phrases,
             subject_matches=subject_matches,
+            successor_phrases=successor_phrases,
+            successor_matches=successor_matches,
+            raw_output=raw_output,
+        )
+    if is_exclusion_query:
+        return _compose_exclusion_set_selection(
+            query=query,
+            candidates=candidates,
+            test_times=test_times,
+            qwen_ran=qwen_ran,
+            qwen_subjects=qwen_subjects,
+            qwen_active_tool_ids=qwen_active_tool_ids,
+            subject_ids=subject_ids,
             successor_phrases=successor_phrases,
             successor_matches=successor_matches,
             raw_output=raw_output,
@@ -3792,73 +4003,6 @@ def _compose_phrase_grounded_selection(
     if state_pair_payload is not None:
         return state_pair_payload
 
-    # --- Exclusion query: "all objects EXCEPT X" — no interaction required ---
-    # For exclusion queries, each selected entity is active in its own support window.
-    if is_exclusion_query:
-        excluded_phrases = _extract_exclusion_phrases(query)
-        excluded_ids = {
-            int(candidate["id"])
-            for candidate in candidates
-            if any(_candidate_matches_phrase(candidate, phrase) for phrase in excluded_phrases)
-        }
-        inclusion_rows = [
-            candidate
-            for candidate in candidates
-            if int(candidate["id"]) not in excluded_ids
-        ]
-        if inclusion_rows:
-            subject_ids = [int(candidate["id"]) for candidate in inclusion_rows]
-            subject_phrases = [
-                str(candidate.get("proposal_phrase") or candidate.get("static_text") or f"entity_{candidate['id']}")
-                for candidate in inclusion_rows
-            ]
-            subject_matches = {"__all_except__": subject_ids[:]}
-    if is_exclusion_query and subject_ids:
-        selected_rows_excl = []
-        full_range = [[0, int(len(test_times) - 1)]]
-        force_full_exclusion = os.environ.get("QUERY_EXCLUSION_FULL_RANGE_FALLBACK", "1") == "1"
-        for entity_id, phrase in zip(subject_ids, subject_phrases):
-            subject_row_excl = next(
-                (candidate for candidate in candidates if int(candidate["id"]) == int(entity_id)), None
-            )
-            if force_full_exclusion:
-                segs = full_range
-            elif subject_row_excl is not None:
-                segs = _merge_ranges(
-                    subject_row_excl.get("support_segments_test", [])
-                    or subject_row_excl.get("query_relevant_segments_test", [])
-                    or subject_row_excl.get("moving_segments_test", [])
-                    or full_range
-                )
-            else:
-                segs = full_range
-            selected_rows_excl.append({
-                "id": int(entity_id),
-                "role": "entity",
-                "confidence": 1.0,
-                "reason": f"Exclusion query: all objects except excluded. Subject phrase='{phrase}'.",
-                "segments": segs,
-            })
-        merged_excl = _merge_ranges([
-            [int(s[0]), int(s[1])]
-            for row in selected_rows_excl
-            for s in row.get("segments", [])
-            if isinstance(s, (list, tuple)) and len(s) == 2
-        ])
-        return {
-            "query": query,
-            "selected": selected_rows_excl,
-            "empty": False,
-            "notes": f"Exclusion query: selected {len(selected_rows_excl)} entities; Subjects={subject_phrases}; Segments={merged_excl}; full_range_fallback={force_full_exclusion}",
-            "selection_mode": "qwen_plan_exclusion",
-            "subject_phrases": subject_phrases,
-            "successor_phrases": successor_phrases,
-            "subject_phrase_matches": subject_matches,
-            "successor_phrase_matches": successor_matches,
-            "contact_pair": None,
-            "raw_output": raw_output,
-        }
-
     if tracks_payload and len(subject_phrases) >= 2:
         pair_segments = _track_contact_segments_test(
             tracks_payload,
@@ -4034,13 +4178,15 @@ def main() -> None:
             is_exclusion_query=_is_exclusion_query(query),
         )
     )
-    if static_set_query:
+    is_exclusion_query = _is_exclusion_query(query)
+    visual_set_query = bool(static_set_query or is_exclusion_query)
+    if visual_set_query:
         candidates = _annotate_static_set_mask_geometry(candidates, tracks_payload)
     valid_ids = {int(item["id"]) for item in candidates}
     visual_evidence_images, visual_evidence_rows = _build_candidate_visual_evidence(
         candidates,
         tracks_payload,
-        temporal_contact_sheets=static_set_query,
+        temporal_contact_sheets=visual_set_query,
     )
     visual_evidence_json = json.dumps(visual_evidence_rows, ensure_ascii=False, indent=2)
     raw_payload: dict[str, Any] | None = None
@@ -4058,6 +4204,13 @@ def main() -> None:
         else:
             if static_set_query:
                 prompt = STATIC_SET_PROMPT_TEMPLATE.format(
+                    query=query,
+                    query_plan_json=json.dumps(query_plan_payload, ensure_ascii=False, indent=2),
+                    candidate_json=json.dumps(_static_set_candidate_payload(candidates), ensure_ascii=False, indent=2),
+                    candidate_visual_evidence_json=visual_evidence_json,
+                )
+            elif is_exclusion_query:
+                prompt = EXCLUSION_SET_PROMPT_TEMPLATE.format(
                     query=query,
                     query_plan_json=json.dumps(query_plan_payload, ensure_ascii=False, indent=2),
                     candidate_json=json.dumps(_static_set_candidate_payload(candidates), ensure_ascii=False, indent=2),

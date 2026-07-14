@@ -906,6 +906,81 @@ class QueryPlannerPhraseTest(unittest.TestCase):
             [{"id": 2, "alias": "active instrument", "reason": "vlm_confirmed_active_tool"}],
         )
 
+    def test_exclusion_set_honors_visual_membership_and_filters_tool_and_proxy(self) -> None:
+        candidates = [
+            {
+                "id": 1,
+                "proposal_alias": "foreground entity",
+                "proposal_phrase": "foreground entity",
+                "static_text": "foreground entity",
+                "entity_type": "object",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+            },
+            {
+                "id": 2,
+                "proposal_alias": "active instrument",
+                "proposal_phrase": "active instrument",
+                "static_text": "active instrument",
+                "entity_type": "object",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+            },
+            {
+                "id": 3,
+                "proposal_alias": "large support surface",
+                "proposal_phrase": "large support surface",
+                "static_text": "large support surface",
+                "entity_type": "support_surface",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+                "static_set_mask_geometry": {"median_area_fraction": 0.42},
+            },
+            {
+                "id": 4,
+                "proposal_alias": "excluded entity",
+                "proposal_phrase": "excluded entity",
+                "static_text": "excluded entity",
+                "entity_type": "object",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+            },
+            {
+                "id": 5,
+                "proposal_alias": "incidental track",
+                "proposal_phrase": "incidental track",
+                "static_text": "incidental track",
+                "entity_type": "object",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+            },
+        ]
+
+        payload = _compose_phrase_grounded_selection(
+            query="All objects except the excluded entity.",
+            query_plan_payload={"query_semantic_profile": {"asks_set": True}},
+            candidates=candidates,
+            pair_candidates=[],
+            test_times=np.linspace(0.0, 1.0, num=10),
+            tracks_payload=None,
+            raw_phrase_payload={
+                "subject_phrases": ["foreground entity", "active instrument", "large support surface"],
+                "successor_phrases": [],
+                "excluded_active_tool_aliases": ["active instrument"],
+            },
+        )
+
+        self.assertEqual(payload["selection_mode"], "qwen_visual_exclusion_set")
+        self.assertEqual([item["id"] for item in payload["selected"]], [1])
+        self.assertEqual(
+            payload["selection_filters"]["excluded_vlm_confirmed_active_tools"],
+            [{"id": 2, "alias": "active instrument", "reason": "vlm_confirmed_active_tool"}],
+        )
+        self.assertEqual(
+            payload["selection_filters"]["excluded_scene_spanning_support_proxies"],
+            [{"id": 3, "alias": "large support surface", "reason": "scene_spanning_support_proxy"}],
+        )
+
     def test_qwen_budget_uses_available_large_gpu_memory_without_a_hidden_16gib_cap(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("REFERGAUSSIAN_QWEN_GPU_RESERVE_GIB", None)
