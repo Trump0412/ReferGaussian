@@ -1857,6 +1857,23 @@ def _is_exclusion_query(query_norm: str) -> bool:
     return any(pattern in text for pattern in exclusion_patterns)
 
 
+def _query_requires_entity_set_selection(
+    query_plan_payload: dict[str, Any],
+    *,
+    query_state_mode: str | None,
+    is_exclusion_query: bool,
+) -> bool:
+    """Whether entity membership must be decided as a set, not a singleton.
+
+    A full-lifecycle output contract changes *when* a selected entity is
+    rendered.  It must not replace the set/exclusion selection rules that
+    decide *which* entities belong to the answer.
+    """
+    semantic_profile = query_plan_payload.get("query_semantic_profile", {})
+    asks_set = bool(semantic_profile.get("asks_set", False)) if isinstance(semantic_profile, dict) else False
+    return bool(asks_set or query_state_mode == "static" or is_exclusion_query)
+
+
 def _extract_exclusion_phrases(query_norm: str) -> list[str]:
     text = " ".join(str(query_norm).strip().lower().split())
     english_patterns = [
@@ -2718,11 +2735,27 @@ def _compose_phrase_grounded_selection(
     is_exclusion_query = _is_exclusion_query(query)
     plan_subjects = [str(item).strip() for item in query_plan_payload.get("query_subject_phrases", []) if str(item).strip()]
     plan_successors = [str(item).strip() for item in query_plan_payload.get("query_successor_phrases", []) if str(item).strip()]
+    query_state_mode = _query_state_mode(query_norm)
+    if query_state_mode is None:
+        plan_state_mode = str(query_plan_payload.get("query_state_mode") or "").strip()
+        if plan_state_mode:
+            query_state_mode = plan_state_mode
+    if query_state_mode is None and _plan_confirms_progressive_relation_action(
+        query_norm,
+        query_plan_payload,
+    ):
+        query_state_mode = "action"
+    is_set_query = _query_requires_entity_set_selection(
+        query_plan_payload,
+        query_state_mode=query_state_mode,
+        is_exclusion_query=is_exclusion_query,
+    )
     if is_exclusion_query:
         qwen_subjects = []
         qwen_successors = []
-    qwen_subjects = _expand_counted_subject_phrases(qwen_subjects, limit=3)
-    plan_subjects = _expand_counted_subject_phrases(plan_subjects, limit=3)
+    subject_limit = 8 if is_set_query else 3
+    qwen_subjects = _expand_counted_subject_phrases(qwen_subjects, limit=subject_limit)
+    plan_subjects = _expand_counted_subject_phrases(plan_subjects, limit=subject_limit)
     if not is_exclusion_query:
         qwen_subjects = _filter_qwen_subjects_to_singular_plan_subject(
             qwen_subjects,
@@ -2739,17 +2772,6 @@ def _compose_phrase_grounded_selection(
     # If Qwen actually ran (raw_phrase_payload is not None) and explicitly returned empty subject_phrases,
     # respect that as "no matching entity" — do NOT fall back to plan_subjects.
     qwen_ran = raw_phrase_payload is not None
-    query_state_mode = _query_state_mode(query_norm)
-    # Also check query_plan_payload for explicit state mode (set by query plan editor)
-    if query_state_mode is None:
-        plan_state_mode = str(query_plan_payload.get("query_state_mode") or "").strip()
-        if plan_state_mode:
-            query_state_mode = plan_state_mode
-    if query_state_mode is None and _plan_confirms_progressive_relation_action(
-        query_norm,
-        query_plan_payload,
-    ):
-        query_state_mode = "action"
     if query_state_mode is not None and len(plan_subjects) >= 2 and len(qwen_subjects) < len(plan_subjects):
         subject_phrases = plan_subjects
     elif qwen_ran and not qwen_subjects and not is_exclusion_query:
@@ -2818,7 +2840,7 @@ def _compose_phrase_grounded_selection(
     subject_ids, subject_phrases = _dedupe_subject_selection(subject_ids, subject_phrases)
     split_keywords = ("broken", "pieces", "halves", "split", "cracked")
     intact_keywords = ("complete", "whole", "intact", "unbroken")
-    if _uses_entity_lifecycle_temporal_output() and subject_ids:
+    if _uses_entity_lifecycle_temporal_output() and subject_ids and not is_set_query:
         selected_rows = []
         for subject_id in subject_ids:
             subject_row = next(
