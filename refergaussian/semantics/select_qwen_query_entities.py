@@ -142,6 +142,7 @@ Return exactly one JSON object with keys:
 - query: original query
 - subject_phrases: array of candidate aliases that belong to the requested set
 - successor_phrases: empty array unless the query explicitly requests a successor state
+- excluded_active_tool_aliases: array of candidate aliases that visibly act as an active instrument during an event
 - verified_identity_attributes: array containing every visibly verified attribute from query_plan.required_identity_attributes
 - notes: short string
 
@@ -152,6 +153,11 @@ Rules:
   component participates in a nearby action.
 - Exclude an active tool used solely to cause an event, a clearly non-answer background surface, and a
   duplicate proxy mask when the visual evidence shows it is not a distinct answer entity.
+- For a query about entities that remain stationary, an active instrument must appear in
+  excluded_active_tool_aliases and must not also appear in subject_phrases, even if it is static in a
+  subset of the video. Leave excluded_active_tool_aliases empty when no such instrument is visible.
+- When query_plan.interaction_phrase describes an event, use it together with the temporal contact sheets
+  to identify the instrument, rather than inferring that every persistent foreground mask is stationary.
 - A candidate marked scene_spanning_support_proxy is a large, scene-level support-mask proxy. For a
   generic set query, exclude it unless the user explicitly names that entity in the query.
 - Do not replace a requested identity attribute with a broad-category substitute. If a required attribute
@@ -2189,6 +2195,7 @@ def _compose_static_set_selection(
     test_times: np.ndarray,
     qwen_ran: bool,
     qwen_subjects: list[str],
+    qwen_active_tool_ids: set[int],
     subject_ids: list[int],
     subject_phrases: list[str],
     subject_matches: dict[str, list[int]],
@@ -2208,6 +2215,27 @@ def _compose_static_set_selection(
         visual_static_candidates = [
             candidate for candidate in candidates if int(candidate.get("id", -1)) in selected_id_set
         ]
+    excluded_active_tools: list[dict[str, Any]] = []
+    if qwen_active_tool_ids:
+        retained_visual_candidates: list[dict[str, Any]] = []
+        for candidate in visual_static_candidates:
+            candidate_id = int(candidate.get("id", -1))
+            if candidate_id in qwen_active_tool_ids and not _query_explicitly_names_candidate(query, candidate):
+                excluded_active_tools.append(
+                    {
+                        "id": candidate_id,
+                        "alias": str(
+                            candidate.get("proposal_alias")
+                            or candidate.get("proposal_phrase")
+                            or candidate.get("static_text")
+                            or ""
+                        ),
+                        "reason": "vlm_confirmed_active_tool",
+                    }
+                )
+                continue
+            retained_visual_candidates.append(candidate)
+        visual_static_candidates = retained_visual_candidates
     static_candidates = visual_static_candidates or _select_static_candidates(
         candidates,
         query=query,
@@ -2261,7 +2289,7 @@ def _compose_static_set_selection(
         "notes": (
             f"Static query: selected {len(selected_rows)} entities for full video {full_range}. "
             f"Source={static_selection_source}. Subjects={subject_phrases}. "
-            f"Excluded scene proxies={excluded_scene_proxies}"
+            f"Excluded active tools={excluded_active_tools}. Excluded scene proxies={excluded_scene_proxies}"
         ),
         "selection_mode": "qwen_visual_static_set" if visual_static_candidates else "qwen_plan_static_full_video",
         "subject_phrases": subject_phrases,
@@ -2277,7 +2305,10 @@ def _compose_static_set_selection(
             "source": "single_subject_track_static",
         },
         "raw_output": raw_output,
-        "selection_filters": {"excluded_scene_spanning_support_proxies": excluded_scene_proxies},
+        "selection_filters": {
+            "excluded_vlm_confirmed_active_tools": excluded_active_tools,
+            "excluded_scene_spanning_support_proxies": excluded_scene_proxies,
+        },
     }
 
 
@@ -3083,6 +3114,11 @@ def _compose_phrase_grounded_selection(
 ) -> dict[str, Any]:
     qwen_subjects = [str(item).strip() for item in (raw_phrase_payload or {}).get("subject_phrases", []) if str(item).strip()]
     qwen_successors = [str(item).strip() for item in (raw_phrase_payload or {}).get("successor_phrases", []) if str(item).strip()]
+    qwen_active_tool_phrases = [
+        str(item).strip()
+        for item in (raw_phrase_payload or {}).get("excluded_active_tool_aliases", [])
+        if str(item).strip()
+    ]
     query_norm = _normalize_query_state_text(query)
     is_exclusion_query = _is_exclusion_query(query)
     plan_subjects = [str(item).strip() for item in query_plan_payload.get("query_subject_phrases", []) if str(item).strip()]
@@ -3196,12 +3232,24 @@ def _compose_phrase_grounded_selection(
         subject_matches = {"__all__": [int(candidate["id"]) for candidate in candidates]}
     subject_ids, subject_phrases = _dedupe_subject_selection(subject_ids, subject_phrases)
     if query_state_mode == "static":
+        qwen_active_tool_ids: set[int] = set()
+        if qwen_ran and qwen_active_tool_phrases:
+            try:
+                resolved_tool_ids, _tool_matches = _select_phrase_ids(
+                    candidates,
+                    qwen_active_tool_phrases,
+                    allow_missing=True,
+                )
+            except ValueError:
+                resolved_tool_ids = []
+            qwen_active_tool_ids = {int(entity_id) for entity_id in resolved_tool_ids}
         return _compose_static_set_selection(
             query=query,
             candidates=candidates,
             test_times=test_times,
             qwen_ran=qwen_ran,
             qwen_subjects=qwen_subjects,
+            qwen_active_tool_ids=qwen_active_tool_ids,
             subject_ids=subject_ids,
             subject_phrases=subject_phrases,
             subject_matches=subject_matches,

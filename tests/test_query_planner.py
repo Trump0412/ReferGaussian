@@ -821,8 +821,13 @@ class QueryPlannerPhraseTest(unittest.TestCase):
 
         self.assertEqual([item["id"] for item in payload["selected"]], [1])
         self.assertEqual(
-            payload["selection_filters"]["excluded_scene_spanning_support_proxies"],
-            [{"id": 2, "alias": "large support surface", "reason": "scene_spanning_support_proxy"}],
+            payload["selection_filters"],
+            {
+                "excluded_vlm_confirmed_active_tools": [],
+                "excluded_scene_spanning_support_proxies": [
+                    {"id": 2, "alias": "large support surface", "reason": "scene_spanning_support_proxy"}
+                ],
+            },
         )
 
     def test_static_set_keeps_a_scene_spanning_support_when_explicitly_named(self) -> None:
@@ -851,6 +856,55 @@ class QueryPlannerPhraseTest(unittest.TestCase):
 
         self.assertEqual([item["id"] for item in payload["selected"]], [2])
         self.assertEqual(payload["selection_filters"]["excluded_scene_spanning_support_proxies"], [])
+
+    def test_static_set_honors_vlm_confirmed_active_tool(self) -> None:
+        candidates = [
+            {
+                "id": 1,
+                "proposal_alias": "stationary object",
+                "proposal_phrase": "stationary object",
+                "static_text": "stationary object",
+                "entity_type": "object",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+                "stationary_segments_test": [[0, 9]],
+                "moving_segments_test": [],
+            },
+            {
+                "id": 2,
+                "proposal_alias": "active instrument",
+                "proposal_phrase": "active instrument",
+                "static_text": "active instrument",
+                "entity_type": "object",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+                "stationary_segments_test": [[0, 9]],
+                "moving_segments_test": [],
+            },
+        ]
+
+        payload = _compose_phrase_grounded_selection(
+            query="All objects that remain physically stationary throughout the video.",
+            query_plan_payload={
+                "query_subject_phrases": ["stationary object", "active instrument"],
+                "query_semantic_profile": {"asks_set": True},
+            },
+            candidates=candidates,
+            pair_candidates=[],
+            test_times=np.linspace(0.0, 1.0, num=10),
+            tracks_payload=None,
+            raw_phrase_payload={
+                "subject_phrases": ["stationary object", "active instrument"],
+                "successor_phrases": [],
+                "excluded_active_tool_aliases": ["active instrument"],
+            },
+        )
+
+        self.assertEqual([item["id"] for item in payload["selected"]], [1])
+        self.assertEqual(
+            payload["selection_filters"]["excluded_vlm_confirmed_active_tools"],
+            [{"id": 2, "alias": "active instrument", "reason": "vlm_confirmed_active_tool"}],
+        )
 
     def test_qwen_budget_uses_available_large_gpu_memory_without_a_hidden_16gib_cap(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
