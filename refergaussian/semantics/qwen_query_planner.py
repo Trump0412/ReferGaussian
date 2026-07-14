@@ -57,6 +57,7 @@ Return exactly one JSON object with keys:
 - video_inventory_phrases: array of short static noun phrases describing the main visible objects in the whole video
 - primary_subject_phrases: array of the exact entity or entities requested by the query, excluding action context
 - query_subject_phrases: array of short static noun phrases for the primary query objects only
+- required_identity_attributes: array of visible identity attributes that must be true of the requested entity for a non-empty answer
 - query_successor_phrases: array of short static noun phrases that appear only after a query-driven state change, such as "object fragments"
 - phase_transition_hints: array of objects, each with keys {{phrase, last_pre_change_slot, first_post_change_slot, reason}}
 - detector_phrases: array of short static noun phrases to detect and track
@@ -88,6 +89,12 @@ Rules:
   to "hands", "cups", or "shoes". The count belongs to the semantic query, even when the detector later
   uses a count-neutral noun phrase.
 - `query_subject_phrases` should contain only the minimum nouns needed to answer the query.
+- `required_identity_attributes` must preserve every non-temporal visual identity constraint in the query that distinguishes
+  whether the referent exists, such as a color, material, texture, or permanent appearance. For example, return ["white"]
+  for "the white chocolate" and ["metal"] for "the metal tool". Do not put temporal state words there, including
+  before/after, melting, broken, or moving; those describe an entity's lifecycle rather than whether the entity exists.
+- If a requested identity attribute is absent, treat this as a ZERO / DISTRACTOR QUERY. Do not silently replace it with
+  the closest object of the same broad category.
 - `detector_phrases` should normally equal `query_subject_phrases + query_successor_phrases`, and not include unrelated context objects.
 - Do not include non-subject context objects in `detector_phrases` unless they are truly required by the query itself.
 - Only use `query_successor_phrases` when the action creates a new stable object state, such as "object fragments".
@@ -961,6 +968,10 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
     primary_subject_phrases = _normalize_phrase_list(raw_payload.get("primary_subject_phrases", []))[:3]
     raw_primary_subject_phrases = primary_subject_phrases[:]
     query_successor_phrases = _normalize_phrase_list(raw_payload.get("query_successor_phrases", []))[:2]
+    raw_identity_attributes = raw_payload.get("required_identity_attributes", [])
+    if isinstance(raw_identity_attributes, str):
+        raw_identity_attributes = [raw_identity_attributes]
+    required_identity_attributes = _normalize_phrase_list(raw_identity_attributes)[:4]
     raw_optional_phrases = _normalize_phrase_list(raw_payload.get("optional_phrases", []))[:6]
     must_track_phrases = _normalize_phrase_list(raw_payload.get("must_track_phrases", []))[:3]
     temporal_hints = _normalize_phrase_list(raw_payload.get("temporal_hints", []))[:4]
@@ -1076,6 +1087,7 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         "video_inventory_phrases": video_inventory_phrases,
         "primary_subject_phrases": primary_subject_phrases,
         "query_subject_phrases": query_subject_phrases,
+        "required_identity_attributes": required_identity_attributes,
         "relation_context_phrases": relation_context_phrases,
         "query_successor_phrases": query_successor_phrases,
         "detector_phrases": detector_phrases,

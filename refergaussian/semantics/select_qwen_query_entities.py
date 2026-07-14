@@ -52,6 +52,7 @@ Return exactly one JSON object with keys:
 - query: original query
 - subject_phrases: array of candidate aliases
 - successor_phrases: array of candidate aliases
+- verified_identity_attributes: array containing every attribute from query_plan.required_identity_attributes that is visibly verified for the selected subject aliases
 - notes: short string
 
 Rules:
@@ -104,6 +105,9 @@ CRITICAL temporal-selectivity rules (apply these STRICTLY):
     (d) Location/context matches if specified (e.g., "on tray" vs "on table")
     (e) State matches if specified (e.g., "solid" vs "melting", "complete" vs "broken")
     If ANY required attribute doesn't match, do NOT select the entity — return [].
+    When query_plan.required_identity_attributes is non-empty, list every verified attribute in
+    `verified_identity_attributes`. If a candidate does not visibly verify all of them, return
+    subject_phrases: [] rather than guessing from its broad category.
 11. VISUAL EVIDENCE IS AN INDEPENDENT CHECK: The supplied images are ordered exactly as described
     in candidate_visual_evidence_json. Each is a source-frame crop with the candidate's Stage 1 mask
     overlay. Do not treat a detector alias alone as proof of identity. If the masked visual evidence
@@ -346,6 +350,132 @@ def _env_flag(name: str, default: bool = False) -> bool:
     if text in {"0", "false", "no", "off"}:
         return False
     return bool(default)
+
+
+def _normalized_attribute_list(values: Any) -> list[str]:
+    if isinstance(values, str):
+        values = [values]
+    normalized: list[str] = []
+    for value in values or []:
+        phrase = _normalize_phrase(str(value))
+        if phrase and phrase not in normalized:
+            normalized.append(phrase)
+    return normalized
+
+
+def _text_mentions_attribute(text: Any, attribute: str) -> bool:
+    attribute_norm = _normalize_phrase(attribute)
+    text_norm = _normalize_phrase(str(text))
+    if not attribute_norm or not text_norm:
+        return False
+    return f" {attribute_norm} " in f" {text_norm} "
+
+
+def _candidate_identity_evidence(candidate: dict[str, Any]) -> str:
+    """Return only semantic descriptions, never detector aliases, as attribute evidence."""
+    values = [
+        candidate.get("static_text", ""),
+        candidate.get("global_desc", ""),
+        " ".join(str(value) for value in candidate.get("concept_tags", [])),
+    ]
+    return " ".join(str(value).strip() for value in values if str(value).strip())
+
+
+def _identity_attribute_verification(
+    *,
+    query_plan_payload: dict[str, Any],
+    raw_phrase_payload: dict[str, Any] | None,
+    selection_payload: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Verify planner-declared visual identity attributes without object-specific rules.
+
+    The planner distinguishes persistent identity attributes from temporal state
+    descriptors. The selector then verifies the former against its visual crops;
+    native entity descriptions provide an independent, query-agnostic check.
+    Detector aliases intentionally do not count as evidence because a broad
+    category label must never prove a requested color or material.
+    """
+    required = _normalized_attribute_list(query_plan_payload.get("required_identity_attributes", []))
+    selected_ids: set[int] = set()
+    for row in selection_payload.get("selected", []):
+        try:
+            selected_ids.add(int(row.get("id")))
+        except (AttributeError, TypeError, ValueError):
+            continue
+    selector_verified = _normalized_attribute_list(
+        (raw_phrase_payload or {}).get("verified_identity_attributes", [])
+    )
+    selected_candidates: list[dict[str, Any]] = []
+    for candidate in candidates:
+        try:
+            candidate_id = int(candidate.get("id", -1))
+        except (TypeError, ValueError):
+            continue
+        if candidate_id in selected_ids:
+            selected_candidates.append(candidate)
+    semantic_evidence = " ".join(_candidate_identity_evidence(candidate) for candidate in selected_candidates)
+
+    verified: list[str] = []
+    sources: dict[str, list[str]] = {}
+    for attribute in required:
+        evidence_sources: list[str] = []
+        if any(_text_mentions_attribute(value, attribute) for value in selector_verified):
+            evidence_sources.append("selector_visual")
+        if _text_mentions_attribute(semantic_evidence, attribute):
+            evidence_sources.append("native_entity_semantics")
+        if evidence_sources:
+            verified.append(attribute)
+            sources[attribute] = evidence_sources
+
+    missing = [attribute for attribute in required if attribute not in verified]
+    if not required:
+        reason = "No persistent visual identity attributes were declared by the planner."
+    elif not selected_ids:
+        reason = "Selection is already empty; no identity-attribute override is needed."
+    elif missing:
+        reason = "Selected entities did not verify all planner-declared identity attributes."
+    else:
+        reason = "All planner-declared identity attributes were verified."
+    return {
+        "enabled": bool(_env_flag("QUERY_STRICT_ATTRIBUTE_EMPTY_ON_MISMATCH", False)),
+        "evaluated": bool(required),
+        "required_attributes": required,
+        "selector_verified_attributes": selector_verified,
+        "verified_attributes": verified,
+        "missing_attributes": missing,
+        "verification_sources": sources,
+        "selected_entity_ids": sorted(selected_ids),
+        "passed": not bool(missing),
+        "reason": reason,
+    }
+
+
+def _identity_attribute_empty_selection(
+    *,
+    query: str,
+    selection_payload: dict[str, Any],
+    verification: dict[str, Any],
+    raw_output: str,
+) -> dict[str, Any]:
+    missing = ", ".join(str(value) for value in verification.get("missing_attributes", []))
+    return {
+        "query": query,
+        "selected": [],
+        "empty": True,
+        "notes": (
+            "A planner-declared identity attribute was not verified by the selected "
+            f"Gaussian entity evidence; returning an explicit empty selection. Missing: {missing}."
+        ),
+        "selection_mode": "identity_attribute_mismatch_empty",
+        "subject_phrases": selection_payload.get("subject_phrases", []),
+        "successor_phrases": selection_payload.get("successor_phrases", []),
+        "subject_phrase_matches": selection_payload.get("subject_phrase_matches", {}),
+        "successor_phrase_matches": selection_payload.get("successor_phrase_matches", {}),
+        "contact_pair": selection_payload.get("contact_pair"),
+        "relation_disambiguation": selection_payload.get("relation_disambiguation"),
+        "raw_output": selection_payload.get("raw_output", raw_output),
+    }
 
 
 def _uses_entity_lifecycle_temporal_output() -> bool:
@@ -3567,6 +3697,24 @@ def main() -> None:
         raw_payload, raw_output = teacher.generate_json(prompt=prompt, images=visual_evidence_images or None)
         selection_payload = _normalize_selected(raw_payload, valid_ids=valid_ids, query=query)
         selection_payload["raw_output"] = raw_output
+    identity_attribute_verification = _identity_attribute_verification(
+        query_plan_payload=query_plan_payload,
+        raw_phrase_payload=raw_payload,
+        selection_payload=selection_payload,
+        candidates=candidates,
+    )
+    if (
+        bool(identity_attribute_verification.get("enabled", False))
+        and bool(identity_attribute_verification.get("evaluated", False))
+        and not bool(identity_attribute_verification.get("passed", True))
+        and not bool(selection_payload.get("empty", False))
+    ):
+        selection_payload = _identity_attribute_empty_selection(
+            query=query,
+            selection_payload=selection_payload,
+            verification=identity_attribute_verification,
+            raw_output=raw_output,
+        )
     relational_action_motion = _relational_action_motion_evidence(
         query_norm=_normalize_query_state_text(query),
         query_plan_payload=query_plan_payload,
@@ -3598,6 +3746,7 @@ def main() -> None:
         }
     else:
         selection_payload["relational_action_motion"] = relational_action_motion
+    selection_payload["identity_attribute_verification"] = identity_attribute_verification
     selection_payload["visual_evidence"] = {
         "enabled": bool(_env_flag("QUERY_SELECTION_VISUAL_EVIDENCE", True)),
         "image_count": int(len(visual_evidence_images)),

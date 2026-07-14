@@ -26,6 +26,7 @@ from refergaussian.semantics.select_qwen_query_entities import (
     _compose_phrase_grounded_selection,
     _decorate_relation_disambiguation_candidates,
     _expand_counted_subject_phrases,
+    _identity_attribute_verification,
     _select_phrase_ids,
 )
 
@@ -115,6 +116,19 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         )
         self.assertIn("closed container", phrases)
         self.assertIn("closed plastic container", phrases)
+
+    def test_plan_preserves_non_temporal_identity_attributes(self) -> None:
+        plan = _normalize_plan(
+            {
+                "video_inventory_phrases": ["dark chocolate", "tray"],
+                "primary_subject_phrases": ["chocolate"],
+                "query_subject_phrases": ["chocolate"],
+                "required_identity_attributes": ["white"],
+            },
+            "The white chocolate on the tray.",
+        )
+
+        self.assertEqual(plan["required_identity_attributes"], ["white"])
 
     def test_content_state_is_derived_from_the_query(self) -> None:
         phrases = _state_detector_phrase_additions(
@@ -634,6 +648,50 @@ class QueryPlannerPhraseTest(unittest.TestCase):
             clear=False,
         ):
             self.assertEqual(_qwen_max_new_tokens(), 640)
+
+    def test_identity_attribute_contract_rejects_a_broad_category_substitute(self) -> None:
+        candidates = [
+            {
+                "id": 7,
+                "proposal_alias": "chocolate bar",
+                "static_text": "dark brown elongated object",
+                "global_desc": "A dark brown object on a tray.",
+                "concept_tags": ["dark", "brown"],
+            }
+        ]
+        with patch.dict(os.environ, {"QUERY_STRICT_ATTRIBUTE_EMPTY_ON_MISMATCH": "1"}, clear=False):
+            verification = _identity_attribute_verification(
+                query_plan_payload={"required_identity_attributes": ["white"]},
+                raw_phrase_payload={"subject_phrases": ["chocolate bar"], "verified_identity_attributes": []},
+                selection_payload={"selected": [{"id": 7}]},
+                candidates=candidates,
+            )
+
+        self.assertTrue(verification["enabled"])
+        self.assertTrue(verification["evaluated"])
+        self.assertFalse(verification["passed"])
+        self.assertEqual(verification["missing_attributes"], ["white"])
+
+    def test_identity_attribute_contract_accepts_visual_selector_verification(self) -> None:
+        candidates = [
+            {
+                "id": 7,
+                "proposal_alias": "chocolate bar",
+                "static_text": "dark brown elongated object",
+                "global_desc": "A dark brown object on a tray.",
+                "concept_tags": ["dark", "brown"],
+            }
+        ]
+        with patch.dict(os.environ, {"QUERY_STRICT_ATTRIBUTE_EMPTY_ON_MISMATCH": "1"}, clear=False):
+            verification = _identity_attribute_verification(
+                query_plan_payload={"required_identity_attributes": ["white"]},
+                raw_phrase_payload={"subject_phrases": ["chocolate bar"], "verified_identity_attributes": ["white"]},
+                selection_payload={"selected": [{"id": 7}]},
+                candidates=candidates,
+            )
+
+        self.assertTrue(verification["passed"])
+        self.assertEqual(verification["verification_sources"], {"white": ["selector_visual"]})
 
 
 if __name__ == "__main__":
