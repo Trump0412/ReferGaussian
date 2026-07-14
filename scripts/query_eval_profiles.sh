@@ -88,6 +88,8 @@ apply_query_eval_profile() {
   unset QUERY_LIFT_MASK_AWARE_PREFILTER_MARGIN
   unset QUERY_LIFT_ENTITY_ROLE_SCOPE
   unset QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT
+  unset QUERY_RELATIONAL_ACTION_MOTION_GATE
+  unset QUERY_RELATIONAL_ACTION_MIN_NORMALIZED_MOTION
 
   case "${profile}" in
     ""|default|paper_default)
@@ -595,6 +597,10 @@ apply_query_eval_profile() {
       # shorter temporal-answer window. Public time-sensitive profiles leave
       # this unset and retain their state-window semantics.
       export QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT=1
+      # A detected contact pair must also exhibit relative 3D motion before it
+      # can satisfy a planner-confirmed progressive manipulation query.
+      export QUERY_RELATIONAL_ACTION_MOTION_GATE=1
+      export QUERY_RELATIONAL_ACTION_MIN_NORMALIZED_MOTION="${QUERY_RELATIONAL_ACTION_MIN_NORMALIZED_MOTION:-0.015}"
       export GS_QUERY_CLOUD_RENDER_MODE=gaussian_alpha
       export GS_QUERY_ALPHA_REQUIRE_SUCCESS=1
       export GS_QUERY_ALPHA_REQUIRE_OPACITY=1

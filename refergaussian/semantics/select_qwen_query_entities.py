@@ -1092,6 +1092,178 @@ def _entity_phrase_map(run_dir: Path) -> dict[int, dict[str, Any]]:
     return {int(entity["id"]): entity for entity in payload.get("entities", [])}
 
 
+def _relative_motion_score(
+    centroid_a: np.ndarray,
+    radius_a: float,
+    centroid_b: np.ndarray,
+    radius_b: float,
+) -> dict[str, float] | None:
+    """Measure camera-invariant relative motion between two 3D entities."""
+    first = np.asarray(centroid_a, dtype=np.float32)
+    second = np.asarray(centroid_b, dtype=np.float32)
+    if first.ndim != 2 or second.ndim != 2 or first.shape != second.shape or first.shape[1] != 3:
+        return None
+    valid = np.isfinite(first).all(axis=1) & np.isfinite(second).all(axis=1)
+    if int(valid.sum()) < 3:
+        return None
+    relative = first[valid] - second[valid]
+    stable_center = np.median(relative, axis=0, keepdims=True)
+    displacement = np.linalg.norm(relative - stable_center, axis=1)
+    step = np.linalg.norm(np.diff(relative, axis=0), axis=1)
+    scale = max(float(radius_a), float(radius_b), 1.0e-5)
+    return {
+        "relative_extent_p90": float(np.quantile(displacement, 0.90)),
+        "relative_extent_p95": float(np.quantile(displacement, 0.95)),
+        "relative_step_p95": float(np.quantile(step, 0.95)) if step.size else 0.0,
+        "normalization_radius": float(scale),
+        "normalized_relative_extent": float(np.quantile(displacement, 0.90) / scale),
+        "normalized_relative_step": float(np.quantile(step, 0.95) / scale) if step.size else 0.0,
+        "valid_frame_count": float(valid.sum()),
+    }
+
+
+def _entity_world_centroid_and_radius(
+    trajectories: np.ndarray,
+    gaussian_ids: list[int] | np.ndarray,
+) -> tuple[np.ndarray, float] | None:
+    ids = np.unique(np.asarray(gaussian_ids, dtype=np.int64).reshape(-1))
+    if ids.size == 0:
+        return None
+    if int(ids.min()) < 0 or int(ids.max()) >= int(trajectories.shape[0]):
+        return None
+    positions = np.asarray(trajectories[ids], dtype=np.float32)
+    if positions.ndim != 3 or positions.shape[2] != 3:
+        return None
+    centroid = np.nanmean(positions, axis=0)
+    radius_values = np.linalg.norm(positions - centroid[None, :, :], axis=2)
+    finite_radius = radius_values[np.isfinite(radius_values)]
+    if finite_radius.size == 0:
+        return None
+    return centroid.astype(np.float32), float(np.quantile(finite_radius, 0.50))
+
+
+def _relational_action_motion_evidence(
+    *,
+    query_norm: str,
+    query_plan_payload: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    run_dir: Path,
+) -> dict[str, Any]:
+    """Verify that a relational progressive action has physical 3D motion.
+
+    Contact alone is insufficient evidence that an agent performs an action:
+    a hand may merely rest on a tool. We use pairwise relative motion among
+    the planner-provided relation context entities, which cancels camera
+    motion and remains independent of object names or scenes.
+    """
+    enabled = _env_flag("QUERY_RELATIONAL_ACTION_MOTION_GATE", False)
+    context_phrases = [
+        str(value).strip()
+        for value in query_plan_payload.get("relation_context_phrases", [])
+        if str(value).strip()
+    ]
+    evidence: dict[str, Any] = {
+        "enabled": bool(enabled),
+        "applicable": False,
+        "evaluated": False,
+        "passed": True,
+        "reason": "disabled",
+        "context_phrases": context_phrases,
+        "context_entity_ids": [],
+    }
+    if not enabled:
+        return evidence
+    if not _plan_confirms_progressive_relation_action(query_norm, query_plan_payload):
+        evidence["reason"] = "not_planner_confirmed_progressive_relation_action"
+        return evidence
+    if len(context_phrases) < 2:
+        evidence["reason"] = "insufficient_relation_context"
+        return evidence
+    evidence["applicable"] = True
+
+    context_ids: list[int] = []
+    for phrase in context_phrases:
+        try:
+            matched_ids, _matches = _select_phrase_ids(candidates, [phrase], allow_missing=True)
+        except ValueError:
+            matched_ids = []
+        for entity_id in matched_ids:
+            if int(entity_id) not in context_ids:
+                context_ids.append(int(entity_id))
+                break
+    evidence["context_entity_ids"] = context_ids
+    if len(context_ids) < 2:
+        evidence["reason"] = "relation_context_not_lifted"
+        return evidence
+
+    entity_map = _entity_phrase_map(run_dir)
+    trajectory_path = run_dir / "entitybank" / "trajectory_samples.npz"
+    if not trajectory_path.exists():
+        evidence["reason"] = "trajectory_bank_missing"
+        return evidence
+    try:
+        with np.load(trajectory_path) as payload:
+            trajectories = payload["trajectories"]
+            geometry: dict[int, tuple[np.ndarray, float]] = {}
+            for entity_id in context_ids:
+                entity = entity_map.get(int(entity_id), {})
+                item = _entity_world_centroid_and_radius(
+                    trajectories,
+                    entity.get("gaussian_ids", []),
+                )
+                if item is not None:
+                    geometry[int(entity_id)] = item
+    except (OSError, KeyError, ValueError):
+        evidence["reason"] = "trajectory_bank_unreadable"
+        return evidence
+
+    pair_metrics: list[dict[str, Any]] = []
+    for left_index, left_id in enumerate(context_ids):
+        if left_id not in geometry:
+            continue
+        for right_id in context_ids[left_index + 1 :]:
+            if right_id not in geometry:
+                continue
+            score = _relative_motion_score(
+                geometry[left_id][0],
+                geometry[left_id][1],
+                geometry[right_id][0],
+                geometry[right_id][1],
+            )
+            if score is None:
+                continue
+            pair_metrics.append(
+                {
+                    "entity_a": int(left_id),
+                    "entity_b": int(right_id),
+                    **score,
+                }
+            )
+    if not pair_metrics:
+        evidence["reason"] = "insufficient_valid_world_trajectory"
+        return evidence
+
+    best_pair = max(pair_metrics, key=lambda item: float(item["normalized_relative_extent"]))
+    minimum = _env_float(
+        "QUERY_RELATIONAL_ACTION_MIN_NORMALIZED_MOTION",
+        0.015,
+        minimum=0.0,
+        maximum=5.0,
+    )
+    motion_score = float(best_pair["normalized_relative_extent"])
+    evidence.update(
+        {
+            "evaluated": True,
+            "passed": bool(motion_score >= minimum),
+            "reason": "relative_motion_verified" if motion_score >= minimum else "relative_motion_below_threshold",
+            "minimum_normalized_motion": float(minimum),
+            "best_pair": best_pair,
+            "pair_metrics": pair_metrics,
+        }
+    )
+    return evidence
+
+
 def _resolve_query_tracks_payload(query_plan_path: Path | None) -> dict[str, Any] | None:
     if query_plan_path is None:
         return None
@@ -3395,6 +3567,37 @@ def main() -> None:
         raw_payload, raw_output = teacher.generate_json(prompt=prompt, images=visual_evidence_images or None)
         selection_payload = _normalize_selected(raw_payload, valid_ids=valid_ids, query=query)
         selection_payload["raw_output"] = raw_output
+    relational_action_motion = _relational_action_motion_evidence(
+        query_norm=_normalize_query_state_text(query),
+        query_plan_payload=query_plan_payload,
+        candidates=candidates,
+        run_dir=run_dir,
+    )
+    if (
+        bool(relational_action_motion.get("evaluated", False))
+        and not bool(relational_action_motion.get("passed", True))
+        and not bool(selection_payload.get("empty", False))
+    ):
+        selection_payload = {
+            "query": query,
+            "selected": [],
+            "empty": True,
+            "notes": (
+                "A planner-confirmed relational action lacked sufficient "
+                "camera-invariant relative 3D motion; returning an explicit empty selection."
+            ),
+            "selection_mode": "relational_action_motion_empty",
+            "subject_phrases": selection_payload.get("subject_phrases", []),
+            "successor_phrases": selection_payload.get("successor_phrases", []),
+            "subject_phrase_matches": selection_payload.get("subject_phrase_matches", {}),
+            "successor_phrase_matches": selection_payload.get("successor_phrase_matches", {}),
+            "contact_pair": selection_payload.get("contact_pair"),
+            "relation_disambiguation": selection_payload.get("relation_disambiguation"),
+            "raw_output": selection_payload.get("raw_output", raw_output),
+            "relational_action_motion": relational_action_motion,
+        }
+    else:
+        selection_payload["relational_action_motion"] = relational_action_motion
     selection_payload["visual_evidence"] = {
         "enabled": bool(_env_flag("QUERY_SELECTION_VISUAL_EVIDENCE", True)),
         "image_count": int(len(visual_evidence_images)),
