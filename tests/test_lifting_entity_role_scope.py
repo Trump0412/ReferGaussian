@@ -20,6 +20,7 @@ def _load_role_scope_filter():
         "_entity_role_scope",
         "_canonical_role_phrase",
         "_query_subject_role_phrases",
+        "_query_plan_requires_entity_set",
         "_filter_tracks_for_entity_roles",
     }
     nodes = [
@@ -86,6 +87,26 @@ class LiftingEntityRoleScopeTest(unittest.TestCase):
 
         self.assertEqual(selected, tracks[:2])
         self.assertEqual(info["match_mode"], "direct_subject_phrase")
+
+    def test_subject_scope_retains_all_tracks_for_a_planner_declared_set(self) -> None:
+        tracks = [
+            {"phrase": "object a"},
+            {"phrase": "object b"},
+            {"phrase": "object c"},
+        ]
+        plan = {
+            "primary_subject_phrases": ["object a"],
+            "query_semantic_profile": {"asks_set": True},
+        }
+        with patch.dict(
+            "os.environ",
+            {"QUERY_LIFT_ENTITY_ROLE_SCOPE": "primary_subject"},
+            clear=False,
+        ):
+            selected, info = self.filter_tracks(tracks, plan)
+
+        self.assertEqual(selected, tracks)
+        self.assertEqual(info["match_mode"], "set_query_all_tracks")
 
     def test_subject_scope_relaxes_only_when_direct_phrase_is_unavailable(self) -> None:
         tracks = [

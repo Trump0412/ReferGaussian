@@ -1027,8 +1027,11 @@ def _normalize_boundary_refinement(
 
 def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True) -> dict[str, Any]:
     video_inventory_phrases = _normalize_phrase_list(raw_payload.get("video_inventory_phrases", []))[:8]
-    query_subject_phrases = _normalize_phrase_list(raw_payload.get("query_subject_phrases", []))[:3]
-    primary_subject_phrases = _normalize_phrase_list(raw_payload.get("primary_subject_phrases", []))[:3]
+    # Set and exclusion questions may legitimately refer to every visible
+    # entity. Keep their full compact planner list until query semantics decide
+    # whether the ordinary singular/multi-target cap applies.
+    query_subject_phrases = _normalize_phrase_list(raw_payload.get("query_subject_phrases", []))[:8]
+    primary_subject_phrases = _normalize_phrase_list(raw_payload.get("primary_subject_phrases", []))[:8]
     raw_primary_subject_phrases = primary_subject_phrases[:]
     query_successor_phrases = _normalize_phrase_list(raw_payload.get("query_successor_phrases", []))[:2]
     raw_identity_attributes = raw_payload.get("required_identity_attributes", [])
@@ -1076,7 +1079,7 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         if leading_subjects:
             query_subject_phrases = leading_subjects
         elif primary_subject_phrases:
-            query_subject_phrases = primary_subject_phrases
+            query_subject_phrases = primary_subject_phrases[:3]
     elif primary_subject_phrases and not is_exclusion_query:
         query_subject_phrases = primary_subject_phrases
     counted_subject_spec = None if is_exclusion_query else _leading_counted_subject_spec(query)

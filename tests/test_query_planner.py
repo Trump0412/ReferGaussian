@@ -278,6 +278,22 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         self.assertEqual(plan["primary_subject_phrases"], ["red block", "blue block"])
         self.assertEqual(plan["query_subject_phrases"], ["red block", "blue block"])
 
+    def test_set_query_preserves_every_planner_subject_for_later_semantic_filtering(self) -> None:
+        objects = ["object one", "object two", "object three", "object four", "object five", "object six"]
+        plan = _normalize_plan(
+            {
+                "video_inventory_phrases": objects,
+                "primary_subject_phrases": objects,
+                "query_subject_phrases": objects,
+                "must_track_phrases": objects,
+            },
+            "All objects that remain physically stationary throughout the video.",
+        )
+
+        self.assertEqual(plan["primary_subject_phrases"], objects)
+        self.assertEqual(plan["query_subject_phrases"], objects)
+        self.assertEqual(plan["must_track_phrases"], objects)
+
     def test_counted_leading_subject_survives_a_compact_vlm_plan(self) -> None:
         plan = _normalize_plan(
             {

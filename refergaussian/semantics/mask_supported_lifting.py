@@ -139,6 +139,14 @@ def _query_subject_role_phrases(query_plan: dict[str, Any] | None) -> list[str]:
     return phrases
 
 
+def _query_plan_requires_entity_set(query_plan: dict[str, Any] | None) -> bool:
+    """Whether the planner declares a set-valued answer rather than one subject."""
+    if not isinstance(query_plan, dict):
+        return False
+    profile = query_plan.get("query_semantic_profile", {})
+    return isinstance(profile, dict) and bool(profile.get("asks_set", False))
+
+
 def _filter_tracks_for_entity_roles(
     tracks: list[dict[str, Any]],
     query_plan: dict[str, Any] | None,
@@ -161,6 +169,12 @@ def _filter_tracks_for_entity_roles(
         "skipped_track_phrases": [],
     }
     if scope == "all":
+        return original, info
+    if _query_plan_requires_entity_set(query_plan):
+        # Set and exclusion questions require every candidate to be lifted
+        # before their semantic predicate can select or remove members. This
+        # is query-structure driven and does not name any scene or object.
+        info["match_mode"] = "set_query_all_tracks"
         return original, info
 
     subject_phrases = _query_subject_role_phrases(query_plan)
