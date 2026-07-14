@@ -100,6 +100,43 @@ class QueryPlannerPhraseTest(unittest.TestCase):
         self.assertEqual(len(images), 2)
         self.assertEqual([row["frame_index"] for row in rows], [0, 20])
 
+    def test_static_set_visual_evidence_uses_a_temporal_contact_sheet(self) -> None:
+        with TemporaryDirectory() as directory:
+            overlay_paths = []
+            for index in range(3):
+                overlay_path = Path(directory) / f"overlay_{index}.png"
+                Image.new("RGB", (640, 360), color=(10 + index, 20, 30)).save(overlay_path)
+                overlay_paths.append(overlay_path)
+            candidates = [{"id": 4, "stage1_object_id": 12, "proposal_alias": "target object"}]
+            tracks_payload = {
+                "tracks": [
+                    {
+                        "object_id": 12,
+                        "frames": [
+                            {
+                                "active": True,
+                                "frame_index": index * 20,
+                                "bbox_xyxy": [100, 80, 300, 260],
+                                "overlay_path": str(overlay_path),
+                            }
+                            for index, overlay_path in enumerate(overlay_paths)
+                        ],
+                    }
+                ]
+            }
+
+            images, rows = _build_candidate_visual_evidence(
+                candidates,
+                tracks_payload,
+                temporal_contact_sheets=True,
+            )
+
+        self.assertEqual(len(images), 1)
+        self.assertEqual(rows[0]["kind"], "stage1_temporal_contact_sheet")
+        self.assertEqual(rows[0]["frame_indices"], [0, 20, 40])
+        self.assertEqual(images[0].width, 768)
+        self.assertEqual(images[0].height, 256)
+
     def test_state_phrase_is_composed_for_an_unseen_object(self) -> None:
         phrases = _state_detector_phrase_additions(
             "the package broken into several pieces",
@@ -738,6 +775,82 @@ class QueryPlannerPhraseTest(unittest.TestCase):
 
         self.assertEqual(payload["selection_mode"], "qwen_visual_static_set")
         self.assertEqual([item["id"] for item in payload["selected"]], [1, 2])
+
+    def test_static_set_filters_unrequested_scene_spanning_support_proxy(self) -> None:
+        candidates = [
+            {
+                "id": 1,
+                "proposal_alias": "foreground object",
+                "proposal_phrase": "foreground object",
+                "static_text": "foreground object",
+                "entity_type": "object",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+                "stationary_segments_test": [[0, 9]],
+                "moving_segments_test": [],
+            },
+            {
+                "id": 2,
+                "proposal_alias": "large support surface",
+                "proposal_phrase": "large support surface",
+                "static_text": "large support surface",
+                "entity_type": "support_surface",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+                "stationary_segments_test": [[0, 9]],
+                "moving_segments_test": [],
+                "static_set_mask_geometry": {"median_area_fraction": 0.42},
+            },
+        ]
+
+        payload = _compose_phrase_grounded_selection(
+            query="All objects that remain physically stationary throughout the video.",
+            query_plan_payload={
+                "query_subject_phrases": ["foreground object", "large support surface"],
+                "query_semantic_profile": {"asks_set": True},
+            },
+            candidates=candidates,
+            pair_candidates=[],
+            test_times=np.linspace(0.0, 1.0, num=10),
+            tracks_payload=None,
+            raw_phrase_payload={
+                "subject_phrases": ["foreground object", "large support surface"],
+                "successor_phrases": [],
+            },
+        )
+
+        self.assertEqual([item["id"] for item in payload["selected"]], [1])
+        self.assertEqual(
+            payload["selection_filters"]["excluded_scene_spanning_support_proxies"],
+            [{"id": 2, "alias": "large support surface", "reason": "scene_spanning_support_proxy"}],
+        )
+
+    def test_static_set_keeps_a_scene_spanning_support_when_explicitly_named(self) -> None:
+        candidate = {
+            "id": 2,
+            "proposal_alias": "large support surface",
+            "proposal_phrase": "large support surface",
+            "static_text": "large support surface",
+            "entity_type": "support_surface",
+            "quality": 0.9,
+            "support_segments_test": [[0, 9]],
+            "stationary_segments_test": [[0, 9]],
+            "moving_segments_test": [],
+            "static_set_mask_geometry": {"median_area_fraction": 0.42},
+        }
+
+        payload = _compose_phrase_grounded_selection(
+            query="The large support surface that remains physically stationary throughout the video.",
+            query_plan_payload={"query_subject_phrases": ["large support surface"]},
+            candidates=[candidate],
+            pair_candidates=[],
+            test_times=np.linspace(0.0, 1.0, num=10),
+            tracks_payload=None,
+            raw_phrase_payload={"subject_phrases": ["large support surface"], "successor_phrases": []},
+        )
+
+        self.assertEqual([item["id"] for item in payload["selected"]], [2])
+        self.assertEqual(payload["selection_filters"]["excluded_scene_spanning_support_proxies"], [])
 
     def test_qwen_budget_uses_available_large_gpu_memory_without_a_hidden_16gib_cap(self) -> None:
         with patch.dict(os.environ, {}, clear=False):

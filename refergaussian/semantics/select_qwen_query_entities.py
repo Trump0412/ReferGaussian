@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageOps
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EXTERNAL_ROOT = PROJECT_ROOT / "external" / "4DGaussians"
@@ -152,6 +152,8 @@ Rules:
   component participates in a nearby action.
 - Exclude an active tool used solely to cause an event, a clearly non-answer background surface, and a
   duplicate proxy mask when the visual evidence shows it is not a distinct answer entity.
+- A candidate marked scene_spanning_support_proxy is a large, scene-level support-mask proxy. For a
+  generic set query, exclude it unless the user explicitly names that entity in the query.
 - Do not replace a requested identity attribute with a broad-category substitute. If a required attribute
   is not visibly satisfied, leave that candidate out.
 - The supplied images are ordered exactly as candidate_visual_evidence_json. Treat their Stage 1 mask
@@ -562,6 +564,8 @@ def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: in
 def _build_candidate_visual_evidence(
     candidates: list[dict[str, Any]],
     tracks_payload: dict[str, Any] | None,
+    *,
+    temporal_contact_sheets: bool = False,
 ) -> tuple[list[Image.Image], list[dict[str, Any]]]:
     """Load compact, query-independent Stage 1 overlay crops for VLM selection.
 
@@ -625,6 +629,8 @@ def _build_candidate_visual_evidence(
     resampling = getattr(Image, "Resampling", Image).LANCZOS
 
     for candidate_index, (candidate, track) in enumerate(candidate_tracks):
+        if len(evidence_images) >= max_images:
+            break
         candidate_image_count = int(images_per_candidate[candidate_index])
         active_frames = [
             frame
@@ -636,9 +642,13 @@ def _build_candidate_visual_evidence(
         if not active_frames:
             continue
         active_frames.sort(key=lambda frame: int(frame.get("frame_index", 0)))
-        if len(active_frames) <= candidate_image_count:
+        moment_count = min(3, len(active_frames)) if temporal_contact_sheets else candidate_image_count
+        if len(active_frames) <= moment_count:
             chosen_frames = active_frames
-        elif str(candidate.get("instance_selection_policy", "")).strip().lower() == "relation_disambiguation":
+        elif (
+            not temporal_contact_sheets
+            and str(candidate.get("instance_selection_policy", "")).strip().lower() == "relation_disambiguation"
+        ):
             try:
                 anchor_frame_index = int(track.get("anchor_frame_index"))
             except (TypeError, ValueError):
@@ -661,12 +671,12 @@ def _build_candidate_visual_evidence(
                         chosen_indices.append(temporal_index)
                 chosen_frames = [active_frames[index] for index in sorted(chosen_indices)]
         else:
-            indices = np.linspace(0, len(active_frames) - 1, num=candidate_image_count, dtype=np.int64)
+            indices = np.linspace(0, len(active_frames) - 1, num=moment_count, dtype=np.int64)
             chosen_frames = [active_frames[int(index)] for index in sorted(set(indices.tolist()))]
 
+        cropped_images: list[Image.Image] = []
+        cropped_frame_rows: list[dict[str, Any]] = []
         for frame in chosen_frames:
-            if len(evidence_images) >= max_images:
-                break
             overlay_path = Path(str(frame["overlay_path"]))
             try:
                 with Image.open(overlay_path) as image_handle:
@@ -687,19 +697,55 @@ def _build_candidate_visual_evidence(
                     y1 = min(image.height, y1 + padding)
                     image = image.crop((x0, y0, x1, y1))
             image.thumbnail((512, 512), resampling)
+            cropped_images.append(image)
+            cropped_frame_rows.append(
+                {
+                    "frame_index": int(frame.get("frame_index", 0)),
+                    "overlay_path": str(overlay_path),
+                }
+            )
+
+        if not cropped_images:
+            continue
+        candidate_alias = str(
+            candidate.get("proposal_alias")
+            or candidate.get("proposal_phrase")
+            or candidate.get("static_text")
+            or ""
+        )
+        if temporal_contact_sheets:
+            panel_size = 256
+            sheet = Image.new("RGB", (panel_size * len(cropped_images), panel_size), color=(0, 0, 0))
+            for panel_index, image in enumerate(cropped_images):
+                panel = ImageOps.contain(image, (panel_size, panel_size), method=resampling)
+                x_offset = panel_index * panel_size + (panel_size - panel.width) // 2
+                y_offset = (panel_size - panel.height) // 2
+                sheet.paste(panel, (x_offset, y_offset))
             evidence_rows.append(
                 {
                     "image_index": int(len(evidence_images)),
                     "candidate_id": int(candidate["id"]),
-                    "candidate_alias": str(
-                        candidate.get("proposal_alias")
-                        or candidate.get("proposal_phrase")
-                        or candidate.get("static_text")
-                        or ""
-                    ),
+                    "candidate_alias": candidate_alias,
                     "stage1_object_id": int(track.get("object_id")),
-                    "frame_index": int(frame.get("frame_index", 0)),
-                    "overlay_path": str(overlay_path),
+                    "frame_indices": [int(row["frame_index"]) for row in cropped_frame_rows],
+                    "overlay_paths": [str(row["overlay_path"]) for row in cropped_frame_rows],
+                    "kind": "stage1_temporal_contact_sheet",
+                }
+            )
+            evidence_images.append(sheet)
+            continue
+
+        for image, frame_row in zip(cropped_images, cropped_frame_rows):
+            if len(evidence_images) >= max_images:
+                break
+            evidence_rows.append(
+                {
+                    "image_index": int(len(evidence_images)),
+                    "candidate_id": int(candidate["id"]),
+                    "candidate_alias": candidate_alias,
+                    "stage1_object_id": int(track.get("object_id")),
+                    "frame_index": int(frame_row["frame_index"]),
+                    "overlay_path": str(frame_row["overlay_path"]),
                     "kind": "stage1_mask_overlay_crop",
                 }
             )
@@ -1929,9 +1975,156 @@ def _static_set_candidate_payload(candidates: list[dict[str, Any]]) -> list[dict
                 "stage1_object_id": candidate.get("stage1_object_id"),
                 "support_segments_test": candidate.get("support_segments_test", []),
                 "quality": float(candidate.get("quality", 0.0)),
+                "entity_type": str(candidate.get("entity_type") or ""),
+                "static_set_mask_geometry": candidate.get("static_set_mask_geometry", {}),
+                "scene_spanning_support_proxy": bool(candidate.get("scene_spanning_support_proxy", False)),
             }
         )
     return rows
+
+
+def _is_scene_spanning_support_proxy(candidate: dict[str, Any]) -> bool:
+    """Identify a large support-surface mask that stands for scene background.
+
+    The predicate is intentionally geometric and query-agnostic. A broad support
+    surface is still a valid answer when the user explicitly asks for it; the
+    caller applies that exception separately. This avoids an object-name list
+    while preventing a scene-sized mask from swallowing a set-valued answer.
+    """
+    if not _env_flag("QUERY_STATIC_SET_SCENE_PROXY_GATE", True):
+        return False
+    entity_type = str(candidate.get("entity_type") or "").strip().lower()
+    if entity_type != "support_surface":
+        return False
+    geometry = candidate.get("static_set_mask_geometry", {})
+    if not isinstance(geometry, dict):
+        return False
+    area_fraction = float(geometry.get("median_area_fraction", 0.0) or 0.0)
+    threshold = _env_float(
+        "QUERY_STATIC_SET_SCENE_PROXY_AREA_RATIO",
+        0.34,
+        minimum=0.05,
+        maximum=0.95,
+    )
+    return bool(area_fraction >= threshold)
+
+
+def _query_explicitly_names_candidate(query: str, candidate: dict[str, Any]) -> bool:
+    query_norm = _normalize_phrase(query)
+    candidate_norm = _normalize_phrase(
+        candidate.get("proposal_phrase")
+        or candidate.get("proposal_alias")
+        or candidate.get("static_text")
+        or ""
+    )
+    return bool(candidate_norm and f" {candidate_norm} " in f" {query_norm} ")
+
+
+def _filter_static_scene_proxy_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    query: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Remove unrequested, scene-spanning support proxies from a static set."""
+    retained: list[dict[str, Any]] = []
+    excluded: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if _is_scene_spanning_support_proxy(candidate) and not _query_explicitly_names_candidate(query, candidate):
+            excluded.append(
+                {
+                    "id": int(candidate.get("id", -1)),
+                    "alias": str(
+                        candidate.get("proposal_alias")
+                        or candidate.get("proposal_phrase")
+                        or candidate.get("static_text")
+                        or ""
+                    ),
+                    "reason": "scene_spanning_support_proxy",
+                }
+            )
+            continue
+        retained.append(candidate)
+    return retained, excluded
+
+
+def _annotate_static_set_mask_geometry(
+    candidates: list[dict[str, Any]],
+    tracks_payload: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Attach lightweight multi-frame Stage 1 mask geometry to static candidates."""
+    if not tracks_payload:
+        return candidates
+    sample_limit = _env_int(
+        "QUERY_STATIC_SET_GEOMETRY_SAMPLE_FRAMES",
+        9,
+        minimum=1,
+        maximum=24,
+    )
+    tracks_by_object_id: dict[int, dict[str, Any]] = {}
+    for track in tracks_payload.get("tracks", []):
+        if not isinstance(track, dict):
+            continue
+        try:
+            tracks_by_object_id[int(track.get("object_id"))] = track
+        except (TypeError, ValueError):
+            continue
+
+    annotated: list[dict[str, Any]] = []
+    for candidate in candidates:
+        row = dict(candidate)
+        try:
+            object_id = int(row.get("stage1_object_id"))
+        except (TypeError, ValueError):
+            annotated.append(row)
+            continue
+        track = tracks_by_object_id.get(object_id)
+        if track is None:
+            annotated.append(row)
+            continue
+        active_frames = [
+            frame
+            for frame in track.get("frames", [])
+            if isinstance(frame, dict) and bool(frame.get("active", False)) and Path(str(frame.get("mask_path", ""))).is_file()
+        ]
+        if not active_frames:
+            annotated.append(row)
+            continue
+        sample_indices = np.linspace(
+            0,
+            len(active_frames) - 1,
+            num=min(int(sample_limit), len(active_frames)),
+            dtype=np.int64,
+        )
+        areas: list[float] = []
+        edge_contacts: list[float] = []
+        for sample_index in sorted(set(int(value) for value in sample_indices.tolist())):
+            try:
+                with Image.open(Path(str(active_frames[sample_index]["mask_path"]))) as image_handle:
+                    mask = np.asarray(image_handle.convert("L"), dtype=np.uint8) > 0
+            except (OSError, ValueError, KeyError):
+                continue
+            if mask.size == 0:
+                continue
+            areas.append(float(mask.mean()))
+            edge_contacts.append(
+                float(
+                    int(mask[0].any())
+                    + int(mask[-1].any())
+                    + int(mask[:, 0].any())
+                    + int(mask[:, -1].any())
+                )
+                / 4.0
+            )
+        if areas:
+            row["static_set_mask_geometry"] = {
+                "sample_count": int(len(areas)),
+                "median_area_fraction": float(np.median(np.asarray(areas, dtype=np.float32))),
+                "p90_area_fraction": float(np.quantile(np.asarray(areas, dtype=np.float32), 0.90)),
+                "median_edge_contact_fraction": float(np.median(np.asarray(edge_contacts, dtype=np.float32))),
+            }
+            row["scene_spanning_support_proxy"] = _is_scene_spanning_support_proxy(row)
+        annotated.append(row)
+    return annotated
 
 
 def _extract_exclusion_phrases(query_norm: str) -> list[str]:
@@ -2020,6 +2213,10 @@ def _compose_static_set_selection(
         query=query,
         test_frame_count=len(test_times),
     )
+    static_candidates, excluded_scene_proxies = _filter_static_scene_proxy_candidates(
+        static_candidates,
+        query=query,
+    )
     static_selection_source = (
         "qwen_visual_set_membership" if visual_static_candidates else "geometry_temporal_membership"
     )
@@ -2063,7 +2260,8 @@ def _compose_static_set_selection(
         "empty": not bool(selected_rows),
         "notes": (
             f"Static query: selected {len(selected_rows)} entities for full video {full_range}. "
-            f"Source={static_selection_source}. Subjects={subject_phrases}"
+            f"Source={static_selection_source}. Subjects={subject_phrases}. "
+            f"Excluded scene proxies={excluded_scene_proxies}"
         ),
         "selection_mode": "qwen_visual_static_set" if visual_static_candidates else "qwen_plan_static_full_video",
         "subject_phrases": subject_phrases,
@@ -2079,6 +2277,7 @@ def _compose_static_set_selection(
             "source": "single_subject_track_static",
         },
         "raw_output": raw_output,
+        "selection_filters": {"excluded_scene_spanning_support_proxies": excluded_scene_proxies},
     }
 
 
@@ -3774,17 +3973,8 @@ def main() -> None:
     query_plan_payload = _read_json(Path(args.query_plan_path)) if args.query_plan_path else {}
     tracks_payload = _resolve_query_tracks_payload(Path(args.query_plan_path)) if args.query_plan_path else None
     candidates = _decorate_relation_disambiguation_candidates(candidates, tracks_payload)
-    valid_ids = {int(item["id"]) for item in candidates}
     test_times = _test_time_values(run_dir)
     query = str(args.query).strip()
-    visual_evidence_images, visual_evidence_rows = _build_candidate_visual_evidence(
-        candidates,
-        tracks_payload,
-    )
-    visual_evidence_json = json.dumps(visual_evidence_rows, ensure_ascii=False, indent=2)
-    raw_payload: dict[str, Any] | None = None
-    raw_output = ""
-    skip_qwen_selection = os.environ.get("QUERY_SKIP_QWEN_SELECTION", "0") == "1"
     query_state_mode = _query_state_mode(_normalize_query_state_text(query))
     if query_state_mode is None:
         query_state_mode = _normalize_track_state_mode(query_plan_payload.get("query_state_mode"))
@@ -3796,6 +3986,18 @@ def main() -> None:
             is_exclusion_query=_is_exclusion_query(query),
         )
     )
+    if static_set_query:
+        candidates = _annotate_static_set_mask_geometry(candidates, tracks_payload)
+    valid_ids = {int(item["id"]) for item in candidates}
+    visual_evidence_images, visual_evidence_rows = _build_candidate_visual_evidence(
+        candidates,
+        tracks_payload,
+        temporal_contact_sheets=static_set_query,
+    )
+    visual_evidence_json = json.dumps(visual_evidence_rows, ensure_ascii=False, indent=2)
+    raw_payload: dict[str, Any] | None = None
+    raw_output = ""
+    skip_qwen_selection = os.environ.get("QUERY_SKIP_QWEN_SELECTION", "0") == "1"
     if query_plan_payload.get("query_subject_phrases"):
         if skip_qwen_selection:
             raw_payload = {
