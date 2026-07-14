@@ -116,6 +116,50 @@ CRITICAL temporal-selectivity rules (apply these STRICTLY):
 """
 
 
+STATIC_SET_PROMPT_TEMPLATE = """You are selecting the members of a set-valued referring query from a
+query-specific ReferGaussian 4D entity library. You will receive a natural-language query, a query
+plan, candidate aliases, and ordered Stage 1 mask-overlay crops for every candidate.
+
+This is a set-membership decision: decide which visibly distinct entities belong in the answer. The
+motion labels produced by 2D tracking are camera-sensitive diagnostics, not proof that an object is
+physically moving. Do not return an empty set merely because a candidate has non-empty
+moving_segments_test. Use the masked visual evidence and the whole-video plan to identify the requested
+foreground entities.
+
+Query:
+{query}
+
+Query plan:
+{query_plan_json}
+
+Candidate aliases:
+{candidate_json}
+
+Candidate visual evidence:
+{candidate_visual_evidence_json}
+
+Return exactly one JSON object with keys:
+- query: original query
+- subject_phrases: array of candidate aliases that belong to the requested set
+- successor_phrases: empty array unless the query explicitly requests a successor state
+- verified_identity_attributes: array containing every visibly verified attribute from query_plan.required_identity_attributes
+- notes: short string
+
+Rules:
+- Candidate aliases must come from the candidate aliases only.
+- Select every distinct foreground entity that belongs to the requested set, including a candidate whose
+  mask covers several visibly related answer components. Do not omit such a candidate only because one
+  component participates in a nearby action.
+- Exclude an active tool used solely to cause an event, a clearly non-answer background surface, and a
+  duplicate proxy mask when the visual evidence shows it is not a distinct answer entity.
+- Do not replace a requested identity attribute with a broad-category substitute. If a required attribute
+  is not visibly satisfied, leave that candidate out.
+- The supplied images are ordered exactly as candidate_visual_evidence_json. Treat their Stage 1 mask
+  overlays as the visual grounding evidence; aliases and noisy motion summaries alone are insufficient.
+- Keep aliases and notes in English only. Output valid JSON only.
+"""
+
+
 TEMPORAL_EXPANSION_FACTOR = 2.5
 
 
@@ -1874,6 +1918,22 @@ def _query_requires_entity_set_selection(
     return bool(asks_set or query_state_mode == "static" or is_exclusion_query)
 
 
+def _static_set_candidate_payload(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Prepare visual-set evidence without presenting camera-sensitive motion labels."""
+    rows: list[dict[str, Any]] = []
+    for candidate in candidates:
+        rows.append(
+            {
+                "candidate_alias": str(candidate.get("proposal_alias") or candidate.get("proposal_phrase") or ""),
+                "proposal_phrase": str(candidate.get("proposal_phrase") or ""),
+                "stage1_object_id": candidate.get("stage1_object_id"),
+                "support_segments_test": candidate.get("support_segments_test", []),
+                "quality": float(candidate.get("quality", 0.0)),
+            }
+        )
+    return rows
+
+
 def _extract_exclusion_phrases(query_norm: str) -> list[str]:
     text = " ".join(str(query_norm).strip().lower().split())
     english_patterns = [
@@ -1927,6 +1987,99 @@ def _select_static_candidates(
         scored.append((score, candidate))
     scored.sort(key=lambda item: (-item[0], int(item[1].get("id", -1))))
     return [candidate for _score, candidate in scored]
+
+
+def _compose_static_set_selection(
+    *,
+    query: str,
+    candidates: list[dict[str, Any]],
+    test_times: np.ndarray,
+    qwen_ran: bool,
+    qwen_subjects: list[str],
+    subject_ids: list[int],
+    subject_phrases: list[str],
+    subject_matches: dict[str, list[int]],
+    successor_phrases: list[str],
+    successor_matches: dict[str, list[int]],
+    raw_output: str,
+) -> dict[str, Any]:
+    """Finalize a static set before singleton or lifecycle selection can run.
+
+    A static query is inherently set-valued.  In particular, enabling full
+    entity-lifecycle output must change only the temporal support, never cause
+    a visually selected set to be reduced to the first grounded alias.
+    """
+    visual_static_candidates: list[dict[str, Any]] = []
+    if qwen_ran and qwen_subjects:
+        selected_id_set = {int(entity_id) for entity_id in subject_ids}
+        visual_static_candidates = [
+            candidate for candidate in candidates if int(candidate.get("id", -1)) in selected_id_set
+        ]
+    static_candidates = visual_static_candidates or _select_static_candidates(
+        candidates,
+        query=query,
+        test_frame_count=len(test_times),
+    )
+    static_selection_source = (
+        "qwen_visual_set_membership" if visual_static_candidates else "geometry_temporal_membership"
+    )
+    if static_candidates:
+        subject_ids = [int(candidate["id"]) for candidate in static_candidates]
+        subject_phrases = [
+            str(candidate.get("proposal_phrase") or candidate.get("static_text") or f"entity_{candidate['id']}")
+            for candidate in static_candidates
+        ]
+        subject_matches = {"__static_candidates__": subject_ids[:]}
+    elif not subject_ids and candidates:
+        subject_ids = [int(candidate["id"]) for candidate in candidates]
+        subject_phrases = [
+            str(candidate.get("proposal_phrase") or candidate.get("static_text") or f"entity_{candidate['id']}")
+            for candidate in candidates
+        ]
+
+    full_range = [[0, max(int(len(test_times) - 1), 0)]]
+    selected_rows = []
+    for entity_id, phrase in zip(subject_ids, subject_phrases):
+        subject_row = next((candidate for candidate in candidates if int(candidate["id"]) == int(entity_id)), None)
+        segments = full_range
+        if subject_row is not None:
+            segments = _merge_ranges(
+                subject_row.get("support_segments_test", [])
+                or subject_row.get("stationary_segments_test", [])
+                or full_range
+            )
+        selected_rows.append(
+            {
+                "id": int(entity_id),
+                "role": "entity",
+                "confidence": 1.0,
+                "reason": f"Static-throughout-video query: entity '{phrase}' selected for full video range.",
+                "segments": segments,
+            }
+        )
+    return {
+        "query": query,
+        "selected": selected_rows,
+        "empty": not bool(selected_rows),
+        "notes": (
+            f"Static query: selected {len(selected_rows)} entities for full video {full_range}. "
+            f"Source={static_selection_source}. Subjects={subject_phrases}"
+        ),
+        "selection_mode": "qwen_visual_static_set" if visual_static_candidates else "qwen_plan_static_full_video",
+        "subject_phrases": subject_phrases,
+        "successor_phrases": successor_phrases,
+        "subject_phrase_matches": subject_matches,
+        "successor_phrase_matches": successor_matches,
+        "contact_pair": {
+            "entity_a": int(subject_ids[0]) if subject_ids else -1,
+            "entity_b": -1,
+            "entity_a_phrase": str(subject_phrases[0]) if subject_phrases else "",
+            "entity_b_phrase": "",
+            "contact_segments_test": full_range,
+            "source": "single_subject_track_static",
+        },
+        "raw_output": raw_output,
+    }
 
 
 def _query_state_mode(query_norm: str) -> str | None:
@@ -2756,7 +2909,7 @@ def _compose_phrase_grounded_selection(
     subject_limit = 8 if is_set_query else 3
     qwen_subjects = _expand_counted_subject_phrases(qwen_subjects, limit=subject_limit)
     plan_subjects = _expand_counted_subject_phrases(plan_subjects, limit=subject_limit)
-    if not is_exclusion_query:
+    if not is_exclusion_query and not is_set_query:
         qwen_subjects = _filter_qwen_subjects_to_singular_plan_subject(
             qwen_subjects,
             plan_subjects=plan_subjects,
@@ -2772,16 +2925,21 @@ def _compose_phrase_grounded_selection(
     # If Qwen actually ran (raw_phrase_payload is not None) and explicitly returned empty subject_phrases,
     # respect that as "no matching entity" — do NOT fall back to plan_subjects.
     qwen_ran = raw_phrase_payload is not None
-    if query_state_mode is not None and len(plan_subjects) >= 2 and len(qwen_subjects) < len(plan_subjects):
+    if (
+        not is_set_query
+        and query_state_mode is not None
+        and len(plan_subjects) >= 2
+        and len(qwen_subjects) < len(plan_subjects)
+    ):
         subject_phrases = plan_subjects
-    elif qwen_ran and not qwen_subjects and not is_exclusion_query:
+    elif qwen_ran and not qwen_subjects and not is_exclusion_query and not is_set_query:
         # Qwen explicitly returned empty — treat as "entity does not satisfy query conditions"
         subject_phrases = []
     else:
         subject_phrases = qwen_subjects if qwen_ran else (qwen_subjects or plan_subjects)
     successor_phrases = [phrase for phrase in (qwen_successors or plan_successors) if _normalize_phrase(phrase) not in {_normalize_phrase(value) for value in subject_phrases}]
     # Early exit: Qwen explicitly returned no subjects → entity does not satisfy query
-    if qwen_ran and not subject_phrases and not is_exclusion_query:
+    if qwen_ran and not subject_phrases and not is_exclusion_query and not is_set_query:
         notes = raw_phrase_payload.get("notes", "") if raw_phrase_payload else ""
         return {
             "query": query,
@@ -2838,6 +2996,20 @@ def _compose_phrase_grounded_selection(
         ]
         subject_matches = {"__all__": [int(candidate["id"]) for candidate in candidates]}
     subject_ids, subject_phrases = _dedupe_subject_selection(subject_ids, subject_phrases)
+    if query_state_mode == "static":
+        return _compose_static_set_selection(
+            query=query,
+            candidates=candidates,
+            test_times=test_times,
+            qwen_ran=qwen_ran,
+            qwen_subjects=qwen_subjects,
+            subject_ids=subject_ids,
+            subject_phrases=subject_phrases,
+            subject_matches=subject_matches,
+            successor_phrases=successor_phrases,
+            successor_matches=successor_matches,
+            raw_output=raw_output,
+        )
     split_keywords = ("broken", "pieces", "halves", "split", "cracked")
     intact_keywords = ("complete", "whole", "intact", "unbroken")
     if _uses_entity_lifecycle_temporal_output() and subject_ids and not is_set_query:
@@ -3373,59 +3545,6 @@ def _compose_phrase_grounded_selection(
     if state_pair_payload is not None:
         return state_pair_payload
 
-    # --- Static-throughout-video queries ---
-    # When query_state_mode == "static", the subjects should be active for the full video.
-    if query_state_mode == "static":
-        static_candidates = _select_static_candidates(candidates, query=query, test_frame_count=len(test_times))
-        if static_candidates:
-            subject_ids = [int(candidate["id"]) for candidate in static_candidates]
-            subject_phrases = [
-                str(candidate.get("proposal_phrase") or candidate.get("static_text") or f"entity_{candidate['id']}")
-                for candidate in static_candidates
-            ]
-            subject_matches = {"__static_candidates__": subject_ids[:]}
-        elif not subject_ids and candidates:
-            subject_ids = [int(c["id"]) for c in candidates]
-            subject_phrases = [str(c.get("proposal_phrase") or c.get("static_text") or f"entity_{c['id']}") for c in candidates]
-        selected_rows_static = []
-        full_range = [[0, int(len(test_times) - 1)]]
-        for entity_id, phrase in zip(subject_ids, subject_phrases):
-            subject_row = next((candidate for candidate in candidates if int(candidate["id"]) == int(entity_id)), None)
-            segments = full_range
-            if subject_row is not None:
-                segments = _merge_ranges(
-                    subject_row.get("support_segments_test", [])
-                    or subject_row.get("stationary_segments_test", [])
-                    or full_range
-                )
-            selected_rows_static.append({
-                "id": int(entity_id),
-                "role": "entity",
-                "confidence": 1.0,
-                "reason": f"Static-throughout-video query: entity '{phrase}' selected for full video range.",
-                "segments": segments,
-            })
-        return {
-            "query": query,
-            "selected": selected_rows_static,
-            "empty": not bool(selected_rows_static),
-            "notes": f"Static query: selected {len(selected_rows_static)} entities for full video [{full_range}]. Subjects={subject_phrases}",
-            "selection_mode": "qwen_plan_static_full_video",
-            "subject_phrases": subject_phrases,
-            "successor_phrases": successor_phrases,
-            "subject_phrase_matches": subject_matches,
-            "successor_phrase_matches": successor_matches,
-            "contact_pair": {
-                "entity_a": int(subject_ids[0]) if subject_ids else -1,
-                "entity_b": -1,
-                "entity_a_phrase": str(subject_phrases[0]) if subject_phrases else "",
-                "entity_b_phrase": "",
-                "contact_segments_test": full_range,
-                "source": "single_subject_track_static",
-            },
-            "raw_output": raw_output,
-        }
-
     # --- Exclusion query: "all objects EXCEPT X" — no interaction required ---
     # For exclusion queries, each selected entity is active in its own support window.
     if is_exclusion_query:
@@ -3666,6 +3785,17 @@ def main() -> None:
     raw_payload: dict[str, Any] | None = None
     raw_output = ""
     skip_qwen_selection = os.environ.get("QUERY_SKIP_QWEN_SELECTION", "0") == "1"
+    query_state_mode = _query_state_mode(_normalize_query_state_text(query))
+    if query_state_mode is None:
+        query_state_mode = _normalize_track_state_mode(query_plan_payload.get("query_state_mode"))
+    static_set_query = bool(
+        query_state_mode == "static"
+        and _query_requires_entity_set_selection(
+            query_plan_payload,
+            query_state_mode=query_state_mode,
+            is_exclusion_query=_is_exclusion_query(query),
+        )
+    )
     if query_plan_payload.get("query_subject_phrases"):
         if skip_qwen_selection:
             raw_payload = {
@@ -3676,14 +3806,22 @@ def main() -> None:
             }
             raw_output = "query_plan_phrase_fallback"
         else:
-            prompt = PROMPT_TEMPLATE.format(
-                query=query,
-                query_plan_json=json.dumps(query_plan_payload, ensure_ascii=False, indent=2),
-                candidate_json=json.dumps(candidates, ensure_ascii=False, indent=2),
-                candidate_visual_evidence_json=visual_evidence_json,
-                pair_json=json.dumps(pair_candidates[:16], ensure_ascii=False, indent=2),
-                total_frames=int(test_times.shape[0]) if test_times.size else "unknown",
-            )
+            if static_set_query:
+                prompt = STATIC_SET_PROMPT_TEMPLATE.format(
+                    query=query,
+                    query_plan_json=json.dumps(query_plan_payload, ensure_ascii=False, indent=2),
+                    candidate_json=json.dumps(_static_set_candidate_payload(candidates), ensure_ascii=False, indent=2),
+                    candidate_visual_evidence_json=visual_evidence_json,
+                )
+            else:
+                prompt = PROMPT_TEMPLATE.format(
+                    query=query,
+                    query_plan_json=json.dumps(query_plan_payload, ensure_ascii=False, indent=2),
+                    candidate_json=json.dumps(candidates, ensure_ascii=False, indent=2),
+                    candidate_visual_evidence_json=visual_evidence_json,
+                    pair_json=json.dumps(pair_candidates[:16], ensure_ascii=False, indent=2),
+                    total_frames=int(test_times.shape[0]) if test_times.size else "unknown",
+                )
             resolved_path = _resolve_qwen_model(args.qwen_model)
             try:
                 from refergaussian.semantics.vlm_backends import get_vlm_teacher

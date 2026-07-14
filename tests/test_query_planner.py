@@ -689,11 +689,55 @@ class QueryPlannerPhraseTest(unittest.TestCase):
                 pair_candidates=[],
                 test_times=np.linspace(0.0, 1.0, num=10),
                 tracks_payload=None,
-                raw_phrase_payload={"subject_phrases": ["object one"], "successor_phrases": []},
+                raw_phrase_payload=None,
             )
 
         self.assertEqual(payload["selection_mode"], "qwen_plan_static_full_video")
         self.assertEqual([item["id"] for item in payload["selected"]], [1, 2, 3])
+
+    def test_static_set_keeps_visual_member_not_listed_in_plan_subjects(self) -> None:
+        candidates = [
+            {
+                "id": 1,
+                "proposal_alias": "primary object",
+                "proposal_phrase": "primary object",
+                "static_text": "primary object",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+                "stationary_segments_test": [],
+                "moving_segments_test": [[0, 9]],
+            },
+            {
+                "id": 2,
+                "proposal_alias": "compound foreground region",
+                "proposal_phrase": "compound foreground region",
+                "static_text": "compound foreground region",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+                "stationary_segments_test": [],
+                "moving_segments_test": [[0, 9]],
+            },
+        ]
+
+        with patch.dict(os.environ, {"QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT": "1"}, clear=False):
+            payload = _compose_phrase_grounded_selection(
+                query="All objects that remain physically stationary throughout the video.",
+                query_plan_payload={
+                    "query_subject_phrases": ["primary object"],
+                    "query_semantic_profile": {"asks_set": True},
+                },
+                candidates=candidates,
+                pair_candidates=[],
+                test_times=np.linspace(0.0, 1.0, num=10),
+                tracks_payload=None,
+                raw_phrase_payload={
+                    "subject_phrases": ["primary object", "compound foreground region"],
+                    "successor_phrases": [],
+                },
+            )
+
+        self.assertEqual(payload["selection_mode"], "qwen_visual_static_set")
+        self.assertEqual([item["id"] for item in payload["selected"]], [1, 2])
 
     def test_qwen_budget_uses_available_large_gpu_memory_without_a_hidden_16gib_cap(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
