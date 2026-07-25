@@ -6,7 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from refergaussian.run_identity import validate_refergaussian_run
+from refergaussian.run_identity import (
+    validate_query_ready_refergaussian_run,
+    validate_refergaussian_run,
+)
 
 
 class RunIdentityTest(unittest.TestCase):
@@ -34,6 +37,27 @@ class RunIdentityTest(unittest.TestCase):
 
         self.assertEqual(len(errors), 3)
         self.assertIn("phase='baseline', expected 'refergaussian'", errors)
+
+    def test_query_ready_run_requires_renderer_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run_dir = Path(temp_dir)
+            (run_dir / "config.yaml").write_text(
+                "phase: refergaussian\n"
+                "temporal_warp_type: refergaussian\n"
+                "warp_enabled: true\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                validate_query_ready_refergaussian_run(run_dir),
+                [
+                    f"missing query-render artifact: {run_dir / 'point_cloud'}",
+                    f"missing query-render artifact: {run_dir / 'test'}",
+                ],
+            )
+
+            (run_dir / "point_cloud").mkdir()
+            (run_dir / "test").mkdir()
+            self.assertEqual(validate_query_ready_refergaussian_run(run_dir), [])
 
 
 if __name__ == "__main__":

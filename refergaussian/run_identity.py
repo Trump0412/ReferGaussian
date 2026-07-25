@@ -9,6 +9,7 @@ REQUIRED_CONFIG = {
     "phase": "refergaussian",
     "temporal_warp_type": "refergaussian",
 }
+REQUIRED_QUERY_ARTIFACTS = ("point_cloud", "test")
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
@@ -50,4 +51,19 @@ def validate_refergaussian_run(run_dir: str | Path) -> list[str]:
 
     if config.get("warp_enabled", "").lower() not in _TRUTHY:
         errors.append("warp_enabled is not true")
+    return errors
+
+
+def validate_query_ready_refergaussian_run(run_dir: str | Path) -> list[str]:
+    """Validate both ReferGaussian identity and artifacts required by query inference."""
+
+    run_path = Path(run_dir)
+    errors = validate_refergaussian_run(run_path)
+    if errors:
+        return errors
+
+    for artifact in REQUIRED_QUERY_ARTIFACTS:
+        path = run_path / artifact
+        if not path.is_dir():
+            errors.append(f"missing query-render artifact: {path}")
     return errors
