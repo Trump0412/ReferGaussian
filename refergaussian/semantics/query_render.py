@@ -74,6 +74,8 @@ _FORMAL_BOUNDARY_GATED_PROFILES = frozenset(
     {
         "public_time_boundary_gated_v5",
         "boundary_gated_gaussian_v5",
+        "public_time_boundary_gated_v5_numeric",
+        "boundary_gated_gaussian_v5_numeric",
         "r4d_boundary_gated_v5",
         "r4d_multi_instance_boundary_v6",
         "r4d_renderer_geometry_v7",

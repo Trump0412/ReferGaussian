@@ -465,6 +465,18 @@ apply_query_eval_profile() {
       export GS_QUERY_ALLOW_DIRECT_2D_MASKS=0
       export GS_QUERY_STRICT_GAUSSIAN_PROJECTION=1
       ;;
+    public_time_boundary_gated_v5_numeric|boundary_gated_gaussian_v5_numeric)
+      # Keep the complete formal v5 inference and mask contract, but omit
+      # qualitative-only exports for score-only benchmark reruns.
+      apply_query_eval_profile public_time_boundary_gated_v5
+      export QUERY_EVAL_PROFILE="public_time_boundary_gated_v5_numeric"
+      export REFERGAUSSIAN_QUERY_EVAL_PROFILE="public_time_boundary_gated_v5_numeric"
+      export QUERY_SKIP_ENTITY_LIBRARY=1
+      export QUERY_SKIP_VIDEO_EXPORT=1
+      export QUERY_SKIP_OVERLAY_FRAME_EXPORT=1
+      export QUERY_SAVE_KEY_FRAMES=0
+      export GS_QUERY_EXPORT_ENTITY_LIFECYCLE=0
+      ;;
     r4d_shape_v4_recall|r4d_time_shape_v4_recall)
       apply_query_eval_profile public_time_shape_v4_recall
       export QUERY_EVAL_PROFILE="r4d_shape_v4_recall"

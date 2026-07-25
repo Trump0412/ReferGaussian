@@ -101,6 +101,28 @@ class QueryRenderReleaseContractTest(unittest.TestCase):
             self.assertIsNone(mask)
             self.assertEqual(meta["stage1_match_mode"], "strict_rejected_stale")
 
+    def test_v5_numeric_profile_preserves_the_formal_gaussian_contract(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            _apply_render_profile_env_defaults("public_time_boundary_gated_v5_numeric")
+
+            self.assertEqual(os.environ["GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY"], "0")
+            self.assertEqual(os.environ["GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY"], "1")
+            self.assertEqual(os.environ["GS_QUERY_ALLOW_DIRECT_2D_MASKS"], "0")
+            self.assertEqual(os.environ["GS_QUERY_CLOUD_RENDER_MODE"], "gaussian_alpha")
+
+    def test_v5_numeric_profile_only_disables_qualitative_exports(self) -> None:
+        profiles = (Path(__file__).resolve().parents[1] / "scripts" / "query_eval_profiles.sh").read_text(
+            encoding="utf-8"
+        )
+        block = profiles.split("public_time_boundary_gated_v5_numeric|boundary_gated_gaussian_v5_numeric)", 1)[1].split(
+            ";;", 1
+        )[0]
+        self.assertIn("apply_query_eval_profile public_time_boundary_gated_v5", block)
+        self.assertIn("QUERY_SKIP_ENTITY_LIBRARY=1", block)
+        self.assertIn("QUERY_SKIP_VIDEO_EXPORT=1", block)
+        self.assertIn("QUERY_SKIP_OVERLAY_FRAME_EXPORT=1", block)
+        self.assertIn("GS_QUERY_EXPORT_ENTITY_LIFECYCLE=0", block)
+
     def test_probability_opacity_round_trips_to_logits(self) -> None:
         probabilities = np.asarray([0.1, 0.5, 0.9], dtype=np.float32)
         logits = _opacity_logits_from_probabilities(probabilities)

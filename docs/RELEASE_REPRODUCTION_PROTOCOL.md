@@ -123,7 +123,8 @@ It uses training-free `mask_supported_lifting`, requires actual ReferGaussian
 test renders, and reports an empty Gaussian projection as a failure. It does
 not replace an entity with an all-scene mask, a direct 2D mask, or raw source
 RGB frames. Formal profiles keep the final prediction Gaussian-supported and
-record Stage-1 boundary coverage for every active selected entity. The R4D
-numeric-only profile may skip qualitative video exports. Qwen planning is
+record Stage-1 boundary coverage for every active selected entity. Numeric-only
+profiles may skip qualitative video exports but retain the same planner,
+Gaussian entity, final mask, and validation contract. Qwen planning is
 always required; only the explicitly documented v6 declared-instance contract
 can avoid duplicate post-lifting Qwen assignment and selection work.

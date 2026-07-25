@@ -395,6 +395,9 @@ export QUERY_EVAL_PROFILE=default
 
 # Formal release profile: synchronized boundary-gated Gaussian projection
 export QUERY_EVAL_PROFILE=public_time_boundary_gated_v5
+
+# Score-only variant: identical v5 inference and masks, without qualitative exports
+export QUERY_EVAL_PROFILE=public_time_boundary_gated_v5_numeric
 ```
 
 The active profile and its effective fusion parameters are written into each
@@ -415,6 +418,11 @@ mask. This is a geometric gate, not a 2D-mask replacement: every foreground
 pixel in the final output must remain supported by the selected Gaussian
 projection. The profile rejects stale Stage-1 matches and records boundary
 coverage, direct-mask use, and cloud support in `validation.json`.
+
+`public_time_boundary_gated_v5_numeric` keeps the same Stage-1, Qwen,
+training-free Gaussian lifting, selected-entity projection, and boundary-gate
+contract as v5. It only skips entity-library videos and overlay exports, while
+still writing the masks and validation artifacts required by the evaluator.
 
 For paper-style batched reruns, prefer the manifest-based runner so query ids, output roots,
 and evaluator maps stay aligned:
