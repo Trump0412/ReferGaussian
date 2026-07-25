@@ -367,6 +367,9 @@ gs_python scripts/build_4dlangsplat_query_protocol.py \
   --scene "${SCENE}" \
   --output-json "${PROTOCOL_JSON}"
 
+# Required for a paper-comparable public run.
+export QUERY_EVAL_PROFILE=public_time_boundary_gated_v5
+
 bash scripts/run_public_query_protocol.sh \
   "${PROTOCOL_JSON}" \
   "${RUN_DIR}" \
@@ -385,15 +388,18 @@ gs_python scripts/evaluate_public_query_protocol.py \
 
 `run_public_query_protocol.sh` defaults to the
 `temporal_state_reference` category, so it does not spend compute on the
-unscored static-reference rows in the annotation file.
+unscored static-reference rows in the annotation file. The sequential helper
+inherits `QUERY_EVAL_PROFILE`; set the formal v5 profile explicitly as above.
+The manifest batch flow below is required for a paper-comparable aggregate.
 
 Reproducible profile switch:
 
 ```bash
-# Public release default behavior
+# Exploratory behavior only; do not use this for a paper comparison.
 export QUERY_EVAL_PROFILE=default
 
-# Formal release profile: synchronized boundary-gated Gaussian projection
+# Formal release profile: synchronized boundary-gated Gaussian projection.
+# Use this explicit profile together with --strict-release.
 export QUERY_EVAL_PROFILE=public_time_boundary_gated_v5
 
 # Score-only variant: identical v5 inference and masks, without qualitative exports

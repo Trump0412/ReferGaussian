@@ -29,6 +29,22 @@ def _manifest_row(**overrides: object) -> dict:
 
 
 class ReleaseRunnerTest(unittest.TestCase):
+    def test_non_strict_runner_keeps_its_exploratory_default(self) -> None:
+        self.assertEqual(
+            RUNNER.resolve_profile(None, strict_release=False),
+            RUNNER.EXPLORATORY_DEFAULT_PROFILE,
+        )
+
+    def test_strict_runner_requires_an_explicit_profile(self) -> None:
+        with self.assertRaisesRegex(ValueError, "explicit --profile"):
+            RUNNER.resolve_profile(None, strict_release=True)
+
+    def test_strict_runner_accepts_an_explicit_profile(self) -> None:
+        self.assertEqual(
+            RUNNER.resolve_profile("public_time_boundary_gated_v5", strict_release=True),
+            "public_time_boundary_gated_v5",
+        )
+
     def test_strict_manifest_accepts_plain_query_row(self) -> None:
         errors = RUNNER.validate_release_manifest(
             [_manifest_row()], profile="public_time_shape_v4_recall"

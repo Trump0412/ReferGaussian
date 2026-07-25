@@ -32,6 +32,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PIPELINE_SCRIPT = REPO_ROOT / "scripts" / "run_query_specific_worldtube_pipeline.sh"
 _RELEASE_CONFIG_PREFIXES = ("QUERY_", "GS_QUERY_", "GSAM2_")
+EXPLORATORY_DEFAULT_PROFILE = "boundary_shape_v2"
 
 
 # ---------------------------------------------------------------------------
@@ -49,8 +50,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--profile",
-        default="boundary_shape_v2",
-        help="Query eval profile name (default: boundary_shape_v2).",
+        default=None,
+        help=(
+            "Query eval profile name. Required with --strict-release; "
+            f"non-strict runs default to {EXPLORATORY_DEFAULT_PROFILE}."
+        ),
     )
     parser.add_argument(
         "--gpu",
@@ -151,6 +155,16 @@ def validate_release_manifest(items: list[dict], profile: str) -> list[str]:
                 f"{query_id}: manifest profile {item_profile!r} differs from --profile {profile!r}"
             )
     return errors
+
+
+def resolve_profile(profile: str | None, *, strict_release: bool) -> str:
+    """Resolve the requested profile without silently weakening a release run."""
+
+    if profile:
+        return profile
+    if strict_release:
+        raise ValueError("--strict-release requires an explicit --profile")
+    return EXPLORATORY_DEFAULT_PROFILE
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +430,12 @@ def _gpu_worker(
 
 def main() -> int:
     args = parse_args()
+
+    try:
+        args.profile = resolve_profile(args.profile, strict_release=args.strict_release)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
     # Pre-flight: does the pipeline script exist?
     if not PIPELINE_SCRIPT.exists():
