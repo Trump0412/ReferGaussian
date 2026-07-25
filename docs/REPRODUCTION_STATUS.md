@@ -49,9 +49,9 @@ gs_python scripts/check_release.py
 gs_python -m unittest discover -s tests -v
 ```
 
-## Clean-Install Canaries (2026-07-25)
+## Isolated Runtime Canaries (2026-07-25)
 
-The following single-query runs were regenerated from a clean checkout after
+The following single-query runs were regenerated from an isolated release checkout after
 the pinned external dependencies and model checkpoints had been installed.
 They are executable smoke evidence, not replacements for either complete
 benchmark aggregate.
