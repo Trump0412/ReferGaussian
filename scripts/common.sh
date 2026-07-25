@@ -169,11 +169,12 @@ gs_pip() {
 }
 
 gsam2_python() {
+  local gsam2_pythonpath="${GS_ROOT}/external/Grounded-SAM-2:${PYTHONPATH:-}"
   if [[ "${CONDA_PREFIX:-}" == "${GSAM2_ENV_PATH}" && -x "${GSAM2_ENV_PATH}/bin/python" ]]; then
-    "${GSAM2_ENV_PATH}/bin/python" "$@"
+    PYTHONPATH="${gsam2_pythonpath}" "${GSAM2_ENV_PATH}/bin/python" "$@"
   else
     require_conda_bin
-    env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 XDG_CACHE_HOME="${GS_CACHE_ROOT}" TORCH_HOME="${GS_TORCH_HOME}" MPLCONFIGDIR="${GS_MPLCONFIGDIR}" CONDA_PKGS_DIRS="${GS_CONDA_PKGS_DIRS}" PIP_CACHE_DIR="${GS_PIP_CACHE_DIR}" \
+    env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 XDG_CACHE_HOME="${GS_CACHE_ROOT}" TORCH_HOME="${GS_TORCH_HOME}" MPLCONFIGDIR="${GS_MPLCONFIGDIR}" CONDA_PKGS_DIRS="${GS_CONDA_PKGS_DIRS}" PIP_CACHE_DIR="${GS_PIP_CACHE_DIR}" PYTHONPATH="${gsam2_pythonpath}" \
       "${GS_CONDA_BIN}" run --no-capture-output -p "${GSAM2_ENV_PATH}" python "$@"
   fi
 }

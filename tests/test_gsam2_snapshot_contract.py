@@ -40,6 +40,13 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
         self.assertIn("HF_HUB_OFFLINE=\"${local_only}\"", text)
         self.assertIn("validate_pinned_assets 1", text)
         self.assertIn("sam2 imported from another checkout", text)
+        self.assertIn("pip uninstall -y SAM-2", text)
+        self.assertIn("--force-reinstall -e .", text)
+
+    def test_gsam2_runner_prioritizes_the_current_pinned_checkout(self) -> None:
+        text = (ROOT / "scripts" / "common.sh").read_text(encoding="utf-8")
+        self.assertIn('local gsam2_pythonpath="${GS_ROOT}/external/Grounded-SAM-2:${PYTHONPATH:-}"', text)
+        self.assertIn('PYTHONPATH="${gsam2_pythonpath}"', text)
 
     def test_query_pipeline_checks_external_model_and_sam2_provenance_first(self) -> None:
         text = (ROOT / "scripts" / "run_query_specific_worldtube_pipeline.sh").read_text(

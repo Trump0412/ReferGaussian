@@ -56,8 +56,14 @@ env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 
 if [[ "${INSTALL_EDITABLE}" == "1" ]]; then
   pushd "${GSAM2_ROOT}" >/dev/null
+  # Editable packages with the same project name can otherwise keep an older
+  # checkout in a shared environment's import finder. Replace it explicitly so
+  # the runtime provenance check always resolves this repository's pinned tree.
+  "${GS_CONDA_BIN}" run --no-capture-output -p "${GSAM2_ENV_PATH}" \
+    python -m pip uninstall -y SAM-2 || true
   env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 CUDA_HOME="${CUDA_HOME}" SAM2_BUILD_ALLOW_ERRORS=1 \
-    "${GS_CONDA_BIN}" run --no-capture-output -p "${GSAM2_ENV_PATH}" python -m pip install --no-build-isolation -e .
+    "${GS_CONDA_BIN}" run --no-capture-output -p "${GSAM2_ENV_PATH}" \
+      python -m pip install --no-build-isolation --no-deps --force-reinstall -e .
   popd >/dev/null
 fi
 
