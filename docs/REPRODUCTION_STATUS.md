@@ -68,6 +68,25 @@ map keyed by `torchchocolate_q1`; the evaluator still used the benchmark's
 official annotation record. Neither run used a direct Stage-1 mask as its
 final prediction.
 
+## Strict Public Scene Smoke (2026-07-26)
+
+A fresh `split-cookie` ReferGaussian reconstruction was trained for the
+documented 14,000 fine iterations and evaluated with the public
+time-sensitive protocol. The query batch used
+`public_time_boundary_gated_v5_numeric` under `--strict-release`; the numeric
+suffix only omits qualitative exports and does not change inference or scoring.
+
+| Scene | Queries | Acc | vIoU | tIoU | Spatial coverage |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `split-cookie` | 2 / 2 | 90.91 | 55.24 | 81.30 | 53 / 53 annotated frames |
+
+Per-query results were `90.72 / 51.19 / 84.33` for the broken-cookie state and
+`91.09 / 59.29 / 78.28` for the complete-cookie state (Acc / vIoU / tIoU).
+The evaluator reported zero warnings, no missing render masks, no unmapped
+annotation masks, and no direct Stage-1 mask output. This is a complete
+scene-level smoke for its two released time-sensitive queries, not a
+replacement for the nine-query, four-scene public aggregate.
+
 ## Reporting Boundary
 
 The numerical tables in the README and project page are the accepted-paper
