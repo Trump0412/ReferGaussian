@@ -49,6 +49,25 @@ gs_python scripts/check_release.py
 gs_python -m unittest discover -s tests -v
 ```
 
+## Clean-Install Canaries (2026-07-25)
+
+The following single-query runs were regenerated from a clean checkout after
+the pinned external dependencies and model checkpoints had been installed.
+They are executable smoke evidence, not replacements for either complete
+benchmark aggregate.
+
+| Protocol | Query | Acc | vIoU | tIoU | Coverage |
+| --- | --- | ---: | ---: | ---: | --- |
+| Public 4DLangSplat | `espresso__the_empty_glass_cup` | 100.00 | 64.09 | 100.00 | 36 / 36 spatial frames |
+| R4D-Bench-QA | `torchchocolate_q1` | 94.24 | 53.87 | 93.96 | 71 / 71 source-camera spatial frames |
+
+Both runs used the documented strict profiles, official query ids, complete
+single-query manifests, synchronized Stage-1 boundary coverage, and a final
+Gaussian-projection mask. The R4D canary used the versioned English query text
+map keyed by `torchchocolate_q1`; the evaluator still used the benchmark's
+official annotation record. Neither run used a direct Stage-1 mask as its
+final prediction.
+
 ## Reporting Boundary
 
 The numerical tables in the README and project page are the accepted-paper
