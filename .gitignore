@@ -6,9 +6,6 @@ runs/
 logs/
 reports/
 docs/reproducibility/
-docs/assets/dataset.png
-docs/assets/runtime.png
-docs/assets/vl_model_radar_6axis.png
 experiments/
 server_sync/
 backups/
@@ -23,11 +20,6 @@ __pycache__/
 *.tar.gz
 *.egg-info/
 .DS_Store
-
-# Local release notes / legacy drafts
-*Codex_Taskbook.md
-docs/weaktube_remote_lessons_and_locked_profile_20260404.md
-scripts/run_splitcookie_weaktube_opt_20260401.py
 
 # External dependencies are fetched locally via scripts/bootstrap_external.sh
 external/
