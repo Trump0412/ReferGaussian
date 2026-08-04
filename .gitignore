@@ -11,6 +11,7 @@ server_sync/
 backups/
 tmp/
 tmp_eval_*/
+/output.png
 __pycache__/
 *.pyc
 *.pth
