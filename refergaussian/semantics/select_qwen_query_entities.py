@@ -924,6 +924,81 @@ def _ranges_total_len(segments: list[list[int]]) -> int:
     return int(sum(_range_len(segment) for segment in segments))
 
 
+def _phase_aligned_candidate_for_segments(
+    candidates: list[dict[str, Any]],
+    selected_row: dict[str, Any],
+    target_segments: list[list[int]],
+    *,
+    split_frame: int | None,
+    frame_count: int,
+) -> dict[str, Any]:
+    """Keep a selected lifecycle phase consistent with its temporal evidence."""
+    if split_frame is None or frame_count <= 0 or not target_segments:
+        return selected_row
+    selected_variant = str(selected_row.get("proposal_variant", "")).strip()
+    lifecycle_variants = {"pre_split", "post_split_union", "post_split_part"}
+    if selected_variant not in lifecycle_variants:
+        return selected_row
+
+    try:
+        selected_object_id = int(selected_row.get("stage1_object_id"))
+    except (TypeError, ValueError):
+        selected_object_id = None
+    selected_track_id = str(selected_row.get("stage1_track_id", "")).strip()
+    if selected_object_id is None and not selected_track_id:
+        return selected_row
+
+    family_rows: list[dict[str, Any]] = []
+    for candidate in candidates:
+        same_family = False
+        if selected_object_id is not None:
+            try:
+                same_family = int(candidate.get("stage1_object_id")) == selected_object_id
+            except (TypeError, ValueError):
+                same_family = False
+        elif selected_track_id:
+            same_family = str(candidate.get("stage1_track_id", "")).strip() == selected_track_id
+        if same_family:
+            family_rows.append(candidate)
+
+    split_index = min(max(int(split_frame), 0), frame_count)
+    pre_ranges = [[0, split_index - 1]] if split_index > 0 else []
+    post_ranges = [[split_index, frame_count - 1]] if split_index < frame_count else []
+    pre_overlap = _ranges_total_len(
+        _intersect_ranges(target_segments, pre_ranges, frame_count)
+    )
+    post_overlap = _ranges_total_len(
+        _intersect_ranges(target_segments, post_ranges, frame_count)
+    )
+    if pre_overlap == post_overlap:
+        return selected_row
+    wanted_variants = (
+        {"post_split_union", "post_split_part"}
+        if post_overlap > pre_overlap
+        else {"pre_split"}
+    )
+    aligned_rows = [
+        row
+        for row in family_rows
+        if str(row.get("proposal_variant", "")).strip() in wanted_variants
+    ]
+    if not aligned_rows:
+        return selected_row
+    variant_priority = {
+        "pre_split": 0,
+        "post_split_union": 0,
+        "post_split_part": 1,
+    }
+    aligned_rows.sort(
+        key=lambda row: (
+            variant_priority.get(str(row.get("proposal_variant", "")).strip(), 9),
+            -float(row.get("quality", 0.0)),
+            int(row.get("id", -1)),
+        )
+    )
+    return aligned_rows[0]
+
+
 def _first_range_start(ranges: list[list[int]]) -> int:
     if not ranges:
         return 10**9
@@ -1650,8 +1725,10 @@ def _track_split_start_frame(
     phrase: str,
     test_times: np.ndarray,
     start_frame: int | None = None,
+    *,
+    object_id: int | None = None,
 ) -> int | None:
-    track = _query_track_by_phrase(tracks_payload, phrase)
+    track = _query_track_by_phrase(tracks_payload, phrase, object_id=object_id)
     if track is None:
         return None
     split_times: list[float] = []
@@ -3942,8 +4019,7 @@ def _compose_phrase_grounded_selection(
         if int(candidate["id"]) in {int(value) for value in subject_ids}
     }
 
-    def _available_segments_for_subject(entity_id: int) -> list[list[int]]:
-        row = subject_rows.get(int(entity_id))
+    def _available_segments_for_row(row: dict[str, Any] | None) -> list[list[int]]:
         if row is None:
             return []
         return _merge_ranges(
@@ -3973,14 +4049,54 @@ def _compose_phrase_grounded_selection(
             return None
 
         selected_rows_local = []
+        phase_alignment = []
+        resolved_entity_ids: set[int] = set()
         for entity_id, phrase in zip(subject_ids, subject_phrases):
-            available_segments = _available_segments_for_subject(int(entity_id))
+            selected_candidate = subject_rows.get(int(entity_id))
+            aligned_candidate = selected_candidate
+            if selected_candidate is not None:
+                try:
+                    object_id = int(selected_candidate.get("stage1_object_id"))
+                except (TypeError, ValueError):
+                    object_id = None
+                split_frame = _track_split_start_frame(
+                    tracks_payload,
+                    phrase=str(selected_candidate.get("proposal_phrase") or phrase),
+                    test_times=test_times,
+                    start_frame=0,
+                    object_id=object_id,
+                )
+                aligned_candidate = _phase_aligned_candidate_for_segments(
+                    candidates,
+                    selected_candidate,
+                    carrier_segments,
+                    split_frame=split_frame,
+                    frame_count=len(test_times),
+                )
+                if int(aligned_candidate["id"]) != int(selected_candidate["id"]):
+                    phase_alignment.append(
+                        {
+                            "from_entity_id": int(selected_candidate["id"]),
+                            "to_entity_id": int(aligned_candidate["id"]),
+                            "stage1_object_id": object_id,
+                            "split_frame_test": split_frame,
+                            "target_segments_test": carrier_segments,
+                            "reason": "state_window_phase_overlap",
+                        }
+                    )
+            resolved_entity_id = int(
+                (aligned_candidate or selected_candidate or {"id": entity_id})["id"]
+            )
+            if resolved_entity_id in resolved_entity_ids:
+                continue
+            resolved_entity_ids.add(resolved_entity_id)
+            available_segments = _available_segments_for_row(aligned_candidate)
             row_segments = _intersect_ranges(available_segments, carrier_segments, len(test_times))
             if not row_segments:
                 row_segments = carrier_segments
             selected_rows_local.append(
                 {
-                    "id": int(entity_id),
+                    "id": resolved_entity_id,
                     "role": "entity",
                     "confidence": 1.0,
                     "reason": f"Selected from carrier state '{query_state_mode}' driven by phrase '{carrier_phrase}'.",
@@ -4004,6 +4120,8 @@ def _compose_phrase_grounded_selection(
         ]
         if carrier_meta and "threshold" in carrier_meta:
             notes_parts.append(f"Carrier threshold={float(carrier_meta['threshold']):.4f}")
+        if phase_alignment:
+            notes_parts.append(f"Phase-aligned entities={len(phase_alignment)}")
         return {
             "query": query,
             "selected": selected_rows_local,
@@ -4014,9 +4132,10 @@ def _compose_phrase_grounded_selection(
             "successor_phrases": successor_phrases,
             "subject_phrase_matches": subject_matches,
             "successor_phrase_matches": successor_matches,
+            "phase_alignment": phase_alignment,
             "contact_pair": {
-                "entity_a": int(subject_ids[0]) if subject_ids else -1,
-                "entity_b": int(subject_ids[1]) if len(subject_ids) > 1 else -1,
+                "entity_a": int(selected_rows_local[0]["id"]) if selected_rows_local else -1,
+                "entity_b": int(selected_rows_local[1]["id"]) if len(selected_rows_local) > 1 else -1,
                 "entity_a_phrase": str(subject_phrases[0]) if subject_phrases else "",
                 "entity_b_phrase": str(subject_phrases[1]) if len(subject_phrases) > 1 else "",
                 "contact_segments_test": carrier_segments,

@@ -269,6 +269,156 @@ class QueryPlannerPhraseTest(unittest.TestCase):
             }
         ])
 
+    def test_pair_state_rebinds_pre_split_entities_to_late_phase_siblings(self) -> None:
+        candidates = [
+            {
+                "id": 0,
+                "stage1_object_id": 10,
+                "proposal_alias": "dark container pre split",
+                "proposal_phrase": "dark container pre split",
+                "proposal_variant": "pre_split",
+                "quality": 0.95,
+                "support_segments_test": [[0, 9]],
+            },
+            {
+                "id": 1,
+                "stage1_object_id": 11,
+                "proposal_alias": "dark liquid pre split",
+                "proposal_phrase": "dark liquid pre split",
+                "proposal_variant": "pre_split",
+                "quality": 0.95,
+                "support_segments_test": [[0, 9]],
+            },
+            {
+                "id": 2,
+                "stage1_object_id": 10,
+                "proposal_alias": "dark container post split union",
+                "proposal_phrase": "dark container post split union",
+                "proposal_variant": "post_split_union",
+                "quality": 0.80,
+                "support_segments_test": [[0, 9]],
+            },
+            {
+                "id": 3,
+                "stage1_object_id": 11,
+                "proposal_alias": "dark liquid post split union",
+                "proposal_phrase": "dark liquid post split union",
+                "proposal_variant": "post_split_union",
+                "quality": 0.80,
+                "support_segments_test": [[0, 9]],
+            },
+        ]
+        with (
+            patch(
+                "refergaussian.semantics.select_qwen_query_entities._track_state_segments_test",
+                return_value=([[6, 9]], {"state_mode": "dark", "threshold": 0.2}),
+            ),
+            patch(
+                "refergaussian.semantics.select_qwen_query_entities._track_split_start_frame",
+                return_value=5,
+            ),
+        ):
+            payload = _compose_phrase_grounded_selection(
+                query="The container whose contents become darker.",
+                query_plan_payload={
+                    "query_subject_phrases": [
+                        "dark container pre split",
+                        "dark liquid pre split",
+                    ]
+                },
+                candidates=candidates,
+                pair_candidates=[],
+                test_times=np.linspace(0.0, 1.0, num=10),
+                tracks_payload={"tracks": [{}]},
+                raw_phrase_payload={
+                    "subject_phrases": [
+                        "dark container pre split",
+                        "dark liquid pre split",
+                    ],
+                    "successor_phrases": [],
+                },
+            )
+
+        self.assertEqual([row["id"] for row in payload["selected"]], [2, 3])
+        self.assertEqual([row["segments"] for row in payload["selected"]], [[[6, 9]], [[6, 9]]])
+        self.assertEqual(payload["contact_pair"]["entity_a"], 2)
+        self.assertEqual(payload["contact_pair"]["entity_b"], 3)
+        self.assertEqual(len(payload["phase_alignment"]), 2)
+
+    def test_pair_state_keeps_pre_split_entities_for_early_state_window(self) -> None:
+        candidates = [
+            {
+                "id": 0,
+                "stage1_object_id": 10,
+                "proposal_alias": "light container pre split",
+                "proposal_phrase": "light container pre split",
+                "proposal_variant": "pre_split",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+            },
+            {
+                "id": 1,
+                "stage1_object_id": 11,
+                "proposal_alias": "light liquid pre split",
+                "proposal_phrase": "light liquid pre split",
+                "proposal_variant": "pre_split",
+                "quality": 0.9,
+                "support_segments_test": [[0, 9]],
+            },
+            {
+                "id": 2,
+                "stage1_object_id": 10,
+                "proposal_alias": "light container post split union",
+                "proposal_phrase": "light container post split union",
+                "proposal_variant": "post_split_union",
+                "quality": 0.8,
+                "support_segments_test": [[0, 9]],
+            },
+            {
+                "id": 3,
+                "stage1_object_id": 11,
+                "proposal_alias": "light liquid post split union",
+                "proposal_phrase": "light liquid post split union",
+                "proposal_variant": "post_split_union",
+                "quality": 0.8,
+                "support_segments_test": [[0, 9]],
+            },
+        ]
+        with (
+            patch(
+                "refergaussian.semantics.select_qwen_query_entities._track_state_segments_test",
+                return_value=([[0, 3]], {"state_mode": "light"}),
+            ),
+            patch(
+                "refergaussian.semantics.select_qwen_query_entities._track_split_start_frame",
+                return_value=5,
+            ),
+        ):
+            payload = _compose_phrase_grounded_selection(
+                query="The light-colored contents in the container.",
+                query_plan_payload={
+                    "query_subject_phrases": [
+                        "light container pre split",
+                        "light liquid pre split",
+                    ]
+                },
+                candidates=candidates,
+                pair_candidates=[],
+                test_times=np.linspace(0.0, 1.0, num=10),
+                tracks_payload={"tracks": [{}]},
+                raw_phrase_payload={
+                    "subject_phrases": [
+                        "light container pre split",
+                        "light liquid pre split",
+                    ],
+                    "successor_phrases": [],
+                },
+            )
+
+        self.assertEqual([row["id"] for row in payload["selected"]], [0, 1])
+        self.assertEqual([row["segments"] for row in payload["selected"]], [[[0, 3]], [[0, 3]]])
+        self.assertEqual(payload["phase_alignment"], [])
+
     def test_progressive_relation_uses_planner_confirmed_action_window(self) -> None:
         candidates = [
             {
