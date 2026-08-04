@@ -18,6 +18,7 @@ Manifest fields per line (JSON):
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import hashlib
 import json
 import os
@@ -36,8 +37,53 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PIPELINE_SCRIPT = REPO_ROOT / "scripts" / "run_query_specific_worldtube_pipeline.sh"
 _RELEASE_CONFIG_PREFIXES = ("QUERY_", "GS_QUERY_", "GSAM2_")
 EXPLORATORY_DEFAULT_PROFILE = "boundary_shape_v2"
-
-
+PROTOCOL_REGISTRY_PATH = REPO_ROOT / "configs" / "benchmarks" / "release_protocols.json"
+R4D_ENGLISH_QUERY_MAP_PATH = REPO_ROOT / "configs" / "benchmarks" / "r4d_query_text_en.json"
+STRICT_RELEASE_PROFILES = frozenset(
+    {
+        "public_time_boundary_gated_v5",
+        "public_time_boundary_gated_v5_numeric",
+        "r4d_boundary_gated_v5",
+    }
+)
+EXECUTABLE_RELEASE_PROTOCOLS = frozenset(
+    {"paper_public3", "release_public4_extension", "release_r4d_dense89"}
+)
+PROTOCOL_PROFILES = {
+    "paper_public3": frozenset(
+        {"public_time_boundary_gated_v5", "public_time_boundary_gated_v5_numeric"}
+    ),
+    "release_public4_extension": frozenset(
+        {"public_time_boundary_gated_v5", "public_time_boundary_gated_v5_numeric"}
+    ),
+    "release_r4d_dense89": frozenset({"r4d_boundary_gated_v5"}),
+}
+PUBLIC_PROTOCOL_QUERY_IDS = {
+    "paper_public3": frozenset(
+        {
+            "americano__the_glass_cup_that_is_glasses_contain_light_colored_liquid",
+            "americano__the_glass_cup_that_is_liquid_become_darker_in_glasses",
+            "espresso__the_empty_glass_cup",
+            "espresso__the_full_glass_cup",
+            "espresso__the_glass_cup_with_liquid_above_the_midpoint_of_the_cup",
+            "split-cookie__the_cookie_broken_into_smaller_pieces",
+            "split-cookie__the_complete_cookie",
+        }
+    ),
+    "release_public4_extension": frozenset(
+        {
+            "americano__the_glass_cup_that_is_glasses_contain_light_colored_liquid",
+            "americano__the_glass_cup_that_is_liquid_become_darker_in_glasses",
+            "chickchicken__the_closed_chicken_container",
+            "chickchicken__the_opened_chicken_container",
+            "espresso__the_empty_glass_cup",
+            "espresso__the_full_glass_cup",
+            "espresso__the_glass_cup_with_liquid_above_the_midpoint_of_the_cup",
+            "split-cookie__the_cookie_broken_into_smaller_pieces",
+            "split-cookie__the_complete_cookie",
+        }
+    ),
+}
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -63,8 +109,8 @@ def parse_args() -> argparse.Namespace:
         "--gpu",
         nargs="+",
         type=int,
-        default=[0, 1],
-        help="GPU indices to use (default: 0 1).",
+        default=[0],
+        help="GPU indices to use (portable default: 0).",
     )
     parser.add_argument(
         "--force-rerun",
@@ -90,6 +136,15 @@ def parse_args() -> argparse.Namespace:
             "clear inherited query/GSAM tuning variables."
         ),
     )
+    parser.add_argument(
+        "--protocol-id",
+        default=None,
+        help=(
+            "Release protocol declared by the manifest. Required with "
+            "--strict-release (paper_public3, release_public4_extension, or "
+            "release_r4d_dense89)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -97,66 +152,328 @@ def parse_args() -> argparse.Namespace:
 # Manifest I/O
 # ---------------------------------------------------------------------------
 
-def load_manifest(path: str) -> list[dict]:
-    """Load and validate a JSONL manifest file."""
+def load_manifest_with_audit(path: str, *, strict: bool = False) -> tuple[list[dict], dict]:
+    """Load a JSONL manifest and retain an explicit record of skipped rows."""
     items: list[dict] = []
     required = {"query_id", "query", "run_dir", "dataset_dir", "output_root", "gpu"}
+    issues: list[str] = []
+    seen_query_ids: set[str] = set()
+    nonempty_lines = 0
 
     with open(path, "r", encoding="utf-8") as fh:
         for lineno, line in enumerate(fh, 1):
             line = line.strip()
             if not line:
                 continue
+            nonempty_lines += 1
             try:
                 obj = json.loads(line)
             except json.JSONDecodeError as exc:
-                print(
-                    f"[warn] skipping manifest line {lineno}: invalid JSON ({exc})",
-                    file=sys.stderr,
-                )
+                issues.append(f"line {lineno}: invalid JSON ({exc})")
+                continue
+
+            if not isinstance(obj, dict):
+                issues.append(f"line {lineno}: expected a JSON object")
                 continue
 
             missing = required - obj.keys()
             if missing:
-                print(
-                    f"[warn] skipping manifest line {lineno}: missing keys {sorted(missing)}",
-                    file=sys.stderr,
-                )
+                issues.append(f"line {lineno}: missing keys {sorted(missing)}")
                 continue
 
+            query_id = str(obj.get("query_id") or "").strip()
+            if not query_id:
+                issues.append(f"line {lineno}: query_id must be a non-empty string")
+                continue
+            if query_id in seen_query_ids:
+                issues.append(f"line {lineno}: duplicate query_id {query_id!r}")
+                continue
+            if not str(obj.get("query") or "").strip():
+                issues.append(f"line {lineno}: query text must be non-empty")
+                continue
+            if isinstance(obj.get("gpu"), bool) or not isinstance(obj.get("gpu"), int):
+                issues.append(f"line {lineno}: gpu must be a JSON integer")
+                continue
+
+            seen_query_ids.add(query_id)
             items.append(obj)
 
-    return items
+    if issues and strict:
+        raise ValueError("invalid strict-release manifest:\n" + "\n".join(issues))
+    for issue in issues:
+        print(f"[warn] skipping manifest row: {issue}", file=sys.stderr)
+    return items, {
+        "nonempty_rows": nonempty_lines,
+        "loaded_rows": len(items),
+        "skipped_rows": len(issues),
+        "issues": issues,
+    }
 
 
-def group_by_gpu(items: list[dict], gpus: list[int]) -> dict[int, list[dict]]:
+def load_manifest(path: str, *, strict: bool = False) -> list[dict]:
+    """Compatibility helper returning only valid rows."""
+    return load_manifest_with_audit(path, strict=strict)[0]
+
+
+def group_by_gpu(
+    items: list[dict],
+    gpus: list[int],
+    *,
+    strict: bool = False,
+) -> dict[int, list[dict]]:
     """Partition manifest items by their assigned GPU."""
     groups: dict[int, list[dict]] = {g: [] for g in gpus}
     for item in items:
         gpu = item["gpu"]
         if gpu not in groups:
-            print(
-                f"[warn] query '{item['query_id']}' assigned to GPU {gpu} "
-                f"which is not in the active GPU list; skipping",
-                file=sys.stderr,
+            message = (
+                f"query {item['query_id']!r} is assigned to GPU {gpu}, "
+                f"outside active GPU list {sorted(groups)}"
             )
+            if strict:
+                raise ValueError(message)
+            print(f"[warn] {message}; skipping", file=sys.stderr)
             continue
         groups[gpu].append(item)
     return groups
 
 
-def validate_release_manifest(items: list[dict], profile: str) -> list[str]:
+def _load_protocol_registry() -> dict:
+    try:
+        payload = json.loads(PROTOCOL_REGISTRY_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"release protocol registry is unreadable: {exc}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("protocols"), dict):
+        raise ValueError("release protocol registry has no protocols object")
+    return payload
+
+
+def _sha256_hex(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _normalise_scene(scene: object) -> str:
+    return str(scene or "").strip().lower().replace("-", "_")
+
+
+def _expected_r4d_query_ids(registry: dict) -> set[str]:
+    expected_hash = str(
+        registry["protocols"]["release_r4d_dense89"].get("english_query_map_sha256", "")
+    )
+    actual_hash = _sha256_hex(R4D_ENGLISH_QUERY_MAP_PATH)
+    if actual_hash != expected_hash:
+        raise ValueError(
+            "release R4D English query map does not match the protocol registry: "
+            f"expected {expected_hash}, got {actual_hash}"
+        )
+    payload = json.loads(R4D_ENGLISH_QUERY_MAP_PATH.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("release R4D English query map must be a JSON object")
+    return {str(query_id) for query_id in payload}
+
+
+def _source_identity_errors(
+    items: list[dict],
+    *,
+    protocol_id: str,
+    registry: dict,
+    verify_source_files: bool,
+) -> list[str]:
+    errors: list[str] = []
+    expected_registry_version = str(registry.get("registry_version", ""))
+    for item in items:
+        query_id = str(item.get("query_id", "<unknown>"))
+        if str(item.get("protocol_registry_version", "")) != expected_registry_version:
+            errors.append(
+                f"{query_id}: protocol_registry_version differs from {expected_registry_version!r}"
+            )
+
+    if protocol_id in PUBLIC_PROTOCOL_QUERY_IDS:
+        expected_by_scene = registry.get("public_annotation_sha256", {})
+        checked_paths: set[tuple[str, str]] = set()
+        for item in items:
+            query_id = str(item.get("query_id", "<unknown>"))
+            scene = str(item.get("scene", ""))
+            expected = expected_by_scene.get(scene, {})
+            hashes = item.get("source_hashes")
+            paths = item.get("source_paths")
+            if not isinstance(hashes, dict):
+                errors.append(f"{query_id}: source_hashes must be an object")
+                continue
+            if hashes.get("video_annotations_sha256") != expected.get("video_annotations"):
+                errors.append(f"{query_id}: video_annotations hash differs from registry")
+            if hashes.get("coco_annotations_sha256") != expected.get("coco_masks"):
+                errors.append(f"{query_id}: COCO annotation hash differs from registry")
+            if not verify_source_files:
+                continue
+            if not isinstance(paths, dict):
+                errors.append(f"{query_id}: source_paths must be an object")
+                continue
+            for key, hash_key in (
+                ("video_annotations", "video_annotations_sha256"),
+                ("coco_annotations", "coco_annotations_sha256"),
+                ("protocol_json", "protocol_json_sha256"),
+            ):
+                source_path = Path(str(paths.get(key, "")))
+                expected_hash = str(hashes.get(hash_key, ""))
+                identity = (str(source_path), expected_hash)
+                if identity in checked_paths:
+                    continue
+                checked_paths.add(identity)
+                if not source_path.is_file():
+                    errors.append(f"{query_id}: source file missing: {source_path}")
+                elif not expected_hash or _sha256_hex(source_path) != expected_hash:
+                    errors.append(f"{query_id}: source file hash mismatch: {source_path}")
+    elif protocol_id == "release_r4d_dense89":
+        protocol = registry["protocols"][protocol_id]
+        expected_hashes = {
+            "benchmark_sha256": str(protocol.get("dense_gt_sha256", "")),
+            "query_metadata_sha256": str(protocol.get("query_metadata_sha256", "")),
+            "english_query_map_sha256": str(protocol.get("english_query_map_sha256", "")),
+        }
+        checked_paths: set[tuple[str, str]] = set()
+        for item in items:
+            query_id = str(item.get("query_id", "<unknown>"))
+            hashes = item.get("source_hashes")
+            paths = item.get("source_paths")
+            if not isinstance(hashes, dict):
+                errors.append(f"{query_id}: source_hashes must be an object")
+                continue
+            for hash_key, expected_hash in expected_hashes.items():
+                if hashes.get(hash_key) != expected_hash:
+                    errors.append(f"{query_id}: {hash_key} differs from registry")
+            if not verify_source_files:
+                continue
+            if not isinstance(paths, dict):
+                errors.append(f"{query_id}: source_paths must be an object")
+                continue
+            for path_key, hash_key in (
+                ("benchmark", "benchmark_sha256"),
+                ("query_metadata", "query_metadata_sha256"),
+                ("english_query_map", "english_query_map_sha256"),
+            ):
+                source_path = Path(str(paths.get(path_key, "")))
+                expected_hash = expected_hashes[hash_key]
+                identity = (str(source_path), expected_hash)
+                if identity in checked_paths:
+                    continue
+                checked_paths.add(identity)
+                if not source_path.is_file():
+                    errors.append(f"{query_id}: source file missing: {source_path}")
+                elif _sha256_hex(source_path) != expected_hash:
+                    errors.append(f"{query_id}: source file hash mismatch: {source_path}")
+    return errors
+
+
+def validate_release_manifest(
+    items: list[dict],
+    profile: str,
+    protocol_id: str | None = None,
+    *,
+    verify_source_files: bool = False,
+) -> list[str]:
     """Return release-contract violations without changing exploratory manifests."""
     errors: list[str] = []
+    if protocol_id not in EXECUTABLE_RELEASE_PROTOCOLS:
+        return [
+            "strict release requires --protocol-id to name an executable protocol: "
+            + ", ".join(sorted(EXECUTABLE_RELEASE_PROTOCOLS))
+        ]
+    if profile not in PROTOCOL_PROFILES[protocol_id]:
+        errors.append(f"protocol {protocol_id!r} does not allow profile {profile!r}")
+
+    try:
+        registry = _load_protocol_registry()
+    except ValueError as exc:
+        return [str(exc)]
+    protocol = registry["protocols"].get(protocol_id)
+    if not isinstance(protocol, dict):
+        return [f"protocol {protocol_id!r} is absent from the release registry"]
+
     for item in items:
         query_id = str(item.get("query_id", "<unknown>"))
         if item.get("env") not in (None, {}):
             errors.append(f"{query_id}: strict release manifests cannot contain an env override")
-        item_profile = str(item.get("profile") or profile)
+        item_profile = str(item.get("profile") or "")
         if item_profile != profile:
             errors.append(
                 f"{query_id}: manifest profile {item_profile!r} differs from --profile {profile!r}"
             )
+        if item.get("protocol_id") != protocol_id:
+            errors.append(
+                f"{query_id}: manifest protocol {item.get('protocol_id')!r} "
+                f"differs from --protocol-id {protocol_id!r}"
+            )
+        if item.get("protocol_complete") is not True:
+            errors.append(f"{query_id}: formal protocol row is not marked complete")
+
+    query_ids = [str(item.get("query_id", "")) for item in items]
+    if len(query_ids) != int(protocol.get("query_count", -1)):
+        errors.append(
+            f"protocol {protocol_id!r} requires {protocol.get('query_count')} rows, "
+            f"manifest has {len(query_ids)}"
+        )
+    if len(set(query_ids)) != len(query_ids):
+        errors.append("strict release manifest contains duplicate query IDs")
+
+    scenes = {_normalise_scene(item.get("scene")) for item in items}
+    if protocol_id in PUBLIC_PROTOCOL_QUERY_IDS:
+        expected_scenes = {_normalise_scene(scene) for scene in protocol.get("scenes", [])}
+        expected_ids = set(PUBLIC_PROTOCOL_QUERY_IDS[protocol_id])
+        if scenes != expected_scenes:
+            errors.append(
+                f"protocol {protocol_id!r} scenes differ: expected {sorted(expected_scenes)}, "
+                f"got {sorted(scenes)}"
+            )
+        if set(query_ids) != expected_ids:
+            errors.append(
+                f"protocol {protocol_id!r} query IDs differ; "
+                f"missing={sorted(expected_ids - set(query_ids))}, "
+                f"unexpected={sorted(set(query_ids) - expected_ids)}"
+            )
+    elif protocol_id == "release_r4d_dense89":
+        expected_scenes = {
+            _normalise_scene(scene) for scene in protocol.get("scenes", [])
+        }
+        try:
+            expected_ids = _expected_r4d_query_ids(registry)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            errors.append(str(exc))
+            expected_ids = set()
+        if scenes != expected_scenes:
+            errors.append(
+                f"protocol {protocol_id!r} scenes differ: expected {sorted(expected_scenes)}, "
+                f"got {sorted(scenes)}"
+            )
+        if set(query_ids) != expected_ids:
+            errors.append(
+                f"protocol {protocol_id!r} query IDs differ; "
+                f"missing={sorted(expected_ids - set(query_ids))}, "
+                f"unexpected={sorted(set(query_ids) - expected_ids)}"
+            )
+        category_counts = Counter(str(item.get("query_category", "")) for item in items)
+        expected_categories = {
+            str(name): int(count)
+            for name, count in protocol.get("category_counts", {}).items()
+        }
+        if dict(category_counts) != expected_categories:
+            errors.append(
+                f"protocol {protocol_id!r} category counts differ: "
+                f"expected {expected_categories}, got {dict(category_counts)}"
+            )
+
+    errors.extend(
+        _source_identity_errors(
+            items,
+            protocol_id=protocol_id,
+            registry=registry,
+            verify_source_files=verify_source_files,
+        )
+    )
     return errors
 
 
@@ -164,6 +481,11 @@ def resolve_profile(profile: str | None, *, strict_release: bool) -> str:
     """Resolve the requested profile without silently weakening a release run."""
 
     if profile:
+        if strict_release and profile not in STRICT_RELEASE_PROFILES:
+            raise ValueError(
+                f"--strict-release profile {profile!r} is not allowed; choose one of "
+                + ", ".join(sorted(STRICT_RELEASE_PROFILES))
+            )
         return profile
     if strict_release:
         raise ValueError("--strict-release requires an explicit --profile")
@@ -317,7 +639,9 @@ def build_batch_provenance(
     *,
     manifest_path: Path,
     profile: str,
+    protocol_id: str,
     strict_release: bool,
+    manifest_audit: dict | None = None,
 ) -> dict[str, object]:
     status = _git_output("status", "--porcelain=v1")
     diff = _git_output("diff", "--binary", "HEAD")
@@ -356,8 +680,10 @@ def build_batch_provenance(
         "schema_version": 1,
         "created_at_utc": _utc_now(),
         "profile": profile,
+        "protocol_id": protocol_id,
         "strict_release": bool(strict_release),
         "manifest": _sha256_file(manifest_path),
+        "manifest_audit": dict(manifest_audit or {}),
         "repository": {
             "root": str(REPO_ROOT),
             "commit": _git_output("rev-parse", "HEAD"),
@@ -536,6 +862,7 @@ def run_one_query(
 
     trace: dict = {
         "query_id": query_id,
+        "protocol_id": item.get("protocol_id", "unregistered_exploratory"),
         "gpu": gpu,
         "returncode": exit_code,
         "exit_code": exit_code,
@@ -599,6 +926,26 @@ def _gpu_worker(
         )
 
 
+def _execution_contract_errors(
+    scheduled_items: list[dict],
+    results: list[dict],
+) -> list[str]:
+    scheduled_ids = [str(item["query_id"]) for item in scheduled_items]
+    executed_ids = [str(result.get("query_id", "")) for result in results]
+    errors: list[str] = []
+    if len(results) != len(scheduled_items):
+        errors.append(f"executed {len(results)} of {len(scheduled_items)} scheduled rows")
+    if len(executed_ids) != len(set(executed_ids)):
+        errors.append("execution produced duplicate query IDs")
+    if set(executed_ids) != set(scheduled_ids):
+        errors.append(
+            "executed query IDs differ from scheduled IDs: "
+            f"missing={sorted(set(scheduled_ids) - set(executed_ids))}, "
+            f"unexpected={sorted(set(executed_ids) - set(scheduled_ids))}"
+        )
+    return errors
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -617,16 +964,49 @@ def main() -> int:
         print(f"ERROR: pipeline script not found: {PIPELINE_SCRIPT}", file=sys.stderr)
         return 1
 
-    # Load manifest
-    items = load_manifest(args.manifest)
+    # Load manifest. Strict mode treats every non-empty JSONL line as part of
+    # the declared protocol; no malformed or duplicate row may disappear.
+    try:
+        items, manifest_audit = load_manifest_with_audit(
+            args.manifest,
+            strict=args.strict_release,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
     if not items:
         print("ERROR: no valid items in manifest", file=sys.stderr)
         return 1
+    if len(set(args.gpu)) != len(args.gpu):
+        print("ERROR: --gpu contains duplicate indices", file=sys.stderr)
+        return 1
+
+    manifest_protocol_ids = {
+        str(item.get("protocol_id"))
+        for item in items
+        if item.get("protocol_id") not in (None, "")
+    }
+    if args.strict_release and args.protocol_id is None:
+        print("ERROR: --strict-release requires an explicit --protocol-id", file=sys.stderr)
+        return 1
+    if args.protocol_id is None and len(manifest_protocol_ids) == 1:
+        args.protocol_id = next(iter(manifest_protocol_ids))
+    if args.protocol_id is None:
+        args.protocol_id = "unregistered_exploratory"
+
     if args.strict_release:
         if not args.force_rerun:
             print("ERROR: --strict-release requires --force-rerun", file=sys.stderr)
             return 1
-        release_errors = validate_release_manifest(items, args.profile)
+        if args.allow_failures:
+            print("ERROR: --strict-release cannot be combined with --allow-failures", file=sys.stderr)
+            return 1
+        release_errors = validate_release_manifest(
+            items,
+            args.profile,
+            args.protocol_id,
+            verify_source_files=True,
+        )
         if release_errors:
             for error in release_errors:
                 print(f"ERROR: release manifest violation: {error}", file=sys.stderr)
@@ -642,11 +1022,23 @@ def main() -> int:
         return 1
 
     # Partition by GPU
-    groups = group_by_gpu(items, args.gpu)
+    try:
+        groups = group_by_gpu(items, args.gpu, strict=args.strict_release)
+    except ValueError as exc:
+        print(f"ERROR: release scheduling violation: {exc}", file=sys.stderr)
+        return 1
+    scheduled_items = [item for gpu_items in groups.values() for item in gpu_items]
+    if args.strict_release and len(scheduled_items) != len(items):
+        print(
+            f"ERROR: strict release scheduled {len(scheduled_items)} of {len(items)} manifest rows",
+            file=sys.stderr,
+        )
+        return 1
 
     print(f"Loaded {len(items)} queries from {args.manifest}")
     print(f"GPUs: {args.gpu}")
     print(f"Profile: {args.profile}")
+    print(f"Protocol: {args.protocol_id}")
     print(f"Force rerun: {args.force_rerun}")
     print(f"Strict release: {args.strict_release}")
     print(f"Per-query timeout: {args.timeout}s")
@@ -659,7 +1051,9 @@ def main() -> int:
         items,
         manifest_path=Path(args.manifest),
         profile=args.profile,
+        protocol_id=args.protocol_id,
         strict_release=args.strict_release,
+        manifest_audit=manifest_audit,
     )
     for root in unique_roots:
         _ensure_dir(root)
@@ -697,6 +1091,8 @@ def main() -> int:
 
     total_elapsed = round(time.monotonic() - t0, 1)
 
+    execution_contract_errors = _execution_contract_errors(scheduled_items, results)
+
     # ---- Summary ----
     succeeded = sum(1 for r in results if r["exit_code"] == 0)
     failed = len(results) - succeeded
@@ -708,7 +1104,10 @@ def main() -> int:
     print(f"  Succeeded     : {succeeded}")
     print(f"  Failed        : {failed}")
     print(f"  Wall time     : {total_elapsed:.1f}s")
+    print(f"  Contract errs : {len(execution_contract_errors)}")
     print("=" * 60)
+    for error in execution_contract_errors:
+        print(f"ERROR: execution contract violation: {error}", file=sys.stderr)
 
     # Per-query table
     if results:
@@ -732,8 +1131,14 @@ def main() -> int:
             "total_elapsed_seconds": total_elapsed,
             "gpus": args.gpu,
             "profile": args.profile,
+            "protocol_id": args.protocol_id,
             "force_rerun": args.force_rerun,
             "strict_release": args.strict_release,
+            "manifest_nonempty_rows": manifest_audit["nonempty_rows"],
+            "manifest_loaded_rows": manifest_audit["loaded_rows"],
+            "manifest_skipped_rows": manifest_audit["skipped_rows"],
+            "scheduled_queries": len(scheduled_items),
+            "execution_contract_errors": execution_contract_errors,
             "started_at_utc": started_at_utc,
             "finished_at_utc": _utc_now(),
             "allow_failures": bool(args.allow_failures),
@@ -741,6 +1146,8 @@ def main() -> int:
         }
         _write_json_atomic(os.path.join(root, "batch_summary.json"), summary)
 
+    if args.strict_release and execution_contract_errors:
+        return 1
     return 0 if failed == 0 or args.allow_failures else 1
 
 

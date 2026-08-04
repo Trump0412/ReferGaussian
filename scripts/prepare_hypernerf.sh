@@ -9,8 +9,8 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DATA_ROOT="${ROOT_DIR}/data/hypernerf"
-DOWNLOAD_ROOT="${ROOT_DIR}/data/downloads"
+DATA_ROOT="${GS_DATA_ROOT}/hypernerf"
+DOWNLOAD_ROOT="${GS_DATA_ROOT}/downloads"
 
 # All HyperNeRF scenes used in the paper (group/scene : asset_zip)
 declare -A PAPER_SCENES=(
@@ -33,24 +33,25 @@ prepare_scene() {
 
   mkdir -p "${DATA_ROOT}/${group}" "${DOWNLOAD_ROOT}"
 
-  if [[ -f "${target_dir}/dataset.json" ]]; then
+  if [[ -f "${target_dir}/dataset.json" && -f "${target_dir}/points3D_downsample2.ply" ]]; then
     echo "[skip] ${group_scene} already prepared"
     return
   fi
 
-  if [[ ! -f "${zip_path}" ]]; then
-    echo "[download] ${url}"
-    wget -q --show-progress -O "${zip_path}" "${url}"
-  fi
+  if [[ ! -f "${target_dir}/dataset.json" ]]; then
+    if [[ ! -f "${zip_path}" ]]; then
+      echo "[download] ${url}"
+      wget -q --show-progress -O "${zip_path}" "${url}"
+    fi
 
-  echo "[extract] ${asset_name} -> ${target_dir}"
-  local extraction_python="${PYTHON_FOR_EXTRACTION:-${GS_ENV_PATH}/bin/python}"
-  if [[ ! -x "${extraction_python}" ]]; then
-    echo "Missing Python interpreter for archive extraction: ${extraction_python}" >&2
-    echo "Set PYTHON_FOR_EXTRACTION or run the environment setup first." >&2
-    return 2
-  fi
-  "${extraction_python}" - <<PY "${zip_path}" "${target_dir}"
+    echo "[extract] ${asset_name} -> ${target_dir}"
+    local extraction_python="${PYTHON_FOR_EXTRACTION:-${GS_ENV_PATH}/bin/python}"
+    if [[ ! -x "${extraction_python}" ]]; then
+      echo "Missing Python interpreter for archive extraction: ${extraction_python}" >&2
+      echo "Set PYTHON_FOR_EXTRACTION or run the environment setup first." >&2
+      return 2
+    fi
+    "${extraction_python}" - <<PY "${zip_path}" "${target_dir}"
 import os, shutil, sys, tempfile, zipfile
 zip_path, target_dir = sys.argv[1], sys.argv[2]
 temp_dir = tempfile.mkdtemp(prefix="hypernerf_extract_", dir=os.path.dirname(target_dir))
@@ -68,18 +69,24 @@ if os.path.exists(target_dir):
 shutil.move(scene_root, target_dir)
 shutil.rmtree(temp_dir)
 PY
+  fi
 
   if [[ ! -f "${target_dir}/points3D_downsample2.ply" ]]; then
-    if command -v colmap >/dev/null 2>&1; then
-      echo "[colmap] generating point cloud for ${group_scene}"
-      bash "${ROOT_DIR}/external/4DGaussians/colmap.sh" "${target_dir}" hypernerf
-      gs_python "${ROOT_DIR}/external/4DGaussians/scripts/downsample_point.py" \
-        "${target_dir}/colmap/dense/workspace/fused.ply" \
-        "${target_dir}/points3D_downsample2.ply"
-    else
-      echo "WARNING: COLMAP not found. Install COLMAP and re-run, or place a pregenerated" >&2
-      echo "         point cloud at ${target_dir}/points3D_downsample2.ply" >&2
+    if ! command -v colmap >/dev/null 2>&1; then
+      echo "COLMAP is required to finish ${group_scene}. Install it and re-run, or place" >&2
+      echo "a pregenerated point cloud at ${target_dir}/points3D_downsample2.ply." >&2
+      return 2
     fi
+    echo "[colmap] generating point cloud for ${group_scene}"
+    bash "${ROOT_DIR}/external/4DGaussians/colmap.sh" "${target_dir}" hypernerf
+    gs_python "${ROOT_DIR}/external/4DGaussians/scripts/downsample_point.py" \
+      "${target_dir}/colmap/dense/workspace/fused.ply" \
+      "${target_dir}/points3D_downsample2.ply"
+  fi
+
+  if [[ ! -s "${target_dir}/points3D_downsample2.ply" ]]; then
+    echo "Preparation failed: missing point cloud ${target_dir}/points3D_downsample2.ply" >&2
+    return 2
   fi
 
   echo "[done] ${target_dir}"

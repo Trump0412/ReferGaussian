@@ -36,6 +36,7 @@ FORBIDDEN_PATTERNS = {
 TEXT_SUFFIXES = {".cff", ".html", ".json", ".md", ".py", ".sh", ".toml", ".yaml", ".yml"}
 REQUIRED_RUNTIME_FILES = (
     "configs/benchmarks/release_protocols.json",
+    "configs/benchmarks/reconstruction_release_v1.json",
     "docs/METRICS.md",
     "refergaussian/semantics/semantic_renderer.py",
     "refergaussian/semantics/surface_mask_field.py",
@@ -56,6 +57,7 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/evaluate_public_query_protocol.py",
     "scripts/evaluate_ours_benchmark.py",
     "scripts/validate_refergaussian_run.py",
+    "scripts/run_matched_reconstruction.py",
     "scripts/train_baseline.sh",
     "scripts/eval_baseline.sh",
     "patches/4dgaussians_seed_order.patch",
@@ -74,8 +76,10 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/aggregate_public_query_evaluations.py": "--require-complete",
     "scripts/evaluate_public_query_protocol.py": "spatial_coverage_complete",
     "scripts/evaluate_ours_benchmark.py": "spatial_coverage_complete",
+    "scripts/write_empty_query_selection.py": '"selection_status": "semantic_empty"',
     "scripts/run_query_batch.py": "batch_provenance.json",
     "scripts/validate_refergaussian_run.py": "validate_refergaussian_run",
+    "scripts/run_matched_reconstruction.py": "release_reconstruction_v1",
     "scripts/eval_baseline.sh": "external/4DGaussians/render.py",
     "scripts/bootstrap_external.sh": "4dgaussians_metrics_cache.patch",
     "scripts/run_query_guided_grounded_sam2.sh": "QUERY_OUTPUT_ROOT_OVERRIDE",
@@ -83,6 +87,8 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/check_grounded_sam2_import.py": "sam2._C",
     "patches/4dgaussians_temporal_warp_schedule.patch": "set_temporal_warp_learning_rate",
     "refergaussian/semantics/grounded_sam2_backend.py": "local_files_only=local_files_only",
+    "refergaussian/semantics/query_render.py": "selection_resolution_complete",
+    "refergaussian/semantics/select_qwen_query_entities.py": "_finalize_selection_status",
 }
 ENGLISH_RUNTIME_FILES = (
     "refergaussian/semantics/qwen_query_planner.py",
@@ -193,6 +199,36 @@ def check_protocol_registry() -> list[str]:
             "Protocol registry English query-map hash does not match "
             "configs/benchmarks/r4d_query_text_en.json"
         )
+    return errors
+
+
+def check_reconstruction_registry() -> list[str]:
+    path = ROOT / "configs" / "benchmarks" / "reconstruction_release_v1.json"
+    if not path.is_file():
+        return ["Reconstruction protocol registry is missing"]
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    identities = payload.get("identities", {})
+    errors: list[str] = []
+    paper = identities.get("paper_reported_12_scene_table", {})
+    archival = identities.get("archival_selected_8_candidate", {})
+    release = identities.get("release_reconstruction_v1", {})
+    if paper.get("executable") is not False:
+        errors.append("Unresolved paper reconstruction identity must remain non-executable")
+    if archival.get("executable") is not False:
+        errors.append("Archival selected-8 reconstruction identity must remain non-executable")
+    if release.get("executable") is not True or release.get("is_paper_reproduction") is not False:
+        errors.append("release_reconstruction_v1 must be executable and explicitly non-paper")
+    if release.get("scene_count") != 12 or len(release.get("scene_ids", [])) != 12:
+        errors.append("release_reconstruction_v1 must freeze exactly 12 scenes")
+    shared = release.get("shared", {})
+    if shared.get("seed") != 6666 or shared.get("iterations") != 14000:
+        errors.append("release_reconstruction_v1 must freeze seed 6666 and 14000 iterations")
+    if shared.get("metric_mode") != "full":
+        errors.append("release_reconstruction_v1 must use full reconstruction metrics")
+    if shared.get("aggregation") != "scene_equal_arithmetic_mean":
+        errors.append("release_reconstruction_v1 must use a scene-equal aggregate")
+    if shared.get("post_hoc_psnr_filtering") is not False:
+        errors.append("release_reconstruction_v1 must forbid post-hoc PSNR filtering")
     return errors
 
 
@@ -399,6 +435,7 @@ def main() -> int:
     errors.extend(check_readme_scripts())
     errors.extend(check_release_queries())
     errors.extend(check_protocol_registry())
+    errors.extend(check_reconstruction_registry())
     errors.extend(check_runtime_contracts())
     errors.extend(check_runtime_release_guards())
     if errors:

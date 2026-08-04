@@ -17,8 +17,12 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+SCRIPTS_DIR = REPO_ROOT / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
 
 from refergaussian.run_identity import validate_query_ready_refergaussian_run
+from run_query_batch import resolve_profile, validate_release_manifest
 
 
 REQUIRED_KEYS = {"query_id", "query", "run_dir", "dataset_dir", "output_root", "gpu"}
@@ -174,12 +178,28 @@ def main() -> int:
         action="store_true",
         help="Fail if nvidia-smi reports fewer visible GPUs than requested.",
     )
+    parser.add_argument(
+        "--strict-release",
+        action="store_true",
+        help="Validate the complete registered protocol and its pinned source hashes.",
+    )
+    parser.add_argument(
+        "--protocol-id",
+        default=None,
+        help="Registered protocol identity required by --strict-release.",
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="Formal query profile required by --strict-release.",
+    )
     parser.add_argument("--output-json", help="Optional path to write a machine-readable summary.")
     args = parser.parse_args()
 
     manifest = Path(args.manifest)
     errors: list[str] = []
     warnings: list[str] = []
+    manifest_errors: list[str] = []
 
     if not manifest.is_file():
         errors.append(f"manifest not found: {manifest}")
@@ -187,6 +207,24 @@ def main() -> int:
     else:
         rows, manifest_errors = _load_manifest(manifest)
         errors.extend(manifest_errors)
+
+    if args.strict_release:
+        if not args.protocol_id:
+            errors.append("--strict-release requires --protocol-id")
+        try:
+            strict_profile = resolve_profile(args.profile, strict_release=True)
+        except ValueError as exc:
+            errors.append(str(exc))
+            strict_profile = ""
+        if args.protocol_id and strict_profile and not manifest_errors:
+            errors.extend(
+                validate_release_manifest(
+                    rows,
+                    strict_profile,
+                    args.protocol_id,
+                    verify_source_files=True,
+                )
+            )
 
     import_errors, versions = _check_imports(list(args.imports or []))
     errors.extend(import_errors)
@@ -219,6 +257,9 @@ def main() -> int:
         "rows": len(rows),
         "imports": versions,
         "active_gpus": sorted(active_gpus) if active_gpus is not None else None,
+        "strict_release": bool(args.strict_release),
+        "protocol_id": args.protocol_id,
+        "profile": args.profile,
         "visible_gpu_count": visible_gpu_count,
         "gpu_probe": gpu_output,
         "errors": errors,

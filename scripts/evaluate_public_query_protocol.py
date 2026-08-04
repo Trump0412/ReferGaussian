@@ -254,10 +254,26 @@ def evaluate_query(
     metadata_payload: dict,
     gt_masks_by_object: dict[str, dict[str, np.ndarray]],
     top_level_objects: list[str],
+    require_resolved_selection: bool = False,
 ) -> dict:
     query_text = str(query_item["query"])
     query_slug = str(query_item["query_slug"])
     target_object = _object_for_query(query_text, top_level_objects)
+    selection_status = str(validation_payload.get("selection_status", "")).strip().lower()
+    status_valid = selection_status in {"resolved", "semantic_empty"}
+    if require_resolved_selection and not status_valid:
+        return {
+            "query_slug": query_slug,
+            "query": query_text,
+            "target_object": target_object,
+            "status": "unresolved_selection",
+            "selection_status": selection_status or "missing",
+            "selection_resolution_complete": False,
+            "Acc": None,
+            "vIoU": None,
+            "temporal_tIoU": None,
+            "score_warnings": ["unresolved_selection"],
+        }
     gt_frames = _frames_from_ranges(query_item["targets"][0]["target_ranges"])
     total_frames = max(int(meta["time_id"]) for meta in metadata_payload.values()) + 1
 
@@ -375,6 +391,8 @@ def evaluate_query(
         "query_slug": query_slug,
         "query": query_text,
         "target_object": target_object,
+        "selection_status": selection_status or "legacy_unclassified",
+        "selection_resolution_complete": status_valid,
         "frames_evaluated": int(len(frame_rows)),
         "timeline_frames_evaluated": int(total_frames),
         "gt_mask_frames": int(gt_mask_frames),
@@ -583,8 +601,10 @@ def main() -> None:
             metadata_payload=metadata_payload,
             gt_masks_by_object=gt_masks_by_object,
             top_level_objects=top_level_objects,
+            require_resolved_selection=bool(args.require_complete),
         )
-        result["status"] = "ok"
+        if result.get("Acc") is not None:
+            result["status"] = "ok"
         per_query.append(result)
 
     valid = [item for item in per_query if item.get("Acc") is not None]

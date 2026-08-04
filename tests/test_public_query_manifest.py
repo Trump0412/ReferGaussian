@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -69,3 +70,32 @@ class PublicQueryManifestTest(unittest.TestCase):
 
         self.assertEqual([row[0] for row in selected], ["americano", "espresso", "split-cookie"])
         self.assertNotIn("chickchicken", {row[0] for row in selected})
+
+    def test_formal_identity_rejects_a_canary_subset(self) -> None:
+        registry = MANIFEST._load_protocol_registry()
+        rows = [
+            (query_id.split("__", 1)[0], query_id, "query")
+            for query_id in MANIFEST.PUBLIC_PROTOCOL_QUERY_IDS["paper_public3"]
+        ]
+        MANIFEST._validate_formal_identity(
+            rows,
+            protocol_id="paper_public3",
+            registry=registry,
+        )
+        with self.assertRaisesRegex(ValueError, "requires 7 queries"):
+            MANIFEST._validate_formal_identity(
+                rows[:1],
+                protocol_id="paper_public3",
+                registry=registry,
+            )
+
+    def test_gs_root_precedes_deprecated_alias(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {"GS_DATA_ROOT": "/new", "REFERGAUSSIAN_DATA_ROOT": "/old"},
+            clear=True,
+        ):
+            self.assertEqual(
+                MANIFEST._root_env_default("GS_DATA_ROOT", "REFERGAUSSIAN_DATA_ROOT", "data"),
+                "/new",
+            )

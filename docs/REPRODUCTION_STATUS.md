@@ -14,13 +14,16 @@ The release contract is defined by
 - Historical R4D subset: 8 scenes / 58 queries, archival and noncanonical.
 - Paper Public: 3 scenes / 7 annotation-derived time-sensitive queries.
 - Public extension: 4 scenes / 9 annotation-derived time-sensitive queries.
+- Matched reconstruction release: a separate executable 12-scene protocol;
+  its fresh full result is pending and is not the accepted-paper table.
 - Final reports require official query ids, `--strict-release --force-rerun`,
   `--require-complete`, model/data revision manifests, and the ReferGaussian
   run configuration.
 - A query with missing spatial prediction coverage is scored with zero IoU for
   the missing annotated frame and cannot pass the complete-coverage gate.
-- Empty-target scores are reported separately. Only an empty prediction for an
-  empty target receives the empty-set score.
+- Empty-target scores are reported separately. Only a verified
+  `semantic_empty` prediction for an empty target receives the empty-set score;
+  unresolved inference is excluded and fails complete coverage.
 - Evaluator outputs identify compatibility metrics explicitly; see
   [METRICS.md](METRICS.md). Paper exact-set Acc and exhaustive full-volume vIoU
   are not inferred when the required identity/mask supervision is unavailable.
@@ -46,6 +49,9 @@ The release gate and regression suite verify the executable contract:
 - public and R4D evaluators reject incomplete query or spatial-frame coverage;
 - ReferGaussian and the integrated 4DGS control accept the same explicit seed,
   and the external bootstrap restores that seed after backend initialization.
+- `scripts/run_matched_reconstruction.py` refuses dirty source trees, mutable
+  reconstruction overrides, mismatched render sets, subset metrics, partial
+  12-scene aggregates, and post-hoc PSNR filtering.
 
 Run these checks before reporting a new result:
 

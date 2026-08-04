@@ -38,6 +38,20 @@ def _validation(mask_dir: Path, active: list[bool]) -> dict:
 
 
 class PublicProtocolEvaluatorTest(unittest.TestCase):
+    def test_complete_report_rejects_unresolved_selection(self) -> None:
+        result = EVALUATOR.evaluate_query(
+            query_item=_query([]),
+            validation_payload={"selection_status": "unresolved"},
+            metadata_payload={},
+            gt_masks_by_object={},
+            top_level_objects=["target"],
+            require_resolved_selection=True,
+        )
+
+        self.assertEqual(result["status"], "unresolved_selection")
+        self.assertIsNone(result["Acc"])
+        self.assertFalse(result["selection_resolution_complete"])
+
     def test_file_identity_records_evaluator_input_content(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "protocol.json"

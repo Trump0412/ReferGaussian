@@ -10,6 +10,7 @@ copy of the temporal annotations.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -27,6 +28,123 @@ SCENE_PATHS: dict[str, tuple[str, str]] = {
 }
 
 QUERY_SETS = ("time_sensitive",)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PROTOCOL_REGISTRY_PATH = REPO_ROOT / "configs" / "benchmarks" / "release_protocols.json"
+FORMAL_PUBLIC_PROTOCOLS = frozenset({"paper_public3", "release_public4_extension"})
+PUBLIC_PROTOCOL_QUERY_IDS = {
+    "paper_public3": frozenset(
+        {
+            "americano__the_glass_cup_that_is_glasses_contain_light_colored_liquid",
+            "americano__the_glass_cup_that_is_liquid_become_darker_in_glasses",
+            "espresso__the_empty_glass_cup",
+            "espresso__the_full_glass_cup",
+            "espresso__the_glass_cup_with_liquid_above_the_midpoint_of_the_cup",
+            "split-cookie__the_cookie_broken_into_smaller_pieces",
+            "split-cookie__the_complete_cookie",
+        }
+    ),
+    "release_public4_extension": frozenset(
+        {
+            "americano__the_glass_cup_that_is_glasses_contain_light_colored_liquid",
+            "americano__the_glass_cup_that_is_liquid_become_darker_in_glasses",
+            "chickchicken__the_closed_chicken_container",
+            "chickchicken__the_opened_chicken_container",
+            "espresso__the_empty_glass_cup",
+            "espresso__the_full_glass_cup",
+            "espresso__the_glass_cup_with_liquid_above_the_midpoint_of_the_cup",
+            "split-cookie__the_cookie_broken_into_smaller_pieces",
+            "split-cookie__the_complete_cookie",
+        }
+    ),
+}
+
+
+def _root_env_default(primary: str, deprecated: str, fallback: str) -> str:
+    if os.environ.get(primary):
+        return str(os.environ[primary])
+    if os.environ.get(deprecated):
+        print(
+            f"[deprecated] {deprecated} is supported for compatibility; use {primary}",
+            file=sys.stderr,
+        )
+        return str(os.environ[deprecated])
+    return fallback
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _load_protocol_registry() -> dict:
+    payload = json.loads(PROTOCOL_REGISTRY_PATH.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("protocols"), dict):
+        raise ValueError(f"Invalid release protocol registry: {PROTOCOL_REGISTRY_PATH}")
+    return payload
+
+
+def _validate_formal_identity(
+    rows: list[tuple[str, str, str]],
+    *,
+    protocol_id: str,
+    registry: dict,
+) -> None:
+    protocol = registry["protocols"].get(protocol_id)
+    if not isinstance(protocol, dict):
+        raise ValueError(f"Unknown public release protocol: {protocol_id}")
+    expected_scenes = set(map(str, protocol.get("scenes", [])))
+    expected_ids = set(PUBLIC_PROTOCOL_QUERY_IDS[protocol_id])
+    actual_scenes = {scene for scene, _query_id, _query in rows}
+    actual_ids = {query_id for _scene, query_id, _query in rows}
+    if len(rows) != int(protocol.get("query_count", -1)):
+        raise ValueError(
+            f"{protocol_id} requires {protocol.get('query_count')} queries; got {len(rows)}"
+        )
+    if actual_scenes != expected_scenes:
+        raise ValueError(
+            f"{protocol_id} requires scenes {sorted(expected_scenes)}; got {sorted(actual_scenes)}"
+        )
+    if actual_ids != expected_ids:
+        raise ValueError(
+            f"{protocol_id} query IDs differ; missing={sorted(expected_ids - actual_ids)}, "
+            f"unexpected={sorted(actual_ids - expected_ids)}"
+        )
+
+
+def _public_source_identity(
+    annotation_root: Path,
+    scene: str,
+    *,
+    registry: dict,
+) -> tuple[dict[str, str], dict[str, str]]:
+    annotation_dir = annotation_root / scene
+    video_path = annotation_dir / "video_annotations.json"
+    coco_path = annotation_dir / "train" / "_annotations.coco.json"
+    expected = registry.get("public_annotation_sha256", {}).get(scene, {})
+    for label, path, expected_hash in (
+        ("video annotations", video_path, expected.get("video_annotations")),
+        ("COCO annotations", coco_path, expected.get("coco_masks")),
+    ):
+        if not path.is_file():
+            raise ValueError(f"Missing {label} for {scene}: {path}")
+        actual_hash = _sha256(path)
+        if actual_hash != expected_hash:
+            raise ValueError(
+                f"{scene} {label} hash mismatch: expected {expected_hash}, got {actual_hash}"
+            )
+    return (
+        {
+            "video_annotations": str(video_path.resolve()),
+            "coco_annotations": str(coco_path.resolve()),
+        },
+        {
+            "video_annotations_sha256": str(expected["video_annotations"]),
+            "coco_annotations_sha256": str(expected["coco_masks"]),
+        },
+    )
 
 
 def _validate_path(label: str, path_str: str) -> None:
@@ -105,6 +223,13 @@ def _build_entry(
     run_root: str,
     data_root: str,
     run_namespace: str,
+    profile: str,
+    protocol_id: str,
+    protocol_complete: bool,
+    protocol_registry_version: str,
+    annotation_dir: str = "",
+    source_paths: dict[str, str] | None = None,
+    source_hashes: dict[str, str] | None = None,
 ) -> dict[str, object]:
     if contains_cjk(query):
         raise ValueError(f"Public release query must be English: scene={scene} query={query!r}")
@@ -118,6 +243,13 @@ def _build_entry(
         "gpu": int(gpu),
         "scene": scene,
         "query_language": "en",
+        "profile": profile,
+        "protocol_id": protocol_id,
+        "protocol_complete": bool(protocol_complete),
+        "protocol_registry_version": protocol_registry_version,
+        "annotation_dir": annotation_dir,
+        "source_paths": dict(source_paths or {}),
+        "source_hashes": dict(source_hashes or {}),
     }
 
 
@@ -146,14 +278,33 @@ def main() -> int:
         help="Output of build_4dlangsplat_query_protocol.py.",
     )
     parser.add_argument(
+        "--protocol-id",
+        choices=sorted(FORMAL_PUBLIC_PROTOCOLS),
+        default=None,
+        help="Exact formal protocol identity. Required unless --allow-incomplete is used.",
+    )
+    parser.add_argument(
+        "--allow-incomplete",
+        action="store_true",
+        help="Build an explicitly incomplete, non-strict canary manifest.",
+    )
+    parser.add_argument(
         "--run-root",
-        default=os.environ.get("REFERGAUSSIAN_RUN_ROOT", "runs"),
-        help="Root containing ReferGaussian outputs (default: REFERGAUSSIAN_RUN_ROOT or runs).",
+        default=_root_env_default("GS_RUN_ROOT", "REFERGAUSSIAN_RUN_ROOT", "runs"),
+        help="Root containing ReferGaussian outputs (default: GS_RUN_ROOT or runs).",
     )
     parser.add_argument(
         "--data-root",
-        default=os.environ.get("REFERGAUSSIAN_DATA_ROOT", "data"),
-        help="Root containing prepared datasets (default: REFERGAUSSIAN_DATA_ROOT or data).",
+        default=_root_env_default("GS_DATA_ROOT", "REFERGAUSSIAN_DATA_ROOT", "data"),
+        help="Root containing prepared datasets (default: GS_DATA_ROOT or data).",
+    )
+    parser.add_argument(
+        "--annotation-root",
+        default=None,
+        help=(
+            "4DLangSplat HyperNeRF-Annotation root. Formal protocols verify its "
+            "video and COCO annotation hashes."
+        ),
     )
     parser.add_argument(
         "--run-namespace",
@@ -164,8 +315,8 @@ def main() -> int:
         "--gpus",
         nargs="+",
         type=int,
-        default=[0, 1, 2],
-        help="GPU ids to assign round-robin in the manifest (default: 0 1 2).",
+        default=[0],
+        help="GPU ids to assign round-robin in the manifest (portable default: 0).",
     )
     parser.add_argument(
         "--scenes",
@@ -179,6 +330,18 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if args.protocol_id and args.allow_incomplete:
+        parser.error("--protocol-id and --allow-incomplete are mutually exclusive")
+    if not args.protocol_id and not args.allow_incomplete:
+        parser.error("choose a formal --protocol-id or explicitly pass --allow-incomplete")
+    if not args.gpus or len(set(args.gpus)) != len(args.gpus):
+        parser.error("--gpus must contain one or more unique GPU ids")
+    if args.protocol_id and args.profile not in {
+        "public_time_boundary_gated_v5",
+        "public_time_boundary_gated_v5_numeric",
+    }:
+        parser.error(f"{args.protocol_id} requires a formal public v5 profile")
+
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_root = str(args.output_root)
@@ -188,15 +351,52 @@ def main() -> int:
     entries: list[dict[str, object]] = []
 
     try:
+        registry = _load_protocol_registry()
         protocol_path = Path(args.protocol_json)
         if not protocol_path.is_file():
             parser.error(f"protocol not found: {protocol_path}")
+        if args.protocol_id:
+            expected_scenes = list(registry["protocols"][args.protocol_id]["scenes"])
+            if args.scenes is not None and set(args.scenes) != set(expected_scenes):
+                raise ValueError(
+                    f"{args.protocol_id} fixes scenes to {sorted(expected_scenes)}; "
+                    f"got {sorted(args.scenes)}"
+                )
+            requested_scenes = expected_scenes
+        else:
+            requested_scenes = args.scenes
         source_rows = _filter_protocol_scenes(
             _time_sensitive_protocol_rows(protocol_path),
-            args.scenes,
+            requested_scenes,
         )
+        if args.protocol_id:
+            _validate_formal_identity(
+                source_rows,
+                protocol_id=args.protocol_id,
+                registry=registry,
+            )
+
+        protocol_id = args.protocol_id or "incomplete_public_canary"
+        protocol_complete = bool(args.protocol_id)
+        annotation_root = Path(
+            args.annotation_root
+            or Path(data_root) / "benchmarks" / "4dlangsplat" / "HyperNeRF-Annotation"
+        )
+        protocol_hash = _sha256(protocol_path)
+        scene_sources: dict[str, tuple[dict[str, str], dict[str, str]]] = {}
+        if protocol_complete:
+            for scene in sorted({row[0] for row in source_rows}):
+                source_paths, source_hashes = _public_source_identity(
+                    annotation_root,
+                    scene,
+                    registry=registry,
+                )
+                source_paths["protocol_json"] = str(protocol_path.resolve())
+                source_hashes["protocol_json_sha256"] = protocol_hash
+                scene_sources[scene] = (source_paths, source_hashes)
 
         for index, (scene, query_id, query) in enumerate(source_rows):
+            source_paths, source_hashes = scene_sources.get(scene, ({}, {}))
             entries.append(
                 _build_entry(
                     scene=scene,
@@ -207,6 +407,13 @@ def main() -> int:
                     run_root=run_root,
                     data_root=data_root,
                     run_namespace=run_namespace,
+                    profile=args.profile,
+                    protocol_id=protocol_id,
+                    protocol_complete=protocol_complete,
+                    protocol_registry_version=str(registry.get("registry_version", "")),
+                    annotation_dir=(str((annotation_root / scene).resolve()) if protocol_complete else ""),
+                    source_paths=source_paths,
+                    source_hashes=source_hashes,
                 )
             )
     except ValueError as exc:
@@ -228,6 +435,7 @@ def main() -> int:
     print(f"Wrote {len(entries)} query entries to {output_path}")
     print("  " + "  |  ".join(f"GPU {gpu}: {count}" for gpu, count in gpu_counts.items()))
     print(f"  Profile: {args.profile}")
+    print(f"  Protocol: {protocol_id} (complete={protocol_complete})")
     print(f"  Query set: {args.query_set}")
     print(f"  Output root: {output_root}")
     print(f"  Run root: {run_root}")

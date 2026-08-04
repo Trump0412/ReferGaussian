@@ -86,16 +86,14 @@ Rules:
   relational or action query such as "the X while it acts on Y", include only X; Y is context unless the
   query explicitly asks for both entities or for a set.
 - Preserve an explicit requested cardinality in `primary_subject_phrases` and `query_subject_phrases`.
-  For example, keep "both hands", "two cups", or "a pair of shoes" rather than silently reducing them
-  to "hands", "cups", or "shoes". The count belongs to the semantic query, even when the detector later
-  uses a count-neutral noun phrase.
+  Keep the original quantifier and count rather than silently reducing a plural or counted referent to a
+  single generic noun. The count belongs to the semantic query, even when the detector later uses a
+  count-neutral noun phrase.
 - `query_subject_phrases` should contain only the minimum nouns needed to answer the query.
 - `required_identity_attributes` must preserve every non-temporal visual identity constraint in the query that distinguishes
-  whether the referent exists, such as a color, material, texture, or permanent appearance. For example, return ["white"]
-  for "the white chocolate" and ["metal"] for "the metal tool". Do not put temporal state words there, including
-  before/after, melting, broken, or moving; those describe an entity's lifecycle rather than whether the entity exists.
-- `temporal_state_attributes` must contain state conditions that identify a phase of an existing entity, such as ["solid"]
-  for "the solid chocolate before it starts melting" or ["broken"] for "the broken object after it splits". Never put
+  whether the referent exists, including literal color, material, texture, or permanent-appearance terms. Do not put
+  before/after relations, transient state changes, or motion terms there; those describe an entity's lifecycle.
+- `temporal_state_attributes` must contain only state conditions that identify a phase of an existing entity. Never put
   a category head, color, material, or other persistent identity attribute in this field.
 - If a requested identity attribute is absent, treat this as a ZERO / DISTRACTOR QUERY. Do not silently replace it with
   the closest object of the same broad category.
@@ -122,8 +120,7 @@ Rules:
   detector use an additional count-neutral noun phrase when needed.
 - preferred_detector must be "grounded_sam2".
 - **ZERO / DISTRACTOR QUERY**: If the queried object does NOT exist in this scene at all
-  (e.g., asking for a blue object when only red objects are visible, or a metal tool when none
-  is visible), you MUST set query_subject_phrases to [],
+  after checking both its category and every persistent identity constraint, you MUST set query_subject_phrases to [],
   detector_phrases to [], absent_query to true, and add a notes field starting with
   "ZERO_QUERY: <reason>".
   Do NOT hallucinate a closest-match object. Empty detection is the correct answer.

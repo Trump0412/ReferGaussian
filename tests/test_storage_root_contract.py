@@ -32,6 +32,13 @@ class StorageRootContractTest(unittest.TestCase):
             text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
             self.assertIn(expected, text, name)
 
+    def test_hypernerf_preparation_uses_data_root_and_fails_without_point_cloud(self) -> None:
+        text = (ROOT / "scripts" / "prepare_hypernerf.sh").read_text(encoding="utf-8")
+        self.assertIn('DATA_ROOT="${GS_DATA_ROOT}/hypernerf"', text)
+        self.assertIn('DOWNLOAD_ROOT="${GS_DATA_ROOT}/downloads"', text)
+        self.assertIn("COLMAP is required to finish", text)
+        self.assertIn('if [[ ! -s "${target_dir}/points3D_downsample2.ply" ]]', text)
+
     def test_matched_training_wrappers_fix_the_release_iteration_budget(self) -> None:
         for name in ("train.sh", "train_baseline.sh"):
             text = (ROOT / "scripts" / name).read_text(encoding="utf-8")

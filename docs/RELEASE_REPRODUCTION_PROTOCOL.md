@@ -8,10 +8,31 @@ and metric compatibility is defined in [METRICS.md](METRICS.md).
 
 ## Reconstruction
 
-For every compared scene, train ReferGaussian and the matched 4D Gaussian
-Splatting baseline from the same source data, scene configuration, iteration
-budget, explicit `REFERGAUSSIAN_SEED`, and metric mode. Run `scripts/eval.sh` and
-`scripts/eval_baseline.sh` without `GS_SKIP_FULL_METRICS=1` for a final table.
+Reconstruction identities are frozen in
+[`configs/benchmarks/reconstruction_release_v1.json`](../configs/benchmarks/reconstruction_release_v1.json).
+The accepted-paper table and the later selected-8 candidate remain reported,
+non-executable identities because their exact camera-ready settings and raw
+inputs are unresolved. The fresh executable identity is
+`release_reconstruction_v1`; it is not relabeled as paper reproduction.
+
+Run the complete matched protocol from a clean checkout:
+
+```bash
+source scripts/common.sh
+OUT="reports/RECONSTRUCTION_RELEASE_V1_$(date -u +%Y%m%dT%H%M%SZ)"
+gs_python scripts/run_matched_reconstruction.py \
+  --protocol release_reconstruction_v1 \
+  --data-root "${GS_DATA_ROOT}" \
+  --output-root "${OUT}" \
+  --gpu 0
+```
+
+The runner validates the source commit, external 4DGaussians commit, patch
+hashes, dataset/config identities, seed 6666, 14,000 fine iterations, and full
+metric mode before launching work. It trains ReferGaussian and the matched 4D
+Gaussian Splatting baseline from the same source data and scene configuration.
+It verifies identical render filenames and dimensions and reports LPIPS-vgg as
+the headline LPIPS metric, with LPIPS-alex retained as a diagnostic.
 
 Keep these files for each method:
 
@@ -19,10 +40,11 @@ Keep these files for each method:
 - `train_meta.json` and `render_meta.json`
 - `results.json` and `metrics.json`
 
-Do not remove a completed scene after looking at its score. A quality gate or
-invalid-data exclusion must be declared before evaluation and reported with
-the excluded scene list. Fresh release comparison uses all scenes declared by
-its protocol and reports per-scene rows as well as the aggregate.
+Do not remove a completed scene after looking at its score. The runner refuses
+to aggregate until all 12 declared scenes and both methods are complete, uses
+a scene-equal arithmetic mean, and performs no post-hoc PSNR filtering. A
+`--scenes` subset is an explicitly incomplete canary and cannot produce a final
+aggregate.
 
 ## Public 4DLangSplat Protocols
 
@@ -34,14 +56,17 @@ gs_python scripts/build_public_query_manifest.py \
   --output "${OUT}/manifest.jsonl" \
   --output-root "${OUT}/query_root" \
   --protocol-json "${PROTOCOL_JSON}" \
+  --protocol-id paper_public3 \
+  --annotation-root "${GS_DATA_ROOT}/benchmarks/4dlangsplat/HyperNeRF-Annotation" \
   --profile public_time_boundary_gated_v5 \
-  --scenes americano split-cookie espresso
+  --gpus 0
 ```
 
 The separate release extension adds `chickchicken`, for 4 scenes and 9
-queries. Omit `--scenes` to build that extension. Both derive text only from
-the pinned annotation snapshot's `temporal_state_reference` rows; they must
-not be aggregated under the same protocol name.
+queries. Replace the protocol id with `release_public4_extension`. Both derive
+text only from the pinned annotation snapshot's `temporal_state_reference`
+rows and verify the registered video/COCO source hashes; they must not be
+aggregated under the same protocol name.
 
 Run the per-scene evaluator with `--require-complete`, then combine reports
 with `scripts/aggregate_public_query_evaluations.py`. Use
@@ -50,7 +75,7 @@ Public-4 extension.
 
 Before launching a query batch, run `GSAM2_INSTALL_EDITABLE=1 bash
 scripts/setup_grounded_sam2.sh` and `gsam2_python
-scripts/check_query_runtime.py --require-qwen`. The pipeline repeats both
+scripts/check_query_runtime.py --require-qwen --require-pinned-manifest`. The pipeline repeats both
 runtime provenance checks before Stage-1 so that a missing Qwen checkpoint or
 an unrelated editable SAM2 package fails before expensive inference begins.
 
@@ -68,6 +93,20 @@ single-target, 29 multi-target/reasoning, and 24 zero-target/distractor
 queries. A final dense-tier evaluation must use all 89 official query IDs and
 `--require-complete`.
 
+Build the formal dense manifest with the pinned dense GT and metadata files:
+
+```bash
+R4D_ROOT="${GS_DATA_ROOT}/benchmarks/r4d_bench_qa"
+gs_python scripts/build_r4d_query_manifest.py \
+  --benchmark "${R4D_ROOT}/benchmark_all_queries.json" \
+  --query-metadata "${R4D_ROOT}/evaluation/R4D-Bench_queries.json" \
+  --protocol-id release_r4d_dense89 \
+  --profile r4d_boundary_gated_v5 \
+  --output "${OUT}/manifest.jsonl" \
+  --output-root "${OUT}/query_root" \
+  --gpus 0
+```
+
 The former selected 58-query subset is archival only:
 
 - DyNeRF: `coffee_martini`, `sear_steak`, `cut_roasted_beef`
@@ -78,9 +117,17 @@ be reproduced with its exact manifest for compatibility, but cannot be labeled
 as the paper 12-scene protocol or the full dense 12/89 release.
 
 Release query batches must use
-`scripts/run_query_batch.py --strict-release --force-rerun`. A strict
+`scripts/run_query_batch.py --strict-release --force-rerun --protocol-id
+<id>`. Before execution, run `scripts/preflight_query_batch.py` with the same
+protocol, profile, and GPU list plus `--strict-release
+--require-visible-gpu`. A strict
 manifest may set the official query id, query text, run/data/output paths, and
 GPU assignment, but may not contain per-query environment overrides.
+
+Formal examples default to GPU 0. A multi-GPU run replaces the builder's
+`--gpus 0` and both consumers' `--gpu 0` with the same visible list. Canary
+subsets require the builder's `--allow-incomplete`; they are marked incomplete
+and cannot pass strict release validation.
 
 After the query pipeline completes, use
 `scripts/rerender_query_outputs.py --benchmark <benchmark.json>` before the
@@ -97,7 +144,9 @@ and deliberately fails when it is missing rather than substituting a proxy
 sequence.
 
 Use `public_time_boundary_gated_v5` for the public protocol and
-`r4d_boundary_gated_v5` for R4D-Bench-QA. Both profiles render the selected
+`r4d_boundary_gated_v5` for R4D-Bench-QA. The score-only
+`public_time_boundary_gated_v5_numeric` variant is also formal. These are the
+only profiles accepted by strict release mode. They render the selected
 Gaussian entity first, then apply only a synchronized dilated Stage-1 boundary
 gate. A stale nearest-frame boundary or a direct 2D-mask output makes the query
 run fail after saving its diagnostics; it cannot enter a release aggregate.
@@ -125,9 +174,12 @@ Every final query report must include:
 - `batch_provenance.json`, written before query execution with manifest, Git
   diff, core script, reconstruction checkpoint, and dataset metadata hashes.
 
-The evaluator accepts an empty GT and empty prediction as a correct zero-target
-answer. This rule never permits an empty set of *queries* to become a 100%
-benchmark, and an empty GT with predicted activity receives zero vIoU/tIoU.
+The evaluator accepts an empty GT and a verified `semantic_empty` prediction as
+a correct zero-target answer. Every selection is labeled `resolved`,
+`semantic_empty`, or `unresolved`; phrase misses, missing evidence, and pipeline
+failures are unresolved and make `--require-complete` fail. This rule never
+permits an empty set of *queries* to become a 100% benchmark, and an empty GT
+with predicted activity receives zero vIoU/tIoU.
 The compatibility fields called `Acc` and `vIoU` are not relabeled as the
 paper's exact-set Acc and exhaustive full-volume vIoU; see `METRICS.md`.
 
@@ -147,6 +199,7 @@ not replace an entity with an all-scene mask, a direct 2D mask, or raw source
 RGB frames. Formal profiles keep the final prediction Gaussian-supported and
 record Stage-1 boundary coverage for every active selected entity. Numeric-only
 profiles may skip qualitative video exports but retain the same planner,
-Gaussian entity, final mask, and validation contract. Qwen planning is
-always required; only the explicitly documented v6 declared-instance contract
-can avoid duplicate post-lifting Qwen assignment and selection work.
+Gaussian entity, final mask, and validation contract. Qwen planning is always
+required. Strict mode pins `Qwen3-VL-8B-Instruct` to the source revision in
+`scripts/check_query_runtime.py`; an environment revision override is accepted
+only by non-strict exploratory runs.

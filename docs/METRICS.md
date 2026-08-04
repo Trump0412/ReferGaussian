@@ -43,8 +43,13 @@ as paper full-volume vIoU unless annotation coverage is proven exhaustive.
 
 ## Empty targets
 
+- Every new selection is labeled `resolved`, `semantic_empty`, or
+  `unresolved`. Phrase misses, missing tracks, timeouts, and other pipeline
+  failures are `unresolved`; they receive no metric and make a complete report
+  fail.
 - Empty ground truth and empty prediction receive `1.0` spatial and temporal
-  IoU.
+  IoU only when the prediction is labeled `semantic_empty` by the inference
+  contract.
 - Empty ground truth with any predicted activity receives `0.0` spatial and
   temporal IoU.
 - A benchmark cannot obtain 100% from an empty list of queries: complete

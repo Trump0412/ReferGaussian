@@ -1,0 +1,272 @@
+{
+  "schema_version": 1,
+  "registry_id": "refergaussian_matched_reconstruction_registry_v1",
+  "identities": {
+    "paper_reported_12_scene_table": {
+      "status": "unresolved_non_executable",
+      "executable": false,
+      "scene_count": 12,
+      "metric_order": [
+        "PSNR",
+        "SSIM",
+        "LPIPS"
+      ],
+      "reported_metrics": {
+        "baseline_4dgs": {
+          "PSNR": 20.3208,
+          "SSIM": 0.7027,
+          "LPIPS": 0.3971
+        },
+        "refergaussian": {
+          "PSNR": 20.4159,
+          "SSIM": 0.7069,
+          "LPIPS": 0.3942
+        }
+      },
+      "blocking_conflicts": [
+        "The available paper text names temporal tube covariance mix 0.06, while the release wrapper uses 0.05.",
+        "A commented paper configuration names temporal tube sigma 0.32 and covariance mix 0.05, while the release wrapper uses sigma 0.34 and covariance mix 0.05.",
+        "The available paper table labels LPIPS without freezing its backbone.",
+        "The exact paper camera-ready source identity, per-scene data/configuration hashes, render split, and aggregation inputs are not frozen."
+      ],
+      "note": "Reported identity only. This registry intentionally provides no executable route for this table until the conflicts are resolved."
+    },
+    "archival_selected_8_candidate": {
+      "status": "archival_noncanonical",
+      "executable": false,
+      "scene_count": 8,
+      "scenes": [
+        "coffee_martini",
+        "sear_steak",
+        "cut_roasted_beef",
+        "cut_lemon",
+        "espresso",
+        "keyboard",
+        "split_cookie",
+        "torchchocolate"
+      ],
+      "metric_order": [
+        "PSNR",
+        "SSIM",
+        "LPIPS"
+      ],
+      "reported_metrics": {
+        "baseline_4dgs": {
+          "PSNR": 28.312,
+          "SSIM": 0.8753,
+          "LPIPS": 0.2325
+        },
+        "refergaussian": {
+          "PSNR": 28.486,
+          "SSIM": 0.8777,
+          "LPIPS": 0.2233
+        }
+      },
+      "note": "Historical selected-scene candidate. It is not canonical, not the paper table, and must not be promoted as a release aggregate."
+    },
+    "release_reconstruction_v1": {
+      "status": "executable_frozen",
+      "executable": true,
+      "is_paper_reproduction": false,
+      "note": "A new matched release protocol. It is intentionally separate from both reported identities and must be cited by this protocol id.",
+      "scene_count": 12,
+      "scene_ids": [
+        "americano",
+        "coffee_martini",
+        "cook_spinach",
+        "cut_lemon",
+        "cut_roasted_beef",
+        "espresso",
+        "flame_salmon",
+        "flame_steak",
+        "keyboard",
+        "sear_steak",
+        "split_cookie",
+        "torchchocolate"
+      ],
+      "shared": {
+        "seed": 6666,
+        "iterations": 14000,
+        "metric_mode": "full",
+        "headline_metrics": [
+          "PSNR",
+          "SSIM",
+          "LPIPS-vgg"
+        ],
+        "diagnostic_metrics": [
+          "LPIPS-alex"
+        ],
+        "aggregation": "scene_equal_arithmetic_mean",
+        "post_hoc_psnr_filtering": false
+      },
+      "refergaussian": {
+        "temporal_tube_samples": 3,
+        "temporal_tube_span": 0.4,
+        "temporal_tube_sigma": 0.34,
+        "temporal_tube_covariance_mix": 0.05,
+        "frozen_environment": {
+          "WARP_HIDDEN_DIM": "32",
+          "WARP_NUM_LAYERS": "2",
+          "WARP_NUM_BINS": "128",
+          "WARP_MONO_WEIGHT": "0.05",
+          "WARP_SMOOTH_WEIGHT": "0.01",
+          "WARP_BUDGET_WEIGHT": "0.01",
+          "WARP_SAMPLE_COUNT": "128",
+          "TEMPORAL_LR_INIT": "0.00012",
+          "TEMPORAL_LR_FINAL": "0.000012",
+          "TEMPORAL_LR_DELAY_MULT": "0.01",
+          "TEMPORAL_GATE_SHARPNESS": "1.0",
+          "TEMPORAL_DRIFT_SCALE": "1.0",
+          "TEMPORAL_GATE_MIX": "1.0",
+          "TEMPORAL_DRIFT_MIX": "1.0",
+          "TEMPORAL_ACCELERATION_ENABLED": "0",
+          "TEMPORAL_VELOCITY_REG_WEIGHT": "0.0",
+          "TEMPORAL_ACCELERATION_REG_WEIGHT": "0.0",
+          "TEMPORAL_TUBE_SAMPLES": "3",
+          "TEMPORAL_TUBE_SPAN": "0.40",
+          "TEMPORAL_TUBE_SIGMA": "0.34",
+          "TEMPORAL_TUBE_WEIGHT_POWER": "1.0",
+          "TEMPORAL_TUBE_COVARIANCE_MIX": "0.05"
+        }
+      },
+      "wrappers": {
+        "baseline_train": "scripts/train_baseline.sh",
+        "baseline_eval": "scripts/eval_baseline.sh",
+        "refergaussian_train": "scripts/train.sh",
+        "refergaussian_eval": "scripts/eval.sh"
+      },
+      "run_namespaces": {
+        "baseline_4dgs": "baseline_4dgs",
+        "refergaussian": "refergaussian"
+      },
+      "external_4dgaussians": {
+        "repository": "https://github.com/hustvl/4DGaussians.git",
+        "commit": "843d5ac636c37e4b611242287754f3d4ed150144",
+        "patches": [
+          {
+            "path": "patches/4dgaussians_refergaussian.patch",
+            "sha256": "69172b4de15180b96dea787cf45bd717955c02010f92271f9d3bb65068b8db70",
+            "marker_file": "train.py",
+            "marker_text": "from refergaussian.temporal import"
+          },
+          {
+            "path": "patches/4dgaussians_seed_order.patch",
+            "sha256": "dd250216fca88382392a0c60434a3461ba8f559df70cf1b174d738157e64e928",
+            "marker_file": "train.py",
+            "marker_text": "safe_state(args.quiet)\n    setup_seed(args.seed)"
+          },
+          {
+            "path": "patches/4dgaussians_temporal_warp_schedule.patch",
+            "sha256": "decc45b748bd7745b9aeb2d115ffa491bafbebe0f0646c0376256f34def3b39d",
+            "marker_file": "train.py",
+            "marker_text": "set_temporal_warp_learning_rate("
+          },
+          {
+            "path": "patches/4dgaussians_metrics_cache.patch",
+            "sha256": "155acaf08333a724be390b67220f2d35291ad3a58d0ab088ab514a16b19f0de3",
+            "marker_file": "metrics.py",
+            "marker_text": "lpips_vgg_metric = LPIPS(net_type='vgg').cuda()"
+          }
+        ]
+      },
+      "scenes": [
+        {
+          "id": "americano",
+          "dataset": "hypernerf",
+          "scene": "misc/americano",
+          "source_relpath": "hypernerf/misc/americano",
+          "config_relpath": "external/4DGaussians/arguments/hypernerf/default.py",
+          "default_config_declared": true
+        },
+        {
+          "id": "coffee_martini",
+          "dataset": "dynerf",
+          "scene": "coffee_martini",
+          "source_relpath": "dynerf/coffee_martini",
+          "config_relpath": "external/4DGaussians/arguments/dynerf/coffee_martini.py",
+          "default_config_declared": false
+        },
+        {
+          "id": "cook_spinach",
+          "dataset": "dynerf",
+          "scene": "cook_spinach",
+          "source_relpath": "dynerf/cook_spinach",
+          "config_relpath": "external/4DGaussians/arguments/dynerf/cook_spinach.py",
+          "default_config_declared": false
+        },
+        {
+          "id": "cut_lemon",
+          "dataset": "hypernerf",
+          "scene": "interp/cut-lemon1",
+          "source_relpath": "hypernerf/interp/cut-lemon1",
+          "config_relpath": "external/4DGaussians/arguments/hypernerf/cut-lemon1.py",
+          "default_config_declared": false
+        },
+        {
+          "id": "cut_roasted_beef",
+          "dataset": "dynerf",
+          "scene": "cut_roasted_beef",
+          "source_relpath": "dynerf/cut_roasted_beef",
+          "config_relpath": "external/4DGaussians/arguments/dynerf/cut_roasted_beef.py",
+          "default_config_declared": false
+        },
+        {
+          "id": "espresso",
+          "dataset": "hypernerf",
+          "scene": "misc/espresso",
+          "source_relpath": "hypernerf/misc/espresso",
+          "config_relpath": "external/4DGaussians/arguments/hypernerf/default.py",
+          "default_config_declared": true
+        },
+        {
+          "id": "flame_salmon",
+          "dataset": "dynerf",
+          "scene": "flame_salmon_1",
+          "source_relpath": "dynerf/flame_salmon_1",
+          "config_relpath": "external/4DGaussians/arguments/dynerf/flame_salmon_1.py",
+          "default_config_declared": false
+        },
+        {
+          "id": "flame_steak",
+          "dataset": "dynerf",
+          "scene": "flame_steak",
+          "source_relpath": "dynerf/flame_steak",
+          "config_relpath": "external/4DGaussians/arguments/dynerf/flame_steak.py",
+          "default_config_declared": false
+        },
+        {
+          "id": "keyboard",
+          "dataset": "hypernerf",
+          "scene": "misc/keyboard",
+          "source_relpath": "hypernerf/misc/keyboard",
+          "config_relpath": "external/4DGaussians/arguments/hypernerf/default.py",
+          "default_config_declared": true
+        },
+        {
+          "id": "sear_steak",
+          "dataset": "dynerf",
+          "scene": "sear_steak",
+          "source_relpath": "dynerf/sear_steak",
+          "config_relpath": "external/4DGaussians/arguments/dynerf/sear_steak.py",
+          "default_config_declared": false
+        },
+        {
+          "id": "split_cookie",
+          "dataset": "hypernerf",
+          "scene": "misc/split-cookie",
+          "source_relpath": "hypernerf/misc/split-cookie",
+          "config_relpath": "external/4DGaussians/arguments/hypernerf/default.py",
+          "default_config_declared": true
+        },
+        {
+          "id": "torchchocolate",
+          "dataset": "hypernerf",
+          "scene": "interp/torchocolate",
+          "source_relpath": "hypernerf/interp/torchocolate",
+          "config_relpath": "external/4DGaussians/arguments/hypernerf/default.py",
+          "default_config_declared": true
+        }
+      ]
+    }
+  }
+}

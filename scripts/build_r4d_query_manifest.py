@@ -25,6 +25,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from collections import Counter
+import hashlib
 import json
 import os
 import sys
@@ -33,12 +35,23 @@ from pathlib import Path
 from query_text_utils import benchmark_record_with_english_query, choose_english_query_text, contains_cjk
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PROTOCOL_REGISTRY_PATH = REPO_ROOT / "configs" / "benchmarks" / "release_protocols.json"
+R4D_ENGLISH_QUERY_MAP_PATH = REPO_ROOT / "configs" / "benchmarks" / "r4d_query_text_en.json"
+FORMAL_R4D_PROTOCOL = "release_r4d_dense89"
+QUERY_TYPE_TO_CATEGORY = {
+    "A": "temporal_single_target",
+    "B": "multi_target_reasoning",
+    "C": "zero_target_distractor",
+}
+
+
 # ---------------------------------------------------------------------------
 # Scene configuration
 # ---------------------------------------------------------------------------
 
-# Scene keys as used on the CLI -> (run path under REFERGAUSSIAN_RUN_ROOT,
-# dataset path under REFERGAUSSIAN_DATA_ROOT). These are release layout hints,
+# Scene keys as used on the CLI -> (run path under GS_RUN_ROOT,
+# dataset path under GS_DATA_ROOT). These are release layout hints,
 # not algorithm branches.
 SCENE_CONFIG: dict[str, tuple[str, str]] = {
     "americano": (
@@ -90,6 +103,129 @@ SCENE_CONFIG: dict[str, tuple[str, str]] = {
         "dynerf/cut_roasted_beef",
     ),
 }
+
+
+def _root_env_default(primary: str, deprecated: str, fallback: str) -> str:
+    if os.environ.get(primary):
+        return str(os.environ[primary])
+    if os.environ.get(deprecated):
+        print(
+            f"[deprecated] {deprecated} is supported for compatibility; use {primary}",
+            file=sys.stderr,
+        )
+        return str(os.environ[deprecated])
+    return fallback
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _load_protocol_registry() -> dict:
+    payload = json.loads(PROTOCOL_REGISTRY_PATH.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("protocols"), dict):
+        raise ValueError(f"Invalid release protocol registry: {PROTOCOL_REGISTRY_PATH}")
+    return payload
+
+
+def _query_list(payload: dict | list, *, label: str) -> list[dict]:
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        rows = []
+        for key in ("queries", "data", "predictions", "items", "entries"):
+            candidate = payload.get(key)
+            if isinstance(candidate, list):
+                rows = candidate
+                break
+        if not rows:
+            for value in payload.values():
+                if isinstance(value, list) and value and isinstance(value[0], dict):
+                    rows = value
+                    break
+    else:
+        rows = []
+    if not rows or not all(isinstance(row, dict) for row in rows):
+        raise ValueError(f"Could not locate a query-object list in {label}")
+    return rows
+
+
+def _normalise_scene_name(scene: object) -> str:
+    return str(scene or "").strip().lower().replace("-", "_")
+
+
+def _validate_formal_sources(
+    *,
+    benchmark_path: Path,
+    query_metadata_path: Path,
+    registry: dict,
+) -> tuple[dict[str, dict], dict[str, str], dict[str, str]]:
+    protocol = registry["protocols"].get(FORMAL_R4D_PROTOCOL)
+    if not isinstance(protocol, dict):
+        raise ValueError(f"Missing {FORMAL_R4D_PROTOCOL} in release registry")
+    source_paths = {
+        "benchmark": str(benchmark_path.resolve()),
+        "query_metadata": str(query_metadata_path.resolve()),
+        "english_query_map": str(R4D_ENGLISH_QUERY_MAP_PATH.resolve()),
+    }
+    source_hashes = {
+        "benchmark_sha256": _sha256(benchmark_path),
+        "query_metadata_sha256": _sha256(query_metadata_path),
+        "english_query_map_sha256": _sha256(R4D_ENGLISH_QUERY_MAP_PATH),
+    }
+    expected_hashes = {
+        "benchmark_sha256": str(protocol.get("dense_gt_sha256", "")),
+        "query_metadata_sha256": str(protocol.get("query_metadata_sha256", "")),
+        "english_query_map_sha256": str(protocol.get("english_query_map_sha256", "")),
+    }
+    for key, expected in expected_hashes.items():
+        if source_hashes[key] != expected:
+            raise ValueError(
+                f"{FORMAL_R4D_PROTOCOL} {key} mismatch: expected {expected}, "
+                f"got {source_hashes[key]}"
+            )
+
+    metadata_rows = _query_list(_read_json(query_metadata_path), label=str(query_metadata_path))
+    metadata_by_id: dict[str, dict] = {}
+    for row in metadata_rows:
+        query_id = str(row.get("query_id") or "").strip()
+        if not query_id:
+            raise ValueError(f"Query metadata row lacks query_id: {row}")
+        if query_id in metadata_by_id:
+            raise ValueError(f"Duplicate query metadata id: {query_id}")
+        metadata_by_id[query_id] = row
+
+    english_map = _read_json(R4D_ENGLISH_QUERY_MAP_PATH)
+    if not isinstance(english_map, dict):
+        raise ValueError("R4D English query map must be a JSON object")
+    english_by_id = {str(key): str(value) for key, value in english_map.items()}
+    if set(metadata_by_id) != set(english_by_id):
+        raise ValueError(
+            "R4D query metadata IDs differ from the versioned English query map: "
+            f"missing={sorted(set(english_by_id) - set(metadata_by_id))}, "
+            f"unexpected={sorted(set(metadata_by_id) - set(english_by_id))}"
+        )
+    if len(metadata_by_id) != int(protocol.get("query_count", -1)):
+        raise ValueError(
+            f"{FORMAL_R4D_PROTOCOL} requires {protocol.get('query_count')} metadata rows; "
+            f"got {len(metadata_by_id)}"
+        )
+    categories = Counter(
+        QUERY_TYPE_TO_CATEGORY.get(str(row.get("query_type", "")), "unknown")
+        for row in metadata_by_id.values()
+    )
+    expected_categories = {
+        str(key): int(value) for key, value in protocol.get("category_counts", {}).items()
+    }
+    if dict(categories) != expected_categories:
+        raise ValueError(
+            f"R4D category counts differ: expected {expected_categories}, got {dict(categories)}"
+        )
+    return metadata_by_id, source_paths, source_hashes
 
 
 # ---------------------------------------------------------------------------
@@ -230,8 +366,11 @@ def main() -> int:
     parser.add_argument(
         "--scenes",
         nargs="+",
-        required=True,
-        help="List of scene names to include (e.g. cut_lemon split_cookie).",
+        default=None,
+        help=(
+            "Scene names to include. The formal dense protocol fixes all 12 scenes; "
+            "an incomplete canary must list its subset."
+        ),
     )
     parser.add_argument(
         "--output",
@@ -247,18 +386,42 @@ def main() -> int:
         "--gpus",
         nargs="+",
         type=int,
-        default=[0, 1, 2],
-        help="GPU ids to assign round-robin in the manifest (default: 0 1 2).",
+        default=[0],
+        help="GPU ids to assign round-robin in the manifest (portable default: 0).",
+    )
+    parser.add_argument(
+        "--profile",
+        default="r4d_boundary_gated_v5",
+        help="Query evaluation profile recorded in every manifest row.",
+    )
+    parser.add_argument(
+        "--protocol-id",
+        choices=[FORMAL_R4D_PROTOCOL],
+        default=None,
+        help="Exact formal protocol identity. Required unless --allow-incomplete is used.",
+    )
+    parser.add_argument(
+        "--allow-incomplete",
+        action="store_true",
+        help="Build an explicitly incomplete, non-strict canary manifest.",
+    )
+    parser.add_argument(
+        "--query-metadata",
+        default=None,
+        help=(
+            "Pinned R4D-Bench_queries.json. Required by the formal protocol for "
+            "query categories and source-hash validation."
+        ),
     )
     parser.add_argument(
         "--run-root",
-        default=os.environ.get("REFERGAUSSIAN_RUN_ROOT", "runs"),
-        help="Root containing ReferGaussian outputs (default: REFERGAUSSIAN_RUN_ROOT or runs).",
+        default=_root_env_default("GS_RUN_ROOT", "REFERGAUSSIAN_RUN_ROOT", "runs"),
+        help="Root containing ReferGaussian outputs (default: GS_RUN_ROOT or runs).",
     )
     parser.add_argument(
         "--data-root",
-        default=os.environ.get("REFERGAUSSIAN_DATA_ROOT", "data"),
-        help="Root containing prepared datasets (default: REFERGAUSSIAN_DATA_ROOT or data).",
+        default=_root_env_default("GS_DATA_ROOT", "REFERGAUSSIAN_DATA_ROOT", "data"),
+        help="Root containing prepared datasets (default: GS_DATA_ROOT or data).",
     )
     parser.add_argument(
         "--run-namespace",
@@ -272,6 +435,38 @@ def main() -> int:
         "Release reproduction should not use this flag.",
     )
     args = parser.parse_args()
+
+    if args.protocol_id and args.allow_incomplete:
+        parser.error("--protocol-id and --allow-incomplete are mutually exclusive")
+    if not args.protocol_id and not args.allow_incomplete:
+        parser.error("choose --protocol-id release_r4d_dense89 or explicitly pass --allow-incomplete")
+    if not args.gpus or len(set(args.gpus)) != len(args.gpus):
+        parser.error("--gpus must contain one or more unique GPU ids")
+    try:
+        registry = _load_protocol_registry()
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        parser.error(str(exc))
+    if args.protocol_id:
+        if args.profile != "r4d_boundary_gated_v5":
+            parser.error(f"{FORMAL_R4D_PROTOCOL} requires r4d_boundary_gated_v5")
+        protocol = registry["protocols"][FORMAL_R4D_PROTOCOL]
+        formal_scenes = [str(scene) for scene in protocol.get("scenes", [])]
+        if set(formal_scenes) != set(SCENE_CONFIG):
+            parser.error(
+                f"{FORMAL_R4D_PROTOCOL} registry scenes differ from the supported layout"
+            )
+        if args.scenes is not None and set(args.scenes) != set(formal_scenes):
+            parser.error(
+                f"{FORMAL_R4D_PROTOCOL} fixes scenes to {sorted(formal_scenes)}; "
+                f"got {sorted(args.scenes)}"
+            )
+        args.scenes = formal_scenes
+        if not args.query_metadata:
+            parser.error(f"--query-metadata is required for {FORMAL_R4D_PROTOCOL}")
+        if args.allow_non_english_query_text:
+            parser.error("the formal R4D protocol does not allow non-English query text")
+    elif not args.scenes:
+        parser.error("--allow-incomplete requires an explicit --scenes subset")
 
     # --- Validate requested scenes ---
     unknown = [s for s in args.scenes if s not in SCENE_CONFIG]
@@ -291,26 +486,32 @@ def main() -> int:
 
     benchmark_data = _read_json(benchmark_path)
 
+    protocol_id = args.protocol_id or "incomplete_r4d_canary"
+    protocol_complete = bool(args.protocol_id)
+    metadata_by_id: dict[str, dict] = {}
+    source_paths: dict[str, str] = {}
+    source_hashes: dict[str, str] = {}
+    if protocol_complete:
+        query_metadata_path = Path(str(args.query_metadata))
+        if not query_metadata_path.is_file():
+            print(f"ERROR: query metadata file not found: {query_metadata_path}", file=sys.stderr)
+            return 1
+        try:
+            metadata_by_id, source_paths, source_hashes = _validate_formal_sources(
+                benchmark_path=benchmark_path,
+                query_metadata_path=query_metadata_path,
+                registry=registry,
+            )
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+
     # The benchmark JSON may be structured in various ways.  We accept:
     #   - a list of query objects
     #   - a dict with a "queries" or "data" key containing a list
-    queries_raw: list[dict] = []
-    if isinstance(benchmark_data, list):
-        queries_raw = benchmark_data
-    elif isinstance(benchmark_data, dict):
-        for key in ("queries", "data", "predictions", "items", "entries"):
-            candidate = benchmark_data.get(key)
-            if isinstance(candidate, list):
-                queries_raw = candidate
-                break
-        # Fallback: treat top-level values that are lists of dicts
-        if not queries_raw:
-            for value in benchmark_data.values():
-                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
-                    queries_raw = value
-                    break
-
-    if not queries_raw:
+    try:
+        queries_raw = _query_list(benchmark_data, label=str(benchmark_path))
+    except ValueError:
         print(
             "ERROR: could not locate a list of query objects in the benchmark file. "
             "Expected a top-level list, or a dict containing a 'queries' key.",
@@ -396,6 +597,11 @@ def main() -> int:
             return 2
 
         query_id = _query_id_from_record(raw_query, matched_scene, idx)
+        if query_id in query_root_map:
+            print(f"ERROR: duplicate benchmark query id: {query_id}", file=sys.stderr)
+            return 1
+        metadata = metadata_by_id.get(query_id, {})
+        query_category = QUERY_TYPE_TO_CATEGORY.get(str(metadata.get("query_type", "")), "")
         gpu = int(args.gpus[len(entries) % len(args.gpus)])
 
         # Per-query output subdirectory
@@ -411,6 +617,13 @@ def main() -> int:
             "scene": matched_scene,
             "query_language": "en",
             "query_text_source": query_text_source,
+            "query_category": query_category,
+            "profile": args.profile,
+            "protocol_id": protocol_id,
+            "protocol_complete": protocol_complete,
+            "protocol_registry_version": str(registry.get("registry_version", "")),
+            "source_paths": source_paths,
+            "source_hashes": source_hashes,
             "benchmark_record": benchmark_record_with_english_query(raw_query, str(query_text), query_text_source),
         }
         entries.append(entry)
@@ -420,6 +633,48 @@ def main() -> int:
     if not entries:
         print("ERROR: no valid query entries produced after filtering.", file=sys.stderr)
         return 1
+
+    if protocol_complete:
+        protocol = registry["protocols"][FORMAL_R4D_PROTOCOL]
+        actual_ids = {str(entry["query_id"]) for entry in entries}
+        expected_ids = set(metadata_by_id)
+        actual_scenes = {_normalise_scene_name(entry["scene"]) for entry in entries}
+        expected_scenes = {
+            _normalise_scene_name(scene) for scene in protocol.get("scenes", [])
+        }
+        category_counts = Counter(str(entry["query_category"]) for entry in entries)
+        expected_categories = {
+            str(key): int(value) for key, value in protocol.get("category_counts", {}).items()
+        }
+        formal_errors: list[str] = []
+        if len(entries) != int(protocol.get("query_count", -1)):
+            formal_errors.append(
+                f"expected {protocol.get('query_count')} rows, got {len(entries)}"
+            )
+        if actual_ids != expected_ids:
+            formal_errors.append(
+                f"query IDs differ; missing={sorted(expected_ids - actual_ids)}, "
+                f"unexpected={sorted(actual_ids - expected_ids)}"
+            )
+        if actual_scenes != expected_scenes:
+            formal_errors.append(
+                f"scenes differ; expected={sorted(expected_scenes)}, got={sorted(actual_scenes)}"
+            )
+        if dict(category_counts) != expected_categories:
+            formal_errors.append(
+                f"category counts differ; expected={expected_categories}, got={dict(category_counts)}"
+            )
+        for entry in entries:
+            metadata_scene = _normalise_scene_name(metadata_by_id[str(entry["query_id"])].get("scene"))
+            if metadata_scene != _normalise_scene_name(entry["scene"]):
+                formal_errors.append(
+                    f"{entry['query_id']}: metadata scene {metadata_scene!r} differs from "
+                    f"manifest scene {_normalise_scene_name(entry['scene'])!r}"
+                )
+        if formal_errors:
+            for error in formal_errors:
+                print(f"ERROR: {FORMAL_R4D_PROTOCOL}: {error}", file=sys.stderr)
+            return 1
 
     # --- Validate paths (non-fatal warnings) ---
     for scene_name in args.scenes:
@@ -456,6 +711,8 @@ def main() -> int:
     print(f"Root map:   {qrm_path}")
     print(f"Dataset map:{ddm_path}")
     print(f"Output root:{output_root}")
+    print(f"Protocol:   {protocol_id} (complete={protocol_complete})")
+    print(f"Profile:    {args.profile}")
     print(f"Run root:   {run_root}")
     print(f"Run namespace: {run_namespace}")
     print(f"Data root:  {data_root}")

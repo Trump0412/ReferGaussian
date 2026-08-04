@@ -202,6 +202,15 @@ than another project's Grounded-SAM2 installation.
 
 ## Dataset Setup
 
+All preparation scripts use the same storage root as training. The portable
+default is `${PWD}/data`; set this before preparation when using mounted
+storage:
+
+```bash
+export GS_DATA_ROOT=/absolute/path/to/refergaussian-data
+source scripts/common.sh
+```
+
 ### HyperNeRF
 
 Download scenes used in the paper from the [HyperNeRF release page](https://github.com/google/hypernerf/releases/tag/v0.1):
@@ -234,12 +243,12 @@ release paths:
 
 | R4D scene id | Local data directory |
 | --- | --- |
-| `coffee_martini` | `data/dynerf/coffee_martini/` |
-| `cook-spinach` | `data/dynerf/cook_spinach/` |
-| `cut_roasted_beef` | `data/dynerf/cut_roasted_beef/` |
-| `flame_salmon` | `data/dynerf/flame_salmon_1/` |
-| `flame_steak` | `data/dynerf/flame_steak/` |
-| `sear_steak` | `data/dynerf/sear_steak/` |
+| `coffee_martini` | `${GS_DATA_ROOT}/dynerf/coffee_martini/` |
+| `cook-spinach` | `${GS_DATA_ROOT}/dynerf/cook_spinach/` |
+| `cut_roasted_beef` | `${GS_DATA_ROOT}/dynerf/cut_roasted_beef/` |
+| `flame_salmon` | `${GS_DATA_ROOT}/dynerf/flame_salmon_1/` |
+| `flame_steak` | `${GS_DATA_ROOT}/dynerf/flame_steak/` |
+| `sear_steak` | `${GS_DATA_ROOT}/dynerf/sear_steak/` |
 
 Each directory follows the original multi-camera layout, for example:
 
@@ -255,7 +264,7 @@ Generate the required per-frame camera metadata after placing every scene:
 ```bash
 source scripts/common.sh
 gs_python scripts/generate_dynerf_camera_jsons.py \
-  --dataset-dir data/dynerf/coffee_martini
+  --dataset-dir "${GS_DATA_ROOT}/dynerf/coffee_martini"
 ```
 
 The command is deterministic and may be repeated safely for each directory in
@@ -270,14 +279,14 @@ bash scripts/download_4dlangsplat_annotations.sh
 
 Downloads the pinned annotation snapshot
 `d127a280446206fc97887a304de790a1fe6af5ff` to
-`data/benchmarks/4dlangsplat/HyperNeRF-Annotation/`; its manifest records the
+`${GS_DATA_ROOT}/benchmarks/4dlangsplat/HyperNeRF-Annotation/`; its manifest records the
 resolved revision.
 Build a per-scene query protocol from the downloaded temporal annotations
 before running the public evaluator:
 
 ```bash
 source scripts/common.sh
-ANN_ROOT=data/benchmarks/4dlangsplat/HyperNeRF-Annotation
+ANN_ROOT="${GS_DATA_ROOT}/benchmarks/4dlangsplat/HyperNeRF-Annotation"
 gs_python scripts/build_4dlangsplat_query_protocol.py \
   --annotation-root "${ANN_ROOT}" \
   --scene espresso \
@@ -296,7 +305,7 @@ bash scripts/download_r4d_bench_qa.sh
 
 Downloads the pinned dataset snapshot
 `0fe2b3a99a95632ea6d0bd1718723ac24804e49b` to
-`data/benchmarks/r4d_bench_qa/`. Override it only with an explicit
+`${GS_DATA_ROOT}/benchmarks/r4d_bench_qa/`. Override it only with an explicit
 `R4D_BENCH_REVISION`; the generated `download_manifest.json` records both the
 requested and resolved revisions.
 
@@ -366,6 +375,32 @@ For iterative debugging only, set `GS_SKIP_FULL_METRICS=1` to run the uniform
 subset metric path. Do not compare subset metrics with the full-frame paper
 table; omit that variable for any final reconstruction report.
 
+For a new matched release comparison, use the frozen runner instead of
+launching the two methods by hand:
+
+```bash
+source scripts/common.sh
+OUT="reports/RECONSTRUCTION_RELEASE_V1_$(date -u +%Y%m%dT%H%M%SZ)"
+gs_python scripts/run_matched_reconstruction.py \
+  --protocol release_reconstruction_v1 \
+  --data-root "${GS_DATA_ROOT}" \
+  --output-root "${OUT}" \
+  --gpu 0
+```
+
+This command requires a clean Git checkout, validates the pinned 4DGaussians
+commit and applied patch hashes, trains both methods at seed 6666 for 14,000
+fine iterations, evaluates the same full test-camera set, and writes a
+scene-equal aggregate only after all 12 registered scenes complete. It never
+filters scenes by PSNR. A `--scenes` subset is emitted only as an incomplete
+canary and has no final aggregate.
+
+`release_reconstruction_v1` is a separately labeled executable protocol, not
+an asserted reproduction of the accepted-paper reconstruction table. The
+paper-reported identity, historical selected-8 candidate, unresolved temporal
+tube settings, and executable release identity are kept side by side in
+[`configs/benchmarks/reconstruction_release_v1.json`](configs/benchmarks/reconstruction_release_v1.json).
+
 The full and subset metric paths cache each LPIPS network once per evaluated
 method rather than reconstructing it for every frame. This is a runtime-only
 change: PSNR, SSIM, MS-SSIM, LPIPS-vgg, and LPIPS-alex retain their original
@@ -376,15 +411,15 @@ per-frame definitions and reduction.
 Run per scene (example: `split-cookie`):
 
 ```bash
+source scripts/common.sh
 SCENE=split-cookie
 GROUP=misc
-RUN_DIR=runs/refergaussian/hypernerf/${SCENE}
-DATASET_DIR=data/hypernerf/${GROUP}/${SCENE}
-ANNOT_ROOT=data/benchmarks/4dlangsplat/HyperNeRF-Annotation
+RUN_DIR="${GS_RUN_ROOT}/refergaussian/hypernerf/${SCENE}"
+DATASET_DIR="${GS_DATA_ROOT}/hypernerf/${GROUP}/${SCENE}"
+ANNOT_ROOT="${GS_DATA_ROOT}/benchmarks/4dlangsplat/HyperNeRF-Annotation"
 ANNOT_DIR=${ANNOT_ROOT}/${SCENE}
 PROTOCOL_JSON=${ANNOT_DIR}/protocol.json
 
-source scripts/common.sh
 gs_python scripts/build_4dlangsplat_query_protocol.py \
   --annotation-root "${ANNOT_ROOT}" \
   --scene "${SCENE}" \
@@ -466,7 +501,7 @@ Git/diff, source, checkpoint, and dataset-metadata hashes.
 ```bash
 OUT="reports/PAPER_PUBLIC3_V5_$(date -u +%Y%m%dT%H%M%SZ)"
 source scripts/common.sh
-ANN_ROOT=data/benchmarks/4dlangsplat/HyperNeRF-Annotation
+ANN_ROOT="${GS_DATA_ROOT}/benchmarks/4dlangsplat/HyperNeRF-Annotation"
 PROTOCOL_JSON="${OUT}/public_protocol.json"
 gs_python scripts/build_4dlangsplat_query_protocol.py \
   --annotation-root "${ANN_ROOT}" \
@@ -477,19 +512,25 @@ gs_python scripts/build_public_query_manifest.py \
   --output-root "${OUT}/query_root" \
   --query-set time_sensitive \
   --protocol-json "${PROTOCOL_JSON}" \
+  --protocol-id paper_public3 \
+  --annotation-root "${ANN_ROOT}" \
   --profile public_time_boundary_gated_v5 \
-  --scenes americano split-cookie espresso \
-  --gpus 0 1 2
+  --gpus 0
 
 gs_python scripts/preflight_query_batch.py \
   --manifest "${OUT}/manifest.jsonl" \
-  --gpu 0 1 2 \
+  --protocol-id paper_public3 \
+  --profile public_time_boundary_gated_v5 \
+  --strict-release \
+  --gpu 0 \
+  --require-visible-gpu \
   --create-output-root
 
 gs_python scripts/run_query_batch.py \
   --manifest "${OUT}/manifest.jsonl" \
+  --protocol-id paper_public3 \
   --profile public_time_boundary_gated_v5 \
-  --gpu 0 1 2 \
+  --gpu 0 \
   --force-rerun \
   --strict-release \
   --timeout 3600
@@ -506,7 +547,7 @@ for SCENE in americano espresso split-cookie; do
     --protocol-json "${PROTOCOL_JSON}" \
     --query-manifest "${OUT}/manifest.jsonl" \
     --annotation-dir "${ANN_ROOT}/${SCENE}" \
-    --dataset-dir "data/hypernerf/${GROUP}/${SCENE}" \
+    --dataset-dir "${GS_DATA_ROOT}/hypernerf/${GROUP}/${SCENE}" \
     --query-root "${OUT}/query_root" \
     --scene "${SCENE}" \
     --category temporal_state_reference \
@@ -525,10 +566,20 @@ gs_python scripts/aggregate_public_query_evaluations.py \
   --output-md "${OUT}/official_eval.md"
 ```
 
-For the separate four-scene extension, omit `--scenes` while building the
-manifest, include `chickchicken` in the evaluation loop, and use
-`--expected-queries 9`. Never merge the 3-scene paper and 4-scene extension
-under one result label.
+For the separate four-scene extension, replace `paper_public3` with
+`release_public4_extension` in the builder, preflight, and runner; include
+`chickchicken` in the evaluation loop and use `--expected-queries 9`. Never
+merge the 3-scene paper and 4-scene extension under one result label.
+
+The commands above use portable GPU 0. On a verified multi-GPU host, replace
+the builder's `--gpus 0` and both consumers' `--gpu 0` with the same list, for
+example `--gpus 0 1 2` and `--gpu 0 1 2`. Preflight keeps
+`--require-visible-gpu` so a nonexistent assignment fails before execution.
+
+For a canary subset, omit the formal protocol id and pass `--allow-incomplete`
+to the builder. Such rows are marked `protocol_complete: false` and are
+rejected by `--strict-release`; they must never be reported as a complete
+benchmark result.
 
 When evaluating a subset such as `time_sensitive`, pass the same manifest to
 `evaluate_public_query_protocol.py --query-manifest "${OUT}/manifest.jsonl"`.
@@ -558,25 +609,31 @@ reruns or changes the original selection and never uses a full-scene fallback.
 # 1) Build a manifest with official query ids.
 source scripts/common.sh
 RUN_ROOT="reports/RELEASE_R4D_DENSE89_V5_$(date -u +%Y%m%dT%H%M%SZ)"
+R4D_ROOT="${GS_DATA_ROOT}/benchmarks/r4d_bench_qa"
 gs_python scripts/build_r4d_query_manifest.py \
-  --benchmark data/benchmarks/r4d_bench_qa/benchmark_all_queries.json \
-  --scenes americano coffee_martini cook_spinach cut_lemon \
-           cut_roasted_beef espresso flame_salmon flame_steak \
-           keyboard sear_steak split_cookie torchchocolate \
+  --benchmark "${R4D_ROOT}/benchmark_all_queries.json" \
+  --query-metadata "${R4D_ROOT}/evaluation/R4D-Bench_queries.json" \
+  --protocol-id release_r4d_dense89 \
+  --profile r4d_boundary_gated_v5 \
   --output "${RUN_ROOT}/manifest.jsonl" \
   --output-root "${RUN_ROOT}/query_root" \
-  --gpus 0 1 2
+  --gpus 0
 
 gs_python scripts/preflight_query_batch.py \
   --manifest "${RUN_ROOT}/manifest.jsonl" \
-  --gpu 0 1 2 \
+  --protocol-id release_r4d_dense89 \
+  --profile r4d_boundary_gated_v5 \
+  --strict-release \
+  --gpu 0 \
+  --require-visible-gpu \
   --create-output-root
 
 # 2) Run the query pipeline.
 gs_python scripts/run_query_batch.py \
   --manifest "${RUN_ROOT}/manifest.jsonl" \
+  --protocol-id release_r4d_dense89 \
   --profile r4d_boundary_gated_v5 \
-  --gpu 0 1 2 \
+  --gpu 0 \
   --force-rerun \
   --strict-release \
   --timeout 3600
@@ -587,7 +644,7 @@ gs_python scripts/run_query_batch.py \
 CAMERA_ROOT="${RUN_ROOT}/source_camera_views"
 gs_python scripts/rerender_query_outputs.py \
   --manifest "${RUN_ROOT}/manifest.jsonl" \
-  --benchmark data/benchmarks/r4d_bench_qa/benchmark_all_queries.json \
+  --benchmark "${R4D_ROOT}/benchmark_all_queries.json" \
   --output-root "${CAMERA_ROOT}" \
   --profile r4d_boundary_gated_v5 \
   --gpu 0 \
@@ -597,7 +654,7 @@ gs_python scripts/rerender_query_outputs.py \
 # reconstruction test grid for temporal metrics and adds exact official cameras
 # for spatial masks.
 gs_python scripts/evaluate_ours_benchmark.py \
-  --benchmark data/benchmarks/r4d_bench_qa/benchmark_all_queries.json \
+  --benchmark "${R4D_ROOT}/benchmark_all_queries.json" \
   --query-root-map "${CAMERA_ROOT}/query_root_map.json" \
   --dataset-dir-map "${CAMERA_ROOT}/dataset_dir_map.json" \
   --query-manifest "${RUN_ROOT}/manifest.jsonl" \
@@ -605,6 +662,11 @@ gs_python scripts/evaluate_ours_benchmark.py \
   --output-md "${CAMERA_ROOT}/official_eval.md" \
   --require-complete
 ```
+
+This example is portable on one GPU. For multi-GPU execution, replace both
+`--gpus 0` and `--gpu 0` with the same verified list. An R4D canary instead
+uses `--allow-incomplete --scenes <subset>` and cannot be passed to a strict
+release run.
 
 The source-camera export is a rendering protocol, not a mask shortcut: each
 foreground pixel remains a selected-Gaussian projection, and the formal profile
@@ -629,7 +691,7 @@ Output files:
 - `${CAMERA_ROOT}/rerender_summary.json` (camera-export provenance)
 
 Metric rule used in both public and R4D evaluators:
-- Empty-set rule is enabled: if GT and prediction are both empty (temporal union = 0), `vIoU = 1.0` and `tIoU = 1.0`. An empty-GT query with any predicted activity scores `0.0` for both values.
+- Empty-set rule is enabled: if GT and a verified `semantic_empty` prediction are both empty (temporal union = 0), `vIoU = 1.0` and `tIoU = 1.0`. An empty-GT query with any predicted activity scores `0.0` for both values. Phrase misses, missing evidence, and pipeline failures are `unresolved`; strict reports reject them instead of scoring them as empty answers.
 - Every evaluator summary also reports the non-empty-query subset and empty-target correctness separately. Report these alongside headline `Acc`/`vIoU`/`tIoU` so background-heavy timelines or zero-target queries cannot conceal ordinary grounding failures.
 
 Important benchmark note:

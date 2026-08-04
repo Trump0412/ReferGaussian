@@ -62,6 +62,13 @@ def _pinned_manifest_errors(
     return errors
 
 
+def _expected_qwen_revision(*, strict_release: bool, environ: dict[str, str]) -> str:
+    """Keep the formal release revision immutable while retaining exploratory overrides."""
+    if strict_release:
+        return DEFAULT_QWEN_REVISION
+    return environ.get("REFERGAUSSIAN_QWEN_REVISION", DEFAULT_QWEN_REVISION)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Validate external runtime assets before starting a query pipeline."
@@ -94,8 +101,9 @@ def main() -> int:
 
     strict_release = os.environ.get("REFERGAUSSIAN_STRICT_RELEASE", "0") == "1"
     if args.require_pinned_manifest or strict_release:
-        expected_revision = os.environ.get(
-            "REFERGAUSSIAN_QWEN_REVISION", DEFAULT_QWEN_REVISION
+        expected_revision = _expected_qwen_revision(
+            strict_release=strict_release,
+            environ=dict(os.environ),
         )
         errors = _pinned_manifest_errors(
             model_dir,

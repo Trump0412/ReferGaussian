@@ -11,6 +11,20 @@
     "release_r4d_dense89": {
       "scene_count": 12,
       "query_count": 89,
+      "scenes": [
+        "americano",
+        "coffee_martini",
+        "cook_spinach",
+        "cut_lemon",
+        "cut_roasted_beef",
+        "espresso",
+        "flame_salmon",
+        "flame_steak",
+        "keyboard",
+        "sear_steak",
+        "split_cookie",
+        "torchchocolate"
+      ],
       "category_counts": {
         "temporal_single_target": 36,
         "multi_target_reasoning": 29,

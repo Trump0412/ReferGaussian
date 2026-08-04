@@ -70,40 +70,36 @@ Rules:
 - Output valid JSON only.
 
 CRITICAL temporal-selectivity rules (apply these STRICTLY):
-1. FULL-FRAME COVERAGE MEANS BACKGROUND: If an entity's support_segments_test covers nearly all {total_frames} frames
-   (coverage ratio > 0.85), it is almost certainly a static background object. Do NOT select it unless the query
-   EXPLICITLY asks for static/always-present objects (e.g. "always stationary").
+1. TEMPORAL SUPPORT IS NOT AN IDENTITY LABEL: Long support may describe either foreground or background. Never reject
+   a candidate from support duration alone; combine masked appearance, query semantics, motion, and interaction evidence.
 2. PREFER TEMPORALLY LOCALIZED ENTITIES: For queries about actions, interactions, or dynamic events,
    prefer entities whose support_segments_test or moving_segments_test covers only a SUBSET of frames.
 3. STATIC QUERY EXCEPTION: If the query asks about objects that "always/never move/remain still",
    then full-frame coverage IS correct and should be selected.
 4. INTERACTION GROUNDING: Strongly prefer entities that appear in query_relevant_segments_test or
    have high interaction_score in pair windows — these are the entities actually involved in the event.
-5. AVOID SCENE BACKGROUND: Do not select entities whose proposal_phrase or global_desc suggests
-   scene background (e.g. table surface, floor, counter, background wall) unless explicitly asked.
+5. AVOID SCENE BACKGROUND: Do not select an entity when the masked evidence shows that it is a scene-level support
+   region rather than the requested referent, unless the query explicitly requests that region.
 6. STRICT ATTRIBUTE MATCHING (MOST CRITICAL): If the query specifies a specific color, material,
-   texture, or distinctive attribute (e.g. "blue glass", "red keyboard",
-   "black cookie"), you MUST verify that the candidate entity's description ACTUALLY MATCHES
-   that specific attribute. If NO candidate entity matches the specific attribute described in the query,
+   texture, or distinctive attribute, you MUST verify that the masked candidate evidence ACTUALLY MATCHES
+   that literal attribute. If NO candidate entity matches the specific attribute described in the query,
    return subject_phrases: [] (empty array). DO NOT substitute a "closest match" that differs in the
-   key queried attribute. Example: if query asks for a "blue glass" but only a transparent/clear glass
-   exists, return [].
+   key queried attribute.
 7. NON-EXISTENCE DETECTION: If after careful examination NO candidate entity satisfies ALL the
    described properties in the query (object type + color/material/state + context), return
    subject_phrases: [] and explain in notes. The model will then correctly predict "entity absent"
    for all frames, which is the correct answer for negative queries.
 8. EXCLUSION QUERIES: If the query asks for "all objects except X", select ALL
    relevant moving/interacting objects EXCEPT those explicitly excluded. May result in multiple entities.
-9. USE QUERY PLAN NOTES: The query_plan_json may contain a "notes" field that the planner added after
-   analyzing the scene. If the notes say the queried entity does NOT exist or has different attributes
-   (e.g., "the glass is transparent, not blue", or "X does not exist in the scene"), you MUST return subject_phrases: [] because the query is asking
-   for something that is not present. The query plan notes represent ground-truth scene analysis.
+9. VERIFY QUERY PLAN NOTES: Treat query_plan_json notes as a hypothesis from the first visual pass, not as ground truth.
+   Return an empty subject list only when the independent masked candidate evidence also supports the claimed absence
+   or attribute mismatch. If evidence is missing or contradictory, report the decision as unresolved rather than empty.
 10. ENTITY VERIFICATION CHECKLIST: Before selecting an entity, verify ALL of the following:
-    (a) Object category matches (e.g., "glass" vs "cup" vs "bottle")
-    (b) Color matches if specified (e.g., "blue" must be actually blue)
-    (c) Material/texture matches if specified (e.g., "stainless steel" vs "plastic")
-    (d) Location/context matches if specified (e.g., "on tray" vs "on table")
-    (e) State matches if specified (e.g., "solid" vs "melting", "complete" vs "broken")
+    (a) Object category matches the requested category
+    (b) Every specified color or appearance attribute is visibly supported
+    (c) Every specified material or texture is visibly supported
+    (d) The requested spatial or relational context matches
+    (e) The requested temporal state matches the relevant evidence frames
     If ANY required attribute doesn't match, do NOT select the entity — return [].
     When query_plan.required_identity_attributes is non-empty, list every verified attribute in
     `verified_identity_attributes`. If a candidate does not visibly verify all of them, return
@@ -560,6 +556,8 @@ def _identity_attribute_empty_selection(
         "query": query,
         "selected": [],
         "empty": True,
+        "selection_status": "semantic_empty",
+        "selection_status_reason": "independent_identity_attribute_mismatch",
         "notes": (
             "A planner-declared identity attribute was not verified by the selected "
             f"Gaussian entity evidence; returning an explicit empty selection. Missing: {missing}."
@@ -3298,6 +3296,30 @@ def _normalize_selected(raw_payload: dict[str, Any], valid_ids: set[int], query:
     }
 
 
+def _finalize_selection_status(payload: dict[str, Any]) -> dict[str, Any]:
+    """Separate a genuine empty answer from an unresolved pipeline decision."""
+    status = str(payload.get("selection_status", "")).strip().lower()
+    selected = payload.get("selected", [])
+    if status not in {"resolved", "semantic_empty", "unresolved"}:
+        status = "resolved" if selected else "unresolved"
+    if selected and status != "resolved":
+        status = "unresolved"
+        payload.setdefault(
+            "selection_status_reason",
+            "selected_entities_conflict_with_nonresolved_status",
+        )
+    if not selected and status == "resolved":
+        status = "unresolved"
+        payload.setdefault(
+            "selection_status_reason",
+            "resolved_status_has_no_selected_entity",
+        )
+    payload["selection_status"] = status
+    payload["semantic_empty"] = status == "semantic_empty"
+    payload["unresolved"] = status == "unresolved"
+    return payload
+
+
 def _compose_phrase_grounded_selection(
     *,
     query: str,
@@ -3378,6 +3400,8 @@ def _compose_phrase_grounded_selection(
             "query": query,
             "selected": [],
             "empty": True,
+            "selection_status": "semantic_empty",
+            "selection_status_reason": "qwen_visual_plan_declared_no_matching_subject",
             "notes": f"Qwen returned no matching subject — entity does not satisfy query conditions. {notes}".strip(),
             "selection_mode": "qwen_plan_empty",
             "subject_phrases": [],
@@ -3409,6 +3433,8 @@ def _compose_phrase_grounded_selection(
             "query": query,
             "selected": [],
             "empty": True,
+            "selection_status": "unresolved",
+            "selection_status_reason": "phrase_grounding_failed",
             "notes": (
                 "Phrase grounding failed; returning an explicit empty selection "
                 f"instead of best-effort matching the wrong entity. {exc}"
@@ -4054,6 +4080,8 @@ def _compose_phrase_grounded_selection(
                 "query": query,
                 "selected": [],
                 "empty": True,
+                "selection_status": "unresolved",
+                "selection_status_reason": "no_subject_entity_matched",
                 "notes": "No subject entities matched; cannot determine contact window.",
                 "selection_mode": "qwen_plan_empty",
                 "subject_phrases": subject_phrases,
@@ -4293,6 +4321,8 @@ def main() -> None:
             "query": query,
             "selected": [],
             "empty": True,
+            "selection_status": "semantic_empty",
+            "selection_status_reason": "verified_relative_motion_below_threshold",
             "notes": (
                 "A planner-confirmed relational action lacked sufficient "
                 "camera-invariant relative 3D motion; returning an explicit empty selection."
@@ -4318,6 +4348,7 @@ def main() -> None:
     track_state_mode = _selection_track_state_mode(selection_payload)
     if track_state_mode is not None:
         selection_payload["track_state_mode"] = track_state_mode
+    selection_payload = _finalize_selection_status(selection_payload)
     _write_json(Path(args.output_path), selection_payload)
     print(args.output_path)
 

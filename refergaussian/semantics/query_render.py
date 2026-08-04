@@ -2248,6 +2248,13 @@ def render_hypernerf_query_video(
     fusion_options = _fusion_options_for_profile(resolved_eval_profile)
     selected_items = selection_payload.get("selected", [])
     selection_empty = selection_payload.get("empty", False)
+    selection_status = str(selection_payload.get("selection_status", "")).strip().lower()
+    if selection_status not in {"resolved", "semantic_empty", "unresolved"}:
+        selection_status = "resolved" if selected_items else "unresolved"
+    if selected_items and selection_status != "resolved":
+        selection_status = "unresolved"
+    if not selected_items and selection_status == "resolved":
+        selection_status = "unresolved"
     if not selected_items:
         # Negative query: Qwen determined entity doesn't satisfy the query.
         # Produce all-inactive (all-black) binary masks so evaluator can score correctly.
@@ -2279,6 +2286,9 @@ def render_hypernerf_query_video(
         validation_data = {
             "query": selection_payload.get("query", "query"),
             "selection_mode": selection_payload.get("selection_mode", "qwen_plan_empty"),
+            "selection_status": selection_status,
+            "selection_status_reason": selection_payload.get("selection_status_reason", ""),
+            "selection_resolution_complete": selection_status == "semantic_empty",
             "eval_profile": resolved_eval_profile,
             "fusion_options": fusion_options,
             "query_intent_mode": _query_intent_mode(str(selection_payload.get("query", "")), track_state_mode=None),
@@ -2296,6 +2306,11 @@ def render_hypernerf_query_video(
             "frames": frame_records,
         }
         _write_json(output_dir / "validation.json", validation_data)
+        if _env_flag("REFERGAUSSIAN_STRICT_RELEASE", False) and selection_status != "semantic_empty":
+            raise RuntimeError(
+                "Strict release rendering refuses an unresolved empty selection. "
+                "See selected_query_qwen.json for selection_status diagnostics."
+            )
         return output_dir
     track_state_mode = _selection_track_state_mode(selection_payload)
     query_text = str(selection_payload.get("query", "query"))
@@ -2820,6 +2835,9 @@ def render_hypernerf_query_video(
     payload = {
         "schema_version": 1,
         "query": selection_payload.get("query", "query"),
+        "selection_status": selection_status,
+        "selection_status_reason": selection_payload.get("selection_status_reason", ""),
+        "selection_resolution_complete": selection_status == "resolved",
         "eval_profile": resolved_eval_profile,
         "fusion_options": fusion_options,
         "query_intent_mode": query_intent_mode,

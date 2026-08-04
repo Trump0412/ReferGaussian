@@ -18,6 +18,20 @@ SPEC.loader.exec_module(RUNTIME)
 
 
 class QueryRuntimeTest(unittest.TestCase):
+    def test_strict_release_ignores_revision_environment_override(self) -> None:
+        revision = RUNTIME._expected_qwen_revision(
+            strict_release=True,
+            environ={"REFERGAUSSIAN_QWEN_REVISION": "unreviewed"},
+        )
+        self.assertEqual(revision, RUNTIME.DEFAULT_QWEN_REVISION)
+
+    def test_non_strict_runtime_allows_explicit_revision_override(self) -> None:
+        revision = RUNTIME._expected_qwen_revision(
+            strict_release=False,
+            environ={"REFERGAUSSIAN_QWEN_REVISION": "exploratory"},
+        )
+        self.assertEqual(revision, "exploratory")
+
     def test_release_manifest_requires_the_pinned_revision(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             model_dir = Path(temp_dir)

@@ -36,6 +36,26 @@ def _write_validation(query_root: Path, frames: list[dict]) -> Path:
 
 
 class BenchmarkEvaluatorTest(unittest.TestCase):
+    def test_complete_report_rejects_unresolved_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            query_root = Path(temp_dir)
+            render_root = query_root / "final_query_render_sourcebg"
+            render_root.mkdir(parents=True)
+            (render_root / "validation.json").write_text(
+                json.dumps({"selection_status": "unresolved", "frames": []}),
+                encoding="utf-8",
+            )
+
+            result = EVALUATOR.evaluate_query(
+                {"query_id": "scene_q1", "question": "an absent target"},
+                query_root,
+                require_resolved_selection=True,
+            )
+
+        self.assertEqual(result["status"], "unresolved_selection")
+        self.assertIsNone(result["Acc"])
+        self.assertFalse(result["selection_resolution_complete"])
+
     def test_file_identity_records_evaluator_input_content(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "benchmark.json"

@@ -484,6 +484,7 @@ def evaluate_query(
     query_item: dict,
     query_output_dir: Path,
     dataset_dir: Path | None = None,
+    require_resolved_selection: bool = False,
 ) -> dict:
     """Evaluate a single query against Ours_benchmark.json ground truth."""
     query_id = str(query_item["query_id"])
@@ -505,6 +506,21 @@ def evaluate_query(
         }
 
     validation = _read_json(validation_path)
+    selection_status = str(validation.get("selection_status", "")).strip().lower()
+    status_valid = selection_status in {"resolved", "semantic_empty"}
+    if require_resolved_selection and not status_valid:
+        return {
+            "query_id": query_id,
+            "question": str(query_item.get("question", "")),
+            "status": "unresolved_selection",
+            "selection_status": selection_status or "missing",
+            "selection_resolution_complete": False,
+            "Acc": None,
+            "vIoU": None,
+            "tIoU": None,
+            "score_warnings": ["unresolved_selection"],
+            "validation_path": str(validation_path),
+        }
     val_frames = validation.get("frames", [])
     binary_mask_dir = _resolve_binary_mask_dir(
         validation.get("frame_exports", {}).get("binary_masks"),
@@ -831,6 +847,8 @@ def evaluate_query(
         "query_id": query_id,
         "question": str(query_item.get("question", "")),
         "status": "ok",
+        "selection_status": selection_status or "legacy_unclassified",
+        "selection_resolution_complete": status_valid,
         "Acc": acc,
         "vIoU": v_iou,
         "tIoU": t_iou,
@@ -1015,7 +1033,12 @@ def main() -> None:
         )
         dataset_dir = Path(dataset_dir_str) if dataset_dir_str else None
 
-        result = evaluate_query(item, query_output_dir, dataset_dir)
+        result = evaluate_query(
+            item,
+            query_output_dir,
+            dataset_dir,
+            require_resolved_selection=bool(args.require_complete),
+        )
         per_query.append(result)
         status_str = result.get("status", "?")
         acc = result.get("Acc")
@@ -1078,7 +1101,7 @@ def main() -> None:
 
     if args.output_md:
         lines = [
-            "# Ours_benchmark Evaluation",
+            "# ReferGaussian R4D-Bench-QA Evaluation",
             "",
             f"- Metric protocol: `{METRIC_PROTOCOL['id']}`",
             "- Legacy `Acc` is temporal-frame accuracy; legacy `vIoU` is mean annotated-frame mask IoU.",
