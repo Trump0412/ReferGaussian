@@ -27,8 +27,9 @@ gs_python scripts/run_matched_reconstruction.py \
   --gpu 0
 ```
 
-The runner validates the source commit, external 4DGaussians commit, patch
-hashes, dataset/config identities, seed 6666, 14,000 fine iterations, and full
+The runner validates the source commit, external 4DGaussians commit, patch-file
+hashes, the exact resulting patched-tree diff and generated-file hashes,
+dataset/config identities, seed 6666, 14,000 fine iterations, and full
 metric mode before launching work. It trains ReferGaussian and the matched 4D
 Gaussian Splatting baseline from the same source data and scene configuration.
 It verifies identical render filenames and dimensions and reports LPIPS-vgg as
@@ -150,6 +151,11 @@ only profiles accepted by strict release mode. They render the selected
 Gaussian entity first, then apply only a synchronized dilated Stage-1 boundary
 gate. A stale nearest-frame boundary or a direct 2D-mask output makes the query
 run fail after saving its diagnostics; it cannot enter a release aggregate.
+
+The numeric profile preserves all inference and scored masks while omitting
+videos, overlay frames, and annotation diagnostic montages. Missing qualitative
+artifacts therefore cannot turn an otherwise complete score-only query into a
+pipeline failure.
 
 The Qwen query planner, semantic assignment, and final entity selection remain
 required for every released mainline query, including multi-target and

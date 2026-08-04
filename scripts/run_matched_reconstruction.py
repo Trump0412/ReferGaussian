@@ -352,6 +352,26 @@ def validate_protocol(protocol_id: str, protocol: Mapping[str, Any]) -> None:
             raise HarnessError(f"Invalid patch SHA-256 for {item.get('path')}")
         if not item.get("marker_file") or not item.get("marker_text"):
             raise HarnessError(f"Patch {item.get('path')} lacks an applied-state marker")
+    patched_diff_sha256 = str(external.get("patched_diff_sha256", ""))
+    if len(patched_diff_sha256) != 64 or any(
+        char not in "0123456789abcdef" for char in patched_diff_sha256
+    ):
+        raise HarnessError("External patched diff must have a full SHA-256")
+    untracked = _require_sequence(
+        external.get("untracked_files"), "external untracked files"
+    )
+    untracked_paths: list[str] = []
+    for record in untracked:
+        item = _require_mapping(record, "external untracked file")
+        path = Path(str(item.get("path", ""))).as_posix()
+        digest = str(item.get("sha256", ""))
+        if not path or path.startswith("../") or path.startswith("/"):
+            raise HarnessError("External untracked file path must be repository-relative")
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            raise HarnessError(f"Invalid external file SHA-256 for {path}")
+        untracked_paths.append(path)
+    if len(untracked_paths) != len(set(untracked_paths)):
+        raise HarnessError("External untracked file paths must be unique")
 
 
 def load_protocol(registry_path: Path, protocol_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -448,7 +468,9 @@ def _git_output(root: Path, *args: str) -> str:
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
         raise HarnessError(f"git {' '.join(args)} failed in {root}: {detail}")
-    return result.stdout.strip()
+    # Porcelain status uses leading columns to encode the index/worktree state.
+    # Preserve those columns while removing only subprocess line terminators.
+    return result.stdout.rstrip("\r\n")
 
 
 def repository_snapshot(repo_root: Path) -> dict[str, Any]:
@@ -574,6 +596,13 @@ def external_snapshot(repo_root: Path, protocol: Mapping[str, Any]) -> dict[str,
             + "\n".join(unexpected)
         )
     diff = _git_output(external_root, "diff", "--binary", "HEAD")
+    diff_digest = hashlib.sha256(diff.encode("utf-8")).hexdigest()
+    expected_diff_digest = str(external_spec["patched_diff_sha256"])
+    if diff_digest != expected_diff_digest:
+        raise HarnessError(
+            "External patched diff does not match the frozen patch chain: "
+            f"{diff_digest} != {expected_diff_digest}"
+        )
     untracked = []
     for line in status_lines:
         if not line.startswith("?? "):
@@ -584,12 +613,24 @@ def external_snapshot(repo_root: Path, protocol: Mapping[str, Any]) -> dict[str,
             untracked.append(
                 {"path": relpath, "bytes": path.stat().st_size, "sha256": sha256_file(path)}
             )
+    expected_untracked = {
+        Path(str(item["path"])).as_posix(): str(item["sha256"])
+        for item in _require_sequence(
+            external_spec["untracked_files"], "external untracked files"
+        )
+    }
+    actual_untracked = {item["path"]: item["sha256"] for item in untracked}
+    if actual_untracked != expected_untracked:
+        raise HarnessError(
+            "External generated patch files do not match the frozen hashes: "
+            f"actual={actual_untracked}, expected={expected_untracked}"
+        )
     return {
         "root": str(external_root.resolve()),
         "repository": external_spec["repository"],
         "commit": commit,
         "status": status_lines,
-        "patched_diff_sha256": hashlib.sha256(diff.encode("utf-8")).hexdigest(),
+        "patched_diff_sha256": diff_digest,
         "untracked_files": untracked,
         "patches": patch_records,
     }

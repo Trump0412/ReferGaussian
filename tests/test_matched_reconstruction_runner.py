@@ -6,6 +6,8 @@ import copy
 import importlib.util
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +35,17 @@ def _metrics(psnr: float, ssim: float, vgg: float, alex: float) -> dict:
 
 
 class ProtocolValidationTest(unittest.TestCase):
+    def test_git_output_preserves_porcelain_status_columns(self) -> None:
+        completed = SimpleNamespace(
+            returncode=0,
+            stdout=" M arguments/__init__.py\n?? local.py\n",
+            stderr="",
+        )
+        with mock.patch.object(RUNNER.subprocess, "run", return_value=completed):
+            output = RUNNER._git_output(Path("/tmp/example"), "status", "--porcelain=v1")
+
+        self.assertEqual(output, " M arguments/__init__.py\n?? local.py")
+
     def test_executable_release_protocol_is_valid(self) -> None:
         protocol = _registry()["identities"]["release_reconstruction_v1"]
         RUNNER.validate_protocol("release_reconstruction_v1", protocol)
@@ -68,6 +81,29 @@ class ProtocolValidationTest(unittest.TestCase):
             "TEMPORAL_TUBE_SIGMA"
         ] = "0.99"
         with self.assertRaisesRegex(RUNNER.HarnessError, "TEMPORAL_TUBE_SIGMA"):
+            RUNNER.validate_protocol("release_reconstruction_v1", protocol)
+
+    def test_external_patch_snapshot_is_content_addressed(self) -> None:
+        protocol = copy.deepcopy(
+            _registry()["identities"]["release_reconstruction_v1"]
+        )
+        external = protocol["external_4dgaussians"]
+        self.assertEqual(len(external["patched_diff_sha256"]), 64)
+        self.assertEqual(
+            {item["path"] for item in external["untracked_files"]},
+            {"arguments/hypernerf/cut-lemon1.py", "utils/config_utils.py"},
+        )
+
+        external.pop("patched_diff_sha256")
+        with self.assertRaisesRegex(RUNNER.HarnessError, "patched diff"):
+            RUNNER.validate_protocol("release_reconstruction_v1", protocol)
+
+    def test_external_generated_file_hash_is_validated(self) -> None:
+        protocol = copy.deepcopy(
+            _registry()["identities"]["release_reconstruction_v1"]
+        )
+        protocol["external_4dgaussians"]["untracked_files"][0]["sha256"] = "bad"
+        with self.assertRaisesRegex(RUNNER.HarnessError, "file SHA-256"):
             RUNNER.validate_protocol("release_reconstruction_v1", protocol)
 
     def test_mutable_parameter_override_is_rejected(self) -> None:

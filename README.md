@@ -389,7 +389,8 @@ gs_python scripts/run_matched_reconstruction.py \
 ```
 
 This command requires a clean Git checkout, validates the pinned 4DGaussians
-commit and applied patch hashes, trains both methods at seed 6666 for 14,000
+commit, patch-file hashes, exact patched-tree diff, and generated-file hashes,
+then trains both methods at seed 6666 for 14,000
 fine iterations, evaluates the same full test-camera set, and writes a
 scene-equal aggregate only after all 12 registered scenes complete. It never
 filters scenes by PSNR. A `--scenes` subset is emitted only as an incomplete
@@ -487,6 +488,8 @@ coverage, direct-mask use, and cloud support in `validation.json`.
 training-free Gaussian lifting, selected-entity projection, and boundary-gate
 contract as v5. It only skips entity-library videos and overlay exports, while
 still writing the masks and validation artifacts required by the evaluator.
+Annotation diagnostic montages are also omitted in this score-only mode, so
+their absence is not treated as an inference failure.
 
 For paper-style batched reruns, prefer the manifest-based runner so query ids, output roots,
 and evaluator maps stay aligned:

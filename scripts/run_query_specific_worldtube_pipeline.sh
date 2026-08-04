@@ -119,7 +119,9 @@ run_final_render_and_summary() {
     --fps "${QUERY_RENDER_FPS:-6}" \
     --stride "${QUERY_RENDER_STRIDE:-1}"
 
-  if [[ -n "${QUERY_ANNOTATION_DIR:-}" && -d "${QUERY_ANNOTATION_DIR}" ]]; then
+  if [[ "${QUERY_SKIP_DIAGNOSTIC_EXPORT:-0}" != "1" \
+      && -n "${QUERY_ANNOTATION_DIR:-}" \
+      && -d "${QUERY_ANNOTATION_DIR}" ]]; then
     gs_python "${GS_ROOT}/scripts/export_query_diagnostics.py" \
       --query-root "${OUTPUT_ROOT}" \
       --dataset-dir "${DATASET_DIR}" \

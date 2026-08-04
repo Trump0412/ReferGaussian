@@ -121,7 +121,15 @@ class QueryRenderReleaseContractTest(unittest.TestCase):
         self.assertIn("QUERY_SKIP_ENTITY_LIBRARY=1", block)
         self.assertIn("QUERY_SKIP_VIDEO_EXPORT=1", block)
         self.assertIn("QUERY_SKIP_OVERLAY_FRAME_EXPORT=1", block)
+        self.assertIn("QUERY_SKIP_DIAGNOSTIC_EXPORT=1", block)
         self.assertIn("GS_QUERY_EXPORT_ENTITY_LIFECYCLE=0", block)
+
+        pipeline = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "run_query_specific_worldtube_pipeline.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn('${QUERY_SKIP_DIAGNOSTIC_EXPORT:-0}" != "1"', pipeline)
 
     def test_probability_opacity_round_trips_to_logits(self) -> None:
         probabilities = np.asarray([0.1, 0.5, 0.9], dtype=np.float32)
