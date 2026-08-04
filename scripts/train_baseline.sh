@@ -16,6 +16,7 @@ META_PATH="${RUN_DIR}/train_meta.json"
 PY_CMD="$(gs_python_cmd)"
 EXTRA_ARGS="$(shell_join "$@")"
 TRAIN_SEED="${REFERGAUSSIAN_SEED:-6666}"
+TRAIN_ITERATIONS="${REFERGAUSSIAN_ITERATIONS:-14000}"
 
 mkdir -p "${RUN_DIR}"
 cat > "${RUN_DIR}/config.yaml" <<EOF
@@ -25,10 +26,11 @@ scene: ${SCENE}
 source_path: ${SOURCE_PATH}
 config_path: ${CONFIG_PATH}
 seed: ${TRAIN_SEED}
+iterations: ${TRAIN_ITERATIONS}
 warp_enabled: false
 EOF
 
 run_with_gpu_monitor "${LOG_PATH}" "${META_PATH}" \
-  bash -lc "cd '${GS_ROOT}' && export PYTHONPATH='${PYTHONPATH}' && ${PY_CMD} external/4DGaussians/train.py -s '${SOURCE_PATH}' -m '${RUN_DIR}' --expname '${DATASET}/${SCENE##*/}' --configs '${CONFIG_PATH}' --port 6017 --seed '${TRAIN_SEED}' ${EXTRA_ARGS}"
+  bash -lc "cd '${GS_ROOT}' && export PYTHONPATH='${PYTHONPATH}' && ${PY_CMD} external/4DGaussians/train.py -s '${SOURCE_PATH}' -m '${RUN_DIR}' --expname '${DATASET}/${SCENE##*/}' --configs '${CONFIG_PATH}' --port 6017 --seed '${TRAIN_SEED}' --iterations '${TRAIN_ITERATIONS}' ${EXTRA_ARGS}"
 
 gs_python "${GS_ROOT}/scripts/collect_metrics.py" --run-dir "${RUN_DIR}" --write-summary || true

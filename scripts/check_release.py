@@ -298,6 +298,10 @@ def check_runtime_release_guards() -> list[str]:
         train_text = (ROOT / relative_path).read_text(encoding="utf-8", errors="replace")
         if "REFERGAUSSIAN_SEED" not in train_text or "--seed" not in train_text:
             errors.append(f"Matched reconstruction training must expose an explicit seed: {relative_path}")
+        if "REFERGAUSSIAN_ITERATIONS:-14000" not in train_text or "--iterations" not in train_text:
+            errors.append(
+                f"Matched reconstruction training must fix the 14k release budget: {relative_path}"
+            )
 
     query_render_text = (ROOT / "refergaussian/semantics/query_render.py").read_text(
         encoding="utf-8", errors="replace"

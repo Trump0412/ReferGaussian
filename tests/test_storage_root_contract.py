@@ -32,6 +32,13 @@ class StorageRootContractTest(unittest.TestCase):
             text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
             self.assertIn(expected, text, name)
 
+    def test_matched_training_wrappers_fix_the_release_iteration_budget(self) -> None:
+        for name in ("train.sh", "train_baseline.sh"):
+            text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+            self.assertIn("REFERGAUSSIAN_ITERATIONS:-14000", text, name)
+            self.assertIn("--iterations '${TRAIN_ITERATIONS}'", text, name)
+            self.assertIn("iterations: ${TRAIN_ITERATIONS}", text, name)
+
 
 if __name__ == "__main__":
     unittest.main()

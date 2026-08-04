@@ -320,6 +320,8 @@ and do not change a model or query-evaluation setting.
 # Use one explicit seed for a matched ReferGaussian / 4DGS comparison.
 # bootstrap_external.sh applies the seed-order patch so this seed is effective.
 export REFERGAUSSIAN_SEED=6666
+# Both methods default to the release budget below; keep it matched.
+export REFERGAUSSIAN_ITERATIONS=14000
 
 # Example: keyboard scene
 bash scripts/train.sh hypernerf misc/keyboard
@@ -332,6 +334,8 @@ bash scripts/train.sh dynerf coffee_martini
 ```
 
 Output is written to `runs/refergaussian/hypernerf/keyboard/`.
+Both training wrappers explicitly pass the same 14,000-iteration release
+budget; they do not inherit an upstream scene config's shorter debug default.
 The temporal learning-rate schedule is shared by the Gaussian time primitives
 and the learned temporal warp, so the recorded `temporal_lr_*` settings fully
 define the temporal optimization schedule.
