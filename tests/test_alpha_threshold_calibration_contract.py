@@ -119,7 +119,8 @@ class AlphaThresholdCalibrationContractTest(unittest.TestCase):
             {"name": "largest", "ids": np.asarray([4]), "rank": 1.0, "gaussian_count": 100},
         ]
 
-        calibrate_rows(rows, support=object(), num_gaussians=128, device="cpu", target_area_ratio=0.7)
+        support = type("Support", (), {"samples": [object(), object()]})()
+        calibrate_rows(rows, support=support, num_gaussians=128, device="cpu", target_area_ratio=0.7)
 
         self.assertEqual(calibrated_ids, [(1,), (2,), (4,)])
         self.assertEqual(rows[-1]["alpha_relative_threshold"], 0.03)
@@ -179,7 +180,10 @@ class AlphaThresholdCalibrationContractTest(unittest.TestCase):
                 ],
             }
 
+        validated_frame_limits: list[int] = []
+
         def selection_metrics(_ids, **kwargs):
+            validated_frame_limits.append(int(kwargs["max_frames"]))
             oversized = float(kwargs["sigma_scale"]) == 6.0
             return {
                 "gaussian_count": 1024,
@@ -218,13 +222,15 @@ class AlphaThresholdCalibrationContractTest(unittest.TestCase):
             },
         )
         rows = [{"name": "candidate", "ids": np.asarray([1]), "gaussian_count": 1024}]
+        support = type("Support", (), {"samples": [object()] * 12})()
 
-        calibrate_rows(rows, support=object(), num_gaussians=2048, device="cpu", target_area_ratio=0.7)
+        calibrate_rows(rows, support=support, num_gaussians=2048, device="cpu", target_area_ratio=0.7)
 
         self.assertEqual(rows[0]["alpha_sigma_scale"], 3.0)
         self.assertEqual(rows[0]["alpha_max_splat_radius"], 24)
         self.assertTrue(rows[0]["alpha_full_validation_gate_pass"])
         self.assertEqual(rows[0]["alpha_full_validation_trial_count"], 2)
+        self.assertEqual(validated_frame_limits, [12, 12])
         self.assertFalse(rows[0]["alpha_calibration_trials"][0]["alpha_full_validation_gate_pass"])
         self.assertTrue(rows[0]["alpha_calibration_trials"][1]["alpha_full_validation_gate_pass"])
 

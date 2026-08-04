@@ -2602,6 +2602,7 @@ def _calibrate_v4_candidate_rows(
                 scoring_mode="mask_bootstrap_refine",
                 relative_threshold=relative,
                 absolute_threshold=absolute,
+                max_frames=max(len(support.samples), 1),
                 sigma_scale=sigma_scale,
                 max_splat_radius=max_splat_radius,
             )
