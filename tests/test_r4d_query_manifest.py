@@ -91,6 +91,62 @@ class R4DQueryManifestTest(unittest.TestCase):
         self.assertEqual(set(rows), {"scene_q1"})
         self.assertEqual(hashes["benchmark_sha256"], registry["protocols"][MANIFEST.FORMAL_R4D_PROTOCOL]["dense_gt_sha256"])
 
+    def test_incomplete_manifest_uses_optional_query_metadata_categories(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            benchmark = root / "benchmark.json"
+            metadata = root / "metadata.json"
+            manifest = root / "manifest.jsonl"
+            benchmark.write_text(
+                json.dumps(
+                    [
+                        {
+                            "query_id": "torchchocolate_q1",
+                            "scene": "torchchocolate",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            metadata.write_text(
+                json.dumps(
+                    [
+                        {
+                            "query_id": "torchchocolate_q1",
+                            "query_type": "C",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            argv = [
+                str(SCRIPT_PATH),
+                "--benchmark",
+                str(benchmark),
+                "--scenes",
+                "torchchocolate",
+                "--output",
+                str(manifest),
+                "--output-root",
+                str(root / "outputs"),
+                "--allow-incomplete",
+                "--query-metadata",
+                str(metadata),
+                "--run-root",
+                str(root / "runs"),
+                "--data-root",
+                str(root / "data"),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                self.assertEqual(MANIFEST.main(), 0)
+
+            row = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual(row["query_category"], "zero_target_distractor")
+            self.assertEqual(
+                row["source_hashes"]["query_metadata_sha256"],
+                MANIFEST._sha256(metadata),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

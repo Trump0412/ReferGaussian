@@ -158,6 +158,19 @@ def _normalise_scene_name(scene: object) -> str:
     return str(scene or "").strip().lower().replace("-", "_")
 
 
+def _load_query_metadata(path: Path) -> dict[str, dict]:
+    metadata_rows = _query_list(_read_json(path), label=str(path))
+    metadata_by_id: dict[str, dict] = {}
+    for row in metadata_rows:
+        query_id = str(row.get("query_id") or "").strip()
+        if not query_id:
+            raise ValueError(f"Query metadata row lacks query_id: {row}")
+        if query_id in metadata_by_id:
+            raise ValueError(f"Duplicate query metadata id: {query_id}")
+        metadata_by_id[query_id] = row
+    return metadata_by_id
+
+
 def _validate_formal_sources(
     *,
     benchmark_path: Path,
@@ -189,15 +202,7 @@ def _validate_formal_sources(
                 f"got {source_hashes[key]}"
             )
 
-    metadata_rows = _query_list(_read_json(query_metadata_path), label=str(query_metadata_path))
-    metadata_by_id: dict[str, dict] = {}
-    for row in metadata_rows:
-        query_id = str(row.get("query_id") or "").strip()
-        if not query_id:
-            raise ValueError(f"Query metadata row lacks query_id: {row}")
-        if query_id in metadata_by_id:
-            raise ValueError(f"Duplicate query metadata id: {query_id}")
-        metadata_by_id[query_id] = row
+    metadata_by_id = _load_query_metadata(query_metadata_path)
 
     english_map = _read_json(R4D_ENGLISH_QUERY_MAP_PATH)
     if not isinstance(english_map, dict):
@@ -505,6 +510,26 @@ def main() -> int:
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
+    elif args.query_metadata:
+        query_metadata_path = Path(str(args.query_metadata))
+        if not query_metadata_path.is_file():
+            print(f"ERROR: query metadata file not found: {query_metadata_path}", file=sys.stderr)
+            return 1
+        try:
+            metadata_by_id = _load_query_metadata(query_metadata_path)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        source_paths = {
+            "benchmark": str(benchmark_path.resolve()),
+            "query_metadata": str(query_metadata_path.resolve()),
+            "english_query_map": str(R4D_ENGLISH_QUERY_MAP_PATH.resolve()),
+        }
+        source_hashes = {
+            "benchmark_sha256": _sha256(benchmark_path),
+            "query_metadata_sha256": _sha256(query_metadata_path),
+            "english_query_map_sha256": _sha256(R4D_ENGLISH_QUERY_MAP_PATH),
+        }
 
     # The benchmark JSON may be structured in various ways.  We accept:
     #   - a list of query objects
