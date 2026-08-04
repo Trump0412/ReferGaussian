@@ -226,10 +226,20 @@ bash scripts/prepare_local_hypernerf_scene.sh /path/to/scene <group> <scene>
 
 ### DyNeRF / Neural 3D Video
 
-The fixed R4D-Bench-QA release additionally uses `coffee_martini`,
-`sear_steak`, and `cut_roasted_beef` from Neural 3D Video. Obtain those source
-scenes under their original license, then place each scene at
-`data/dynerf/<scene>/`. The referring pipeline expects the following layout:
+The 12-scene dense R4D-Bench-QA release additionally uses six Neural 3D Video
+scenes. Obtain them under their original license and register them with these
+release paths:
+
+| R4D scene id | Local data directory |
+| --- | --- |
+| `coffee_martini` | `data/dynerf/coffee_martini/` |
+| `cook-spinach` | `data/dynerf/cook_spinach/` |
+| `cut_roasted_beef` | `data/dynerf/cut_roasted_beef/` |
+| `flame_salmon` | `data/dynerf/flame_salmon_1/` |
+| `flame_steak` | `data/dynerf/flame_steak/` |
+| `sear_steak` | `data/dynerf/sear_steak/` |
+
+Each directory follows the original multi-camera layout, for example:
 
 ```text
 data/dynerf/coffee_martini/
@@ -238,7 +248,7 @@ data/dynerf/coffee_martini/
   ...
 ```
 
-Generate the required per-frame camera metadata after placing a scene:
+Generate the required per-frame camera metadata after placing every scene:
 
 ```bash
 source scripts/common.sh
@@ -246,7 +256,9 @@ gs_python scripts/generate_dynerf_camera_jsons.py \
   --dataset-dir data/dynerf/coffee_martini
 ```
 
-The command is deterministic and may be repeated safely for each DyNeRF scene.
+The command is deterministic and may be repeated safely for each directory in
+the table. The differing `flame_salmon` benchmark id and `flame_salmon_1`
+source directory are encoded in `scripts/build_r4d_query_manifest.py`.
 
 ### 4DLangSplat annotations
 
