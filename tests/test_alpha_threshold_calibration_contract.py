@@ -63,7 +63,7 @@ class AlphaThresholdCalibrationContractTest(unittest.TestCase):
 
         def utility(row: dict[str, object], target_area_ratio: float) -> float:
             del target_area_ratio
-            return float(row["rank"])
+            return float(row.get("rank", row.get("rendered_iou_stage1", 0.0)))
 
         def calibrate(ids, **_kwargs):
             calibrated_ids.append(tuple(np.asarray(ids, dtype=np.int64).tolist()))
@@ -94,6 +94,10 @@ class AlphaThresholdCalibrationContractTest(unittest.TestCase):
                 "alpha_absolute_threshold": kwargs["absolute_threshold"],
             }
 
+        def quality_gate(_row, target_area_ratio, thin_object=False):
+            del target_area_ratio, thin_object
+            return True, "ok"
+
         calibrate_rows = _load_function(
             "_calibrate_v4_candidate_rows",
             {
@@ -102,6 +106,8 @@ class AlphaThresholdCalibrationContractTest(unittest.TestCase):
                 "_env_flag": env_flag,
                 "_env_int": env_int,
                 "_coverage_v4_selection_utility": utility,
+                "_coverage_v4_quality_gate": quality_gate,
+                "_support_is_geometrically_thin": lambda _support: False,
                 "_calibrate_alpha_threshold": calibrate,
                 "_selection_metrics": selection_metrics,
             },
@@ -120,6 +126,107 @@ class AlphaThresholdCalibrationContractTest(unittest.TestCase):
         self.assertEqual(rows[-1]["alpha_absolute_threshold"], 0.002)
         self.assertEqual(rows[-1]["alpha_sigma_scale"], 3.0)
         self.assertEqual(rows[-1]["alpha_max_splat_radius"], 24)
+
+    def test_full_frame_gate_can_replace_the_calibration_winner(self) -> None:
+        def env_flag(_name: str, _default: bool) -> bool:
+            return True
+
+        def env_int(name: str, default: int, minimum: int = 1) -> int:
+            if name == "QUERY_LIFT_ALPHA_CALIBRATION_MAX_CANDIDATES":
+                return 1
+            if name == "QUERY_LIFT_ALPHA_FULL_VALIDATION_MAX_TRIALS":
+                return 2
+            return max(default, minimum)
+
+        def utility(row: dict[str, object], target_area_ratio: float) -> float:
+            del target_area_ratio
+            return float(row.get("rendered_iou_stage1", 0.0))
+
+        def calibrate(_ids, **_kwargs):
+            return {
+                "alpha_relative_threshold": 0.0,
+                "alpha_absolute_threshold": 0.0001,
+                "alpha_sigma_scale": 6.0,
+                "alpha_max_splat_radius": 32,
+                "alpha_calibration_method": "multiframe_rendered_overlap_geometry",
+                "alpha_calibration_frame_count": 6,
+                "alpha_calibration_utility": 2.0,
+                "alpha_calibration_trials": [
+                    {
+                        "relative_threshold": 0.0,
+                        "absolute_threshold": 0.0001,
+                        "sigma_scale": 6.0,
+                        "max_splat_radius": 32,
+                        "utility": 2.0,
+                        "rendered_iou_stage1": 0.42,
+                        "precision": 0.46,
+                        "recall": 0.78,
+                        "area_ratio": 1.68,
+                        "outer_leakage": 0.10,
+                    },
+                    {
+                        "relative_threshold": 0.0,
+                        "absolute_threshold": 0.0001,
+                        "sigma_scale": 3.0,
+                        "max_splat_radius": 24,
+                        "utility": 1.8,
+                        "rendered_iou_stage1": 0.39,
+                        "precision": 0.52,
+                        "recall": 0.61,
+                        "area_ratio": 1.18,
+                        "outer_leakage": 0.08,
+                    },
+                ],
+            }
+
+        def selection_metrics(_ids, **kwargs):
+            oversized = float(kwargs["sigma_scale"]) == 6.0
+            return {
+                "gaussian_count": 1024,
+                "score": 1.0,
+                "rendered_iou_stage1": 0.26 if oversized else 0.39,
+                "precision": 0.34 if oversized else 0.52,
+                "recall": 0.52 if oversized else 0.61,
+                "area_ratio": 1.51 if oversized else 1.18,
+                "outer_leakage": 0.10 if oversized else 0.08,
+                "active_frame_coverage": 1.0,
+                "area_cv": 0.1,
+                "mean_pred_area": 100.0,
+                "alpha_relative_threshold": kwargs["relative_threshold"],
+                "alpha_absolute_threshold": kwargs["absolute_threshold"],
+                "alpha_sigma_scale": kwargs["sigma_scale"],
+                "alpha_max_splat_radius": kwargs["max_splat_radius"],
+            }
+
+        def quality_gate(row, target_area_ratio, thin_object=False):
+            del target_area_ratio, thin_object
+            passed = float(row["precision"]) >= 0.35
+            return passed, "ok" if passed else "precision<0.350"
+
+        calibrate_rows = _load_function(
+            "_calibrate_v4_candidate_rows",
+            {
+                "Any": object,
+                "np": np,
+                "_env_flag": env_flag,
+                "_env_int": env_int,
+                "_coverage_v4_selection_utility": utility,
+                "_coverage_v4_quality_gate": quality_gate,
+                "_support_is_geometrically_thin": lambda _support: False,
+                "_calibrate_alpha_threshold": calibrate,
+                "_selection_metrics": selection_metrics,
+            },
+        )
+        rows = [{"name": "candidate", "ids": np.asarray([1]), "gaussian_count": 1024}]
+
+        calibrate_rows(rows, support=object(), num_gaussians=2048, device="cpu", target_area_ratio=0.7)
+
+        self.assertEqual(rows[0]["alpha_sigma_scale"], 3.0)
+        self.assertEqual(rows[0]["alpha_max_splat_radius"], 24)
+        self.assertTrue(rows[0]["alpha_full_validation_gate_pass"])
+        self.assertEqual(rows[0]["alpha_full_validation_trial_count"], 2)
+        self.assertFalse(rows[0]["alpha_calibration_trials"][0]["alpha_full_validation_gate_pass"])
+        self.assertTrue(rows[0]["alpha_calibration_trials"][1]["alpha_full_validation_gate_pass"])
 
     def test_renderer_entity_cloud_carries_calibrated_thresholds(self) -> None:
         fields = EntityCloud.__dataclass_fields__
@@ -169,6 +276,7 @@ class AlphaThresholdCalibrationContractTest(unittest.TestCase):
         self.assertIn("QUERY_LIFT_ALPHA_THRESHOLD_CALIBRATION", profile)
         self.assertIn("QUERY_LIFT_ALPHA_CALIBRATION_LEVELS", profile)
         self.assertIn("QUERY_LIFT_ALPHA_GEOMETRY_LEVELS", profile)
+        self.assertIn("QUERY_LIFT_ALPHA_FULL_VALIDATION_MAX_TRIALS", profile)
         self.assertNotIn("americano|espresso|cookie", profile)
 
 

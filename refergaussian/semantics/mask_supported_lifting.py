@@ -2485,7 +2485,14 @@ def _calibrate_v4_candidate_rows(
     device: str,
     target_area_ratio: float,
 ) -> None:
-    """Calibrate a bounded candidate shortlist, then validate it on all frames."""
+    """Calibrate a bounded candidate shortlist, then validate it on all frames.
+
+    Alpha calibration uses fewer frames to keep its fixed grid inexpensive. A
+    calibration winner is therefore only a proposal: several diverse trials
+    are re-scored on every support frame and the best quality-gate-passing
+    trial is selected. This prevents one overfit calibration winner from
+    rejecting an otherwise valid Gaussian entity.
+    """
     if not _env_flag("QUERY_LIFT_ALPHA_THRESHOLD_CALIBRATION", False) or not scored:
         return
     max_candidates = _env_int("QUERY_LIFT_ALPHA_CALIBRATION_MAX_CANDIDATES", 3, minimum=1)
@@ -2505,6 +2512,12 @@ def _calibrate_v4_candidate_rows(
         else:
             selected.append(largest)
 
+    max_full_trials = _env_int(
+        "QUERY_LIFT_ALPHA_FULL_VALIDATION_MAX_TRIALS",
+        4,
+        minimum=1,
+    )
+    thin_object = _support_is_geometrically_thin(support)
     for row in selected:
         calibrated = _calibrate_alpha_threshold(
             np.asarray(row["ids"], dtype=np.int64),
@@ -2513,32 +2526,149 @@ def _calibrate_v4_candidate_rows(
             device=device,
             scoring_mode="mask_bootstrap_refine",
         )
-        relative = float(calibrated["alpha_relative_threshold"])
-        absolute = float(calibrated["alpha_absolute_threshold"])
-        sigma_scale = float(calibrated.get("alpha_sigma_scale", 1.0))
-        max_splat_radius = int(calibrated.get("alpha_max_splat_radius", 18))
-        full_metrics = _selection_metrics(
-            np.asarray(row["ids"], dtype=np.int64),
-            support=support,
-            num_gaussians=num_gaussians,
-            device=device,
-            scoring_mode="mask_bootstrap_refine",
-            relative_threshold=relative,
-            absolute_threshold=absolute,
-            sigma_scale=sigma_scale,
-            max_splat_radius=max_splat_radius,
-        )
-        full_metrics.update(
+        calibration_trials = [dict(trial) for trial in calibrated.get("alpha_calibration_trials", [])]
+        if not calibration_trials:
+            calibration_trials = [
+                {
+                    "relative_threshold": float(calibrated["alpha_relative_threshold"]),
+                    "absolute_threshold": float(calibrated["alpha_absolute_threshold"]),
+                    "sigma_scale": float(calibrated.get("alpha_sigma_scale", 1.0)),
+                    "max_splat_radius": int(calibrated.get("alpha_max_splat_radius", 18)),
+                    "utility": float(calibrated.get("alpha_calibration_utility", float("-inf"))),
+                    "rendered_iou_stage1": float(calibrated.get("rendered_iou_stage1", 0.0)),
+                    "precision": float(calibrated.get("precision", 0.0)),
+                    "recall": float(calibrated.get("recall", 0.0)),
+                    "area_ratio": float(calibrated.get("area_ratio", 0.0)),
+                    "outer_leakage": float(calibrated.get("outer_leakage", 1.0)),
+                }
+            ]
+
+        def calibration_key(trial: dict[str, Any]) -> tuple[float, float, float, float, float]:
+            return (
+                float(trial.get("utility", float("-inf"))),
+                float(trial.get("rendered_iou_stage1", 0.0)),
+                float(trial.get("recall", 0.0)),
+                -float(trial.get("outer_leakage", 1.0)),
+                -float(trial.get("sigma_scale", 1.0)),
+            )
+
+        ranked_trials = sorted(calibration_trials, key=calibration_key, reverse=True)
+        # Reserve one trial per footprint geometry before filling by score. A
+        # compact but diverse shortlist is more robust than several nearly
+        # identical thresholds from the same oversized footprint.
+        full_validation_trials: list[dict[str, Any]] = []
+        seen_configs: set[tuple[float, float, float, int]] = set()
+        seen_geometry: set[tuple[float, int]] = set()
+
+        def append_trial(trial: dict[str, Any]) -> None:
+            config = (
+                float(trial["relative_threshold"]),
+                float(trial["absolute_threshold"]),
+                float(trial.get("sigma_scale", 1.0)),
+                int(trial.get("max_splat_radius", 18)),
+            )
+            if config in seen_configs or len(full_validation_trials) >= max_full_trials:
+                return
+            full_validation_trials.append(trial)
+            seen_configs.add(config)
+
+        for trial in ranked_trials:
+            geometry = (
+                float(trial.get("sigma_scale", 1.0)),
+                int(trial.get("max_splat_radius", 18)),
+            )
+            if geometry in seen_geometry:
+                continue
+            append_trial(trial)
+            seen_geometry.add(geometry)
+            if len(full_validation_trials) >= max_full_trials:
+                break
+        for trial in ranked_trials:
+            append_trial(trial)
+
+        validated: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        validation_by_config: dict[tuple[float, float, float, int], dict[str, Any]] = {}
+        selection_ids = np.asarray(row["ids"], dtype=np.int64)
+        for trial in full_validation_trials:
+            relative = float(trial["relative_threshold"])
+            absolute = float(trial["absolute_threshold"])
+            sigma_scale = float(trial.get("sigma_scale", 1.0))
+            max_splat_radius = int(trial.get("max_splat_radius", 18))
+            full_metrics = _selection_metrics(
+                selection_ids,
+                support=support,
+                num_gaussians=num_gaussians,
+                device=device,
+                scoring_mode="mask_bootstrap_refine",
+                relative_threshold=relative,
+                absolute_threshold=absolute,
+                sigma_scale=sigma_scale,
+                max_splat_radius=max_splat_radius,
+            )
+            full_metrics["gaussian_count"] = int(row.get("gaussian_count", selection_ids.size))
+            gate_pass, gate_reason = _coverage_v4_quality_gate(
+                full_metrics,
+                target_area_ratio=target_area_ratio,
+                thin_object=thin_object,
+            )
+            full_utility = _coverage_v4_selection_utility(
+                full_metrics,
+                target_area_ratio=target_area_ratio,
+            )
+            validation = {
+                "alpha_full_validation_evaluated": True,
+                "alpha_full_validation_gate_pass": bool(gate_pass),
+                "alpha_full_validation_gate_reason": str(gate_reason),
+                "alpha_full_validation_utility": float(full_utility),
+                "alpha_full_validation_rendered_iou_stage1": float(full_metrics.get("rendered_iou_stage1", 0.0)),
+                "alpha_full_validation_precision": float(full_metrics.get("precision", 0.0)),
+                "alpha_full_validation_recall": float(full_metrics.get("recall", 0.0)),
+                "alpha_full_validation_area_ratio": float(full_metrics.get("area_ratio", 0.0)),
+                "alpha_full_validation_outer_leakage": float(full_metrics.get("outer_leakage", 1.0)),
+                "alpha_full_validation_active_frame_coverage": float(full_metrics.get("active_frame_coverage", 0.0)),
+            }
+            config = (relative, absolute, sigma_scale, max_splat_radius)
+            validation_by_config[config] = validation
+            validated.append((trial, {**full_metrics, **validation}))
+
+        def validation_key(item: tuple[dict[str, Any], dict[str, Any]]) -> tuple[float, float, float, float, float]:
+            _trial, metrics = item
+            return (
+                float(metrics.get("alpha_full_validation_utility", float("-inf"))),
+                float(metrics.get("rendered_iou_stage1", 0.0)),
+                float(metrics.get("recall", 0.0)),
+                float(metrics.get("precision", 0.0)),
+                -float(metrics.get("outer_leakage", 1.0)),
+            )
+
+        passing = [item for item in validated if bool(item[1]["alpha_full_validation_gate_pass"])]
+        chosen_trial, chosen_metrics = max(passing or validated, key=validation_key)
+        trial_summaries: list[dict[str, Any]] = []
+        for trial in calibration_trials:
+            summary = dict(trial)
+            config = (
+                float(trial["relative_threshold"]),
+                float(trial["absolute_threshold"]),
+                float(trial.get("sigma_scale", 1.0)),
+                int(trial.get("max_splat_radius", 18)),
+            )
+            summary.update(
+                validation_by_config.get(config, {"alpha_full_validation_evaluated": False})
+            )
+            trial_summaries.append(summary)
+
+        chosen_metrics.update(
             {
-                "alpha_calibration_method": calibrated["alpha_calibration_method"],
+                "alpha_calibration_method": f"{calibrated['alpha_calibration_method']}_full_frame_gate",
                 "alpha_calibration_frame_count": calibrated["alpha_calibration_frame_count"],
-                "alpha_calibration_utility": calibrated["alpha_calibration_utility"],
-                "alpha_calibration_trials": calibrated["alpha_calibration_trials"],
-                "alpha_sigma_scale": sigma_scale,
-                "alpha_max_splat_radius": max_splat_radius,
+                "alpha_calibration_utility": float(chosen_trial.get("utility", float("-inf"))),
+                "alpha_calibration_trials": trial_summaries,
+                "alpha_full_validation_trial_count": int(len(validated)),
+                "alpha_sigma_scale": float(chosen_trial.get("sigma_scale", 1.0)),
+                "alpha_max_splat_radius": int(chosen_trial.get("max_splat_radius", 18)),
             }
         )
-        row.update(full_metrics)
+        row.update(chosen_metrics)
 
 
 def _coverage_v4_quality_gate(row: dict[str, Any], target_area_ratio: float, thin_object: bool = False) -> tuple[bool, str]:
@@ -3196,6 +3326,10 @@ def build_mask_supported_lifting_proposal_dir(
                     "alpha_calibration_method",
                     "alpha_calibration_frame_count",
                     "alpha_calibration_utility",
+                    "alpha_full_validation_trial_count",
+                    "alpha_full_validation_gate_pass",
+                    "alpha_full_validation_gate_reason",
+                    "alpha_full_validation_utility",
                     "alpha_calibration_trials",
                 )
                 if key in best
