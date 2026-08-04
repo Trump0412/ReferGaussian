@@ -175,7 +175,9 @@ Validate the checkpoint before a long query batch. This is also performed by
 the release pipeline before it allocates Stage-1 GPU work:
 
 ```bash
-gsam2_python scripts/check_query_runtime.py --require-qwen
+gsam2_python scripts/check_query_runtime.py \
+  --require-qwen \
+  --require-pinned-manifest
 ```
 
 ### SAM2 and Grounding DINO (Grounded-SAM2 pipeline)

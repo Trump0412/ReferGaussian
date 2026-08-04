@@ -53,6 +53,11 @@ as paper full-volume vIoU unless annotation coverage is proven exhaustive.
 Every report must include overall, non-empty-only, and zero-target correctness
 results together. Aggregation refuses to mix evaluator protocol IDs.
 
+Evaluator JSON also embeds SHA-256 identities for the benchmark/protocol,
+annotation, manifest, and mapping files used to produce that report. Batch
+provenance records the pinned Qwen manifest, model metadata, weight filenames
+and sizes, source commit, reconstruction checkpoints, and data metadata.
+
 ## Protocol registry
 
 Scene/query scopes, source hashes, and protocol status are frozen in

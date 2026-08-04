@@ -36,6 +36,17 @@ def _write_validation(query_root: Path, frames: list[dict]) -> Path:
 
 
 class BenchmarkEvaluatorTest(unittest.TestCase):
+    def test_file_identity_records_evaluator_input_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "benchmark.json"
+            path.write_text("[]\n", encoding="utf-8")
+            identity = EVALUATOR._file_identity(path)
+
+        self.assertIsNotNone(identity)
+        assert identity is not None
+        self.assertEqual(identity["bytes"], 3)
+        self.assertEqual(len(str(identity["sha256"])), 64)
+
     def test_sparse_temporal_predictions_are_densified_without_changing_sample_labels(self) -> None:
         dense = EVALUATOR._densify_sparse_temporal_prediction(
             {2: False, 6: True, 10: True},

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import hashlib
 import json
 import os
 import struct
@@ -51,6 +52,20 @@ METRIC_PROTOCOL = {
         "empty_gt_nonempty_prediction": 0.0,
     },
 }
+
+
+def _file_identity(path: Path) -> dict[str, object] | None:
+    if not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {
+        "path": str(path.resolve()),
+        "bytes": int(path.stat().st_size),
+        "sha256": digest.hexdigest(),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1041,6 +1056,16 @@ def main() -> None:
         "metric_protocol": METRIC_PROTOCOL,
         "benchmark": str(args.benchmark),
         "query_manifest": str(args.query_manifest) if args.query_manifest else None,
+        "source_files": {
+            "benchmark": _file_identity(Path(args.benchmark)),
+            "query_root_map": _file_identity(Path(args.query_root_map)),
+            "dataset_dir_map": (
+                _file_identity(Path(args.dataset_dir_map)) if args.dataset_dir_map else None
+            ),
+            "query_manifest": (
+                _file_identity(Path(args.query_manifest)) if args.query_manifest else None
+            ),
+        },
         "summary": summary,
         "coverage": coverage,
         "per_query": per_query,

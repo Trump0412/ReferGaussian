@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import subprocess
 from collections import Counter
@@ -184,6 +185,14 @@ def check_protocol_registry() -> list[str]:
             errors.append(f"Protocol {protocol_id} scene_count must be {scene_count}")
         if int(row.get("query_count", -1)) != query_count:
             errors.append(f"Protocol {protocol_id} query_count must be {query_count}")
+    dense_row = protocols.get("release_r4d_dense89", {})
+    query_map_path = ROOT / "configs" / "benchmarks" / "r4d_query_text_en.json"
+    actual_query_map_hash = hashlib.sha256(query_map_path.read_bytes()).hexdigest()
+    if dense_row.get("english_query_map_sha256") != actual_query_map_hash:
+        errors.append(
+            "Protocol registry English query-map hash does not match "
+            "configs/benchmarks/r4d_query_text_en.json"
+        )
     return errors
 
 
@@ -370,8 +379,8 @@ def check_runtime_release_guards() -> list[str]:
     readme_text = (ROOT / "README.md").read_text(encoding="utf-8", errors="replace")
     if "gsam2_python scripts/download_hf_snapshot.py" not in readme_text:
         errors.append("README must download Qwen with the Grounded-SAM2 environment")
-    if "scripts/check_query_runtime.py --require-qwen" not in readme_text:
-        errors.append("README must document the Qwen runtime preflight")
+    if "--require-pinned-manifest" not in readme_text:
+        errors.append("README must document pinned Qwen snapshot verification")
     if "GSAM2_INSTALL_EDITABLE=1" not in readme_text:
         errors.append("README must document the pinned Grounded-SAM2 install mode")
     if "--require-complete" not in readme_text:

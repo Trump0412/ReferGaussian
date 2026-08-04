@@ -17,6 +17,7 @@
         "zero_target_distractor": 24
       },
       "query_metadata_sha256": "cb15182f32a9383f2c2060627e6dc29c3c10b3ae12b61e705deb52da8687fbf2",
+      "english_query_map_sha256": "34e771b6b704e83f8f4912bd055d529f55d7e5f269ceb32d31ed24514cae8a9d",
       "dense_gt_sha256": "f917d21f74fd6a2e84318ca0e9d64cb9487fcf7399597237c6661d9a15c6a255",
       "status": "fresh_full_run_pending"
     },

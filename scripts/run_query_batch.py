@@ -245,6 +245,45 @@ def _safe_release_environment(env: dict[str, str]) -> dict[str, str]:
     }
 
 
+def _resolve_qwen_model_dir(env: dict[str, str]) -> Path | None:
+    configured = env.get("REFERGAUSSIAN_QWEN_MODEL") or env.get("QWEN_MODEL_PATH")
+    candidates = [
+        Path(configured).expanduser() if configured else None,
+        REPO_ROOT / "models" / "Qwen3-VL-8B-Instruct",
+        REPO_ROOT.parent / "models" / "Qwen3-VL-8B-Instruct",
+        Path.home() / "models" / "Qwen3-VL-8B-Instruct",
+    ]
+    for candidate in candidates:
+        if candidate is not None and candidate.is_dir():
+            return candidate.resolve()
+    return None
+
+
+def _qwen_model_provenance(env: dict[str, str]) -> dict[str, object] | None:
+    model_dir = _resolve_qwen_model_dir(env)
+    if model_dir is None:
+        return None
+    metadata_names = (
+        "refergaussian_snapshot.json",
+        "config.json",
+        "generation_config.json",
+        "preprocessor_config.json",
+        "model.safetensors.index.json",
+    )
+    return {
+        "root": str(model_dir),
+        "metadata": [
+            record
+            for name in metadata_names
+            if (record := _sha256_file(model_dir / name))
+        ],
+        "weight_files": [
+            {"name": path.name, "bytes": int(path.stat().st_size)}
+            for path in sorted(model_dir.glob("*.safetensors"))
+        ],
+    }
+
+
 def _source_tree_release_errors(
     *,
     strict_release: bool,
@@ -289,6 +328,7 @@ def build_batch_provenance(
         REPO_ROOT / "scripts" / "evaluate_ours_benchmark.py",
         REPO_ROOT / "scripts" / "evaluate_public_query_protocol.py",
         REPO_ROOT / "configs" / "benchmarks" / "release_protocols.json",
+        REPO_ROOT / "configs" / "benchmarks" / "r4d_query_text_en.json",
     ]
     runs = {}
     for run_dir_text in sorted({str(item["run_dir"]) for item in items}):
@@ -331,6 +371,7 @@ def build_batch_provenance(
             "python_version": platform.python_version(),
         },
         "environment": _safe_release_environment(dict(os.environ)),
+        "qwen_model": _qwen_model_provenance(dict(os.environ)),
         "source_files": [record for path in source_files if (record := _sha256_file(path))],
         "runs": runs,
         "datasets": datasets,

@@ -38,6 +38,17 @@ def _validation(mask_dir: Path, active: list[bool]) -> dict:
 
 
 class PublicProtocolEvaluatorTest(unittest.TestCase):
+    def test_file_identity_records_evaluator_input_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "protocol.json"
+            path.write_text("{}\n", encoding="utf-8")
+            identity = EVALUATOR._file_identity(path)
+
+        self.assertIsNotNone(identity)
+        assert identity is not None
+        self.assertEqual(identity["bytes"], 3)
+        self.assertEqual(len(str(identity["sha256"])), 64)
+
     def test_coverage_marks_missing_protocol_outputs_incomplete(self) -> None:
         coverage = EVALUATOR.coverage_summary(
             ["query_a", "query_b"],

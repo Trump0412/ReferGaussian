@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -32,6 +33,20 @@ METRIC_PROTOCOL = {
 def _read_json(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _file_identity(path: Path) -> dict[str, object] | None:
+    if not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {
+        "path": str(path.resolve()),
+        "bytes": int(path.stat().st_size),
+        "sha256": digest.hexdigest(),
+    }
 
 
 def _read_manifest_query_ids(path: Path) -> set[str]:
@@ -582,6 +597,19 @@ def main() -> None:
         "dataset_dir": str(Path(args.dataset_dir)),
         "query_root": str(Path(args.query_root)),
         "query_manifest": str(Path(args.query_manifest)) if args.query_manifest else None,
+        "source_files": {
+            "protocol": _file_identity(Path(args.protocol_json)),
+            "video_annotations": _file_identity(
+                Path(args.annotation_dir) / "video_annotations.json"
+            ),
+            "coco_annotations": _file_identity(
+                Path(args.annotation_dir) / "train" / "_annotations.coco.json"
+            ),
+            "query_manifest": (
+                _file_identity(Path(args.query_manifest)) if args.query_manifest else None
+            ),
+            "dataset_metadata": _file_identity(Path(args.dataset_dir) / "metadata.json"),
+        },
         "category": args.category,
         "scene": args.scene,
         "summary": summary,

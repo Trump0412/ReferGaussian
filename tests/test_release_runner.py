@@ -127,6 +127,27 @@ class ReleaseRunnerTest(unittest.TestCase):
         self.assertEqual(record["bytes"], len("refergaussian\n"))
         self.assertEqual(len(str(record["sha256"])), 64)
 
+    def test_qwen_provenance_records_manifest_and_weight_sizes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            model_dir = Path(temp_dir)
+            (model_dir / "refergaussian_snapshot.json").write_text(
+                '{"resolved_revision":"abc"}\n', encoding="utf-8"
+            )
+            (model_dir / "config.json").write_text("{}\n", encoding="utf-8")
+            (model_dir / "model-00001.safetensors").write_bytes(b"weights")
+
+            record = RUNNER._qwen_model_provenance(
+                {"REFERGAUSSIAN_QWEN_MODEL": str(model_dir)}
+            )
+
+        self.assertIsNotNone(record)
+        assert record is not None
+        self.assertEqual(len(record["metadata"]), 2)
+        self.assertEqual(
+            record["weight_files"],
+            [{"name": "model-00001.safetensors", "bytes": 7}],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
