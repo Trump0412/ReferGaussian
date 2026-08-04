@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RUNNER_PATH = REPO_ROOT / "scripts" / "run_query_batch_two_gpu.py"
+RUNNER_PATH = REPO_ROOT / "scripts" / "run_query_batch.py"
 SPEC = importlib.util.spec_from_file_location("refergaussian_release_runner", RUNNER_PATH)
 assert SPEC is not None and SPEC.loader is not None
 RUNNER = importlib.util.module_from_spec(SPEC)
@@ -79,6 +80,52 @@ class ReleaseRunnerTest(unittest.TestCase):
         RUNNER._clear_inherited_release_tuning(env)
 
         self.assertEqual(env, {"QWEN_MODEL_PATH": "/models/qwen", "PATH": "/usr/bin"})
+
+    def test_strict_runner_rejects_a_dirty_git_checkout(self) -> None:
+        errors = RUNNER._source_tree_release_errors(
+            strict_release=True,
+            commit="a" * 40,
+            status=" M scripts/query.py",
+        )
+
+        self.assertEqual(len(errors), 1)
+        self.assertIn("clean Git worktree", errors[0])
+
+    def test_source_archive_without_git_metadata_is_supported(self) -> None:
+        errors = RUNNER._source_tree_release_errors(
+            strict_release=True,
+            commit=None,
+            status=None,
+        )
+
+        self.assertEqual(errors, [])
+
+    def test_provenance_environment_redacts_secrets(self) -> None:
+        env = {
+            "QWEN_MODEL_PATH": "/models/qwen",
+            "HF_HOME": "/cache/hf",
+            "HF_TOKEN": "must-not-leak",
+            "QWEN_API_KEY": "must-not-leak",
+            "PATH": "/usr/bin",
+        }
+
+        safe = RUNNER._safe_release_environment(env)
+
+        self.assertEqual(
+            safe,
+            {"HF_HOME": "/cache/hf", "QWEN_MODEL_PATH": "/models/qwen"},
+        )
+
+    def test_sha256_file_records_content_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "artifact.txt"
+            path.write_text("refergaussian\n", encoding="utf-8")
+            record = RUNNER._sha256_file(path)
+
+        self.assertIsNotNone(record)
+        assert record is not None
+        self.assertEqual(record["bytes"], len("refergaussian\n"))
+        self.assertEqual(len(str(record["sha256"])), 64)
 
 
 if __name__ == "__main__":

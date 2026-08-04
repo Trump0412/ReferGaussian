@@ -281,7 +281,7 @@
     <div class="section-intro has-text-centered">
       <p class="section-kicker">Benchmark</p>
       <h2 class="title is-3 section-title">R4D-Bench-QA</h2>
-      <p class="section-copy">The full benchmark contains 12 dynamic scenes and 266 query annotations. The released dense-mask protocol fixes 8 scenes and 58 English queries for auditable vIoU/tIoU evaluation.</p>
+      <p class="section-copy">The paper reports 12 dynamic scenes and 266 sentence queries. The currently released frame-aligned dense tier contains 12 scenes and 89 English queries; paper-reported and executable release protocols are tracked separately.</p>
     </div>
     <div class="paper-card">
       <div class="image-frame">
@@ -323,7 +323,7 @@
         <div class="method-card">
           <span class="tag-label tag-stage2">Stage 2</span>
           <h4>Semantic Assignment</h4>
-          <p>Entity-level visual and semantic descriptors are written into a reusable EntityBank shared by all queries in a scene.</p>
+          <p>A shared scene-level Gaussian trajectory bank supports query-conditioned entity construction and semantic assignment.</p>
         </div>
       </div>
       <div class="column is-4">
@@ -342,7 +342,7 @@
     <div class="section-intro has-text-centered">
       <p class="section-kicker">Results</p>
       <h2 class="title is-3 section-title">Quantitative Comparison</h2>
-      <p class="section-copy">Referring segmentation and fixed-protocol reconstruction results.</p>
+      <p class="section-copy">Accepted-paper referring and matched R4D-Bench reconstruction results.</p>
     </div>
 
     <div class="paper-card" style="margin-bottom:2rem;">
@@ -366,23 +366,23 @@
     </div>
 
     <div class="paper-card" style="margin-bottom:2rem;">
-      <p class="section-copy" style="margin-bottom:0.75rem;"><b>Table 2.</b> Reconstruction on the fixed 8-scene release protocol.</p>
+      <p class="section-copy" style="margin-bottom:0.75rem;"><b>Table 2.</b> Reconstruction in the accepted-paper R4D-Bench main table.</p>
       <div class="table-container">
         <table class="table is-fullwidth is-hoverable">
           <thead>
             <tr><th>Method</th><th>PSNR ↑</th><th>SSIM ↑</th><th>LPIPS ↓</th></tr>
           </thead>
           <tbody>
-            <tr><td>4D Gaussian Splatting</td><td>28.312</td><td>0.8753</td><td>0.2325</td></tr>
-            <tr class="is-selected-row"><td>ReferGaussian (Ours)</td><td><b>28.486</b></td><td><b>0.8777</b></td><td><b>0.2233</b></td></tr>
+            <tr><td>4D Gaussian Splatting</td><td>20.3208</td><td>0.7027</td><td>0.3971</td></tr>
+            <tr class="is-selected-row"><td>ReferGaussian (Ours)</td><td><b>20.4159</b></td><td><b>0.7069</b></td><td><b>0.3942</b></td></tr>
           </tbody>
         </table>
       </div>
-      <p class="section-copy">Results where either method has PSNR below 20 dB are excluded from paper-facing reconstruction comparisons.</p>
+      <p class="section-copy">Later selected-subset reconstruction summaries are kept separate from this accepted-paper table and require their own protocol identity.</p>
     </div>
 
     <div class="paper-card" style="margin-bottom:2rem;">
-      <p class="section-copy" style="margin-bottom:0.75rem;"><b>Table 3.</b> Generalization on the 4D LangSplat HyperNeRF split.</p>
+      <p class="section-copy" style="margin-bottom:0.75rem;"><b>Table 3.</b> Generalization on the 3-scene / 7-query 4D LangSplat HyperNeRF split.</p>
       <div class="table-container">
         <table class="table is-fullwidth is-hoverable">
           <thead>

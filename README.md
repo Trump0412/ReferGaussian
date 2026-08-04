@@ -27,11 +27,13 @@ Accepted at **ACM Multimedia 2026**.
 
 ## Results
 
-The following tables reproduce the accepted-paper reported values under the
-stated fixed protocols. They are archival paper tables, not a claim that a new
-release rerun has already completed. A new release reproduction must cover all
-expected queries, retain the manifest/evaluator output, and report overall,
-non-empty-only, and zero-target outcomes separately.
+The following paper tables are archival reported values, not a claim that a
+new release rerun has already completed. A release reproduction must identify
+its scene/query and metric protocol, cover every expected query, retain the
+manifest/evaluator output, and report overall, non-empty-only, and zero-target
+outcomes separately. [Metric definitions](docs/METRICS.md) documents the
+difference between the paper-declared formulas and executable compatibility
+fields.
 See [the release reproduction protocol](docs/RELEASE_REPRODUCTION_PROTOCOL.md)
 and [the release verification status](docs/REPRODUCTION_STATUS.md) for the
 fixed scene/query sets, required artifacts, and current verification boundary.
@@ -44,17 +46,20 @@ fixed scene/query sets, required artifacts, and current verification boundary.
 | 4D LangSplat | 58.4 | 32.1 |
 | ReferGaussian (Ours) | **76.5** | **34.4** |
 
-### Paper results — reconstruction on the fixed 8-scene protocol
+### Paper results — R4D-Bench reconstruction
 
 | Method | PSNR ↑ | SSIM ↑ | LPIPS ↓ |
 |---|---:|---:|---:|
-| 4D Gaussian Splatting | 28.312 | 0.8753 | 0.2325 |
-| ReferGaussian (Ours) | **28.486** | **0.8777** | **0.2233** |
+| 4D Gaussian Splatting | 20.3208 | 0.7027 | 0.3971 |
+| ReferGaussian (Ours) | **20.4159** | **0.7069** | **0.3942** |
 
-The reconstruction table uses the fixed 8-scene release protocol. Results where either
-method has PSNR below 20 dB are excluded from paper-facing reconstruction comparisons.
+These are the values in the accepted-paper R4D-Bench main table. A later
+selected 8-scene historical summary reported 4DGS `28.312 / 0.8753 / 0.2325`
+and ReferGaussian `28.486 / 0.8777 / 0.2233`; it is retained as an archival
+candidate in the protocol registry, but is not relabeled as the paper table or
+as a fresh matched reproduction.
 
-### Paper results — 4D LangSplat HyperNeRF split
+### Paper results — 4D LangSplat HyperNeRF split (3 scenes / 7 queries)
 
 | Method | Acc ↑ | vIoU ↑ |
 |---|---|---|
@@ -436,10 +441,12 @@ and evaluator maps stay aligned:
 Each manifest row owns one query output root. The Stage-1 plan and tracks,
 Gaussian proposal diagnostics, final render, and validation file are written
 under that same root, which makes an interrupted batch directly inspectable and
-safe to resume without mixing artifacts from different queries.
+safe to resume without mixing artifacts from different queries. Before the
+first query starts, the runner writes `batch_provenance.json` with manifest,
+Git/diff, source, checkpoint, and dataset-metadata hashes.
 
 ```bash
-OUT=reports/public_time_boundary_gated_v5
+OUT="reports/PAPER_PUBLIC3_V5_$(date -u +%Y%m%dT%H%M%SZ)"
 source scripts/common.sh
 ANN_ROOT=data/benchmarks/4dlangsplat/HyperNeRF-Annotation
 PROTOCOL_JSON="${OUT}/public_protocol.json"
@@ -453,6 +460,7 @@ gs_python scripts/build_public_query_manifest.py \
   --query-set time_sensitive \
   --protocol-json "${PROTOCOL_JSON}" \
   --profile public_time_boundary_gated_v5 \
+  --scenes americano split-cookie espresso \
   --gpus 0 1 2
 
 gs_python scripts/preflight_query_batch.py \
@@ -460,7 +468,7 @@ gs_python scripts/preflight_query_batch.py \
   --gpu 0 1 2 \
   --create-output-root
 
-gs_python scripts/run_query_batch_two_gpu.py \
+gs_python scripts/run_query_batch.py \
   --manifest "${OUT}/manifest.jsonl" \
   --profile public_time_boundary_gated_v5 \
   --gpu 0 1 2 \
@@ -469,18 +477,16 @@ gs_python scripts/run_query_batch_two_gpu.py \
   --timeout 3600
 ```
 
-Evaluate each scene from the same protocol and then aggregate the four
+Evaluate each paper scene from the same manifest and aggregate the three
 complete scene reports. The aggregate command refuses to turn a partial run
 into a final result:
 
 ```bash
-for SCENE in americano espresso split-cookie chickchicken; do
-  case "${SCENE}" in
-    chickchicken) GROUP=interp ;;
-    *) GROUP=misc ;;
-  esac
+for SCENE in americano espresso split-cookie; do
+  GROUP=misc
   gs_python scripts/evaluate_public_query_protocol.py \
     --protocol-json "${PROTOCOL_JSON}" \
+    --query-manifest "${OUT}/manifest.jsonl" \
     --annotation-dir "${ANN_ROOT}/${SCENE}" \
     --dataset-dir "data/hypernerf/${GROUP}/${SCENE}" \
     --query-root "${OUT}/query_root" \
@@ -492,12 +498,19 @@ for SCENE in americano espresso split-cookie chickchicken; do
 done
 
 gs_python scripts/aggregate_public_query_evaluations.py \
-  --inputs "${OUT}"/*_official_eval.json \
-  --expected-queries 9 \
+  --inputs "${OUT}/americano_official_eval.json" \
+           "${OUT}/espresso_official_eval.json" \
+           "${OUT}/split-cookie_official_eval.json" \
+  --expected-queries 7 \
   --require-complete \
   --output-json "${OUT}/official_eval.json" \
   --output-md "${OUT}/official_eval.md"
 ```
+
+For the separate four-scene extension, omit `--scenes` while building the
+manifest, include `chickchicken` in the evaluation loop, and use
+`--expected-queries 9`. Never merge the 3-scene paper and 4-scene extension
+under one result label.
 
 When evaluating a subset such as `time_sensitive`, pass the same manifest to
 `evaluate_public_query_protocol.py --query-manifest "${OUT}/manifest.jsonl"`.
@@ -524,17 +537,14 @@ reruns or changes the original selection and never uses a full-scene fallback.
 ### Referring evaluation — R4D-Bench-QA
 
 ```bash
-# Optional: profile switch for reproducible ablation
-# export QUERY_EVAL_PROFILE=default
-# export QUERY_EVAL_PROFILE=r4d_boundary_gated_v5
-
 # 1) Build a manifest with official query ids.
 source scripts/common.sh
-RUN_ROOT=reports/r4d_bench_boundary_gated_v5
+RUN_ROOT="reports/RELEASE_R4D_DENSE89_V5_$(date -u +%Y%m%dT%H%M%SZ)"
 gs_python scripts/build_r4d_query_manifest.py \
   --benchmark data/benchmarks/r4d_bench_qa/benchmark_all_queries.json \
-  --scenes coffee_martini sear_steak cut_roasted_beef \
-           cut_lemon espresso keyboard split_cookie torchchocolate \
+  --scenes americano coffee_martini cook_spinach cut_lemon \
+           cut_roasted_beef espresso flame_salmon flame_steak \
+           keyboard sear_steak split_cookie torchchocolate \
   --output "${RUN_ROOT}/manifest.jsonl" \
   --output-root "${RUN_ROOT}/query_root" \
   --gpus 0 1 2
@@ -545,7 +555,7 @@ gs_python scripts/preflight_query_batch.py \
   --create-output-root
 
 # 2) Run the query pipeline.
-gs_python scripts/run_query_batch_two_gpu.py \
+gs_python scripts/run_query_batch.py \
   --manifest "${RUN_ROOT}/manifest.jsonl" \
   --profile r4d_boundary_gated_v5 \
   --gpu 0 1 2 \
@@ -584,23 +594,9 @@ still requires its synchronized Stage-1 boundary gate. The benchmark utility
 extracts only `ground_truth.frames[].frame_id` to identify the published camera
 views; it does not inspect or pass any `segmentation` payload into inference.
 
-For an R4D diagnostic involving a compositional singular referent with several
-visually distinct instances, use the opt-in `r4d_multi_instance_boundary_v6`
-profile in a separate run root. It derives a broad noun-head detector phrase,
-lifts each spatially distinct Stage-1 track into its own Gaussian entity, and
-tracks those candidates across the complete query timeline before recording a
-declared multi-hypothesis selection when they remain query-compatible. It does
-not change the public
-`public_time_boundary_gated_v5` protocol or substitute a Stage-1 mask for a
-Gaussian render.
-
-Qwen planning remains mandatory for this profile. When, and only when, a
-single planned subject exactly matches a declared `multi_hypothesis` Stage-1
-group with two or more separately lifted entitybank members and no successor
-subject, the downstream member set is already deterministic. In that narrow
-structural case, v6 uses native assignment metadata and the planned phrase
-instead of repeating post-lifting Qwen assignment and phrase selection. Every
-other query, including all public and v5 R4D queries, retains both Qwen calls.
+The released mainline profile is `r4d_boundary_gated_v5`. Qwen planning,
+semantic assignment, and final entity selection remain enabled for every
+query, including multi-target and zero-target cases.
 
 The preflight and query pipeline require `phase: refergaussian`,
 `temporal_warp_type: refergaussian`, and `warp_enabled: true` in each run's
@@ -625,7 +621,15 @@ Important benchmark note:
   Legacy releases whose question field is Chinese use the versioned, reviewed English translation map keyed by that official id.
   Avoid retyping benchmark queries in ad-hoc shell scripts, because even small wording drift can change the target object set.
 
-The paper-facing release protocol is fixed to 8 scenes and 58 English queries:
+The currently downloadable dense release tier contains 12 scenes and 89
+English queries (36 temporal single-target, 29 multi-target/reasoning, and 24
+zero-target/distractor). Its source hashes and status are frozen in
+`configs/benchmarks/release_protocols.json`. The paper reports 12 scenes and
+266 sentence queries, but an executable 266-query dense-mask artifact is not
+present in the current release, so the 12/89 run must be labeled separately.
+
+The former 8-scene / 58-query release selection is retained for archival
+compatibility only:
 
 - DyNeRF: `coffee_martini`, `sear_steak`, `cut_roasted_beef`
 - HyperNeRF: `cut_lemon`, `espresso`, `keyboard`, `split_cookie`, `torchchocolate`
@@ -642,7 +646,10 @@ gs_python scripts/filter_r4d_benchmark_queries.py \
                    cut_lemon espresso keyboard split_cookie torchchocolate
 ```
 
-This produces the canonical 8-scene / 58-query release set. Scene selection is fixed before evaluation; pass the same manifest to the evaluator so an 89-query source file cannot silently become a partial 58/89 report.
+This produces the archival 8-scene / 58-query set. Pass the same manifest to
+the evaluator so an 89-query source file cannot silently become a partial
+58/89 report. Do not present this selected subset as the paper's 12-scene
+protocol or as the dense 12/89 release result.
 
 ## Repository Layout
 

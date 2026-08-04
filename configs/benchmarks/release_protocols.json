@@ -1,0 +1,91 @@
+{
+  "registry_version": "2026-08-05.1",
+  "status": "paper_and_release_protocols_kept_separate",
+  "protocols": {
+    "paper_r4d_reported": {
+      "scene_count": 12,
+      "query_count": 266,
+      "dense_artifact_available_in_release": false,
+      "status": "reported_not_freshly_reproduced"
+    },
+    "release_r4d_dense89": {
+      "scene_count": 12,
+      "query_count": 89,
+      "category_counts": {
+        "temporal_single_target": 36,
+        "multi_target_reasoning": 29,
+        "zero_target_distractor": 24
+      },
+      "query_metadata_sha256": "cb15182f32a9383f2c2060627e6dc29c3c10b3ae12b61e705deb52da8687fbf2",
+      "dense_gt_sha256": "f917d21f74fd6a2e84318ca0e9d64cb9487fcf7399597237c6661d9a15c6a255",
+      "status": "fresh_full_run_pending"
+    },
+    "legacy_r4d_filtered58": {
+      "scene_count": 8,
+      "query_count": 58,
+      "scenes": [
+        "coffee_martini",
+        "sear_steak",
+        "cut_roasted_beef",
+        "cut_lemon",
+        "espresso",
+        "keyboard",
+        "split_cookie",
+        "torchchocolate"
+      ],
+      "category_counts": {
+        "temporal_single_target": 22,
+        "multi_target_reasoning": 20,
+        "zero_target_distractor": 16
+      },
+      "status": "archival_noncanonical_subset"
+    },
+    "paper_public3": {
+      "scene_count": 3,
+      "query_count": 7,
+      "scenes": ["americano", "split-cookie", "espresso"],
+      "status": "reported_fresh_full_run_pending"
+    },
+    "release_public4_extension": {
+      "scene_count": 4,
+      "query_count": 9,
+      "scenes": ["americano", "split-cookie", "espresso", "chickchicken"],
+      "status": "fresh_full_run_pending"
+    }
+  },
+  "public_annotation_sha256": {
+    "americano": {
+      "video_annotations": "13379546cb966da4b043c328c831bd72ee8f95ac1cc22dae58885c51d3ec675c",
+      "coco_masks": "5862245bcd835f1864f27891b269b336c0234bf483d7e18b3aec983e97a57e3e"
+    },
+    "espresso": {
+      "video_annotations": "c62ef46fd9f35a7f95d66b8f0d6e6d16ab070abc4884c7cc0658b16719b1b01b",
+      "coco_masks": "345bac5defad8a56204e015695c61dcfd90f85b2304b1b89af5503fd7b12587e"
+    },
+    "split-cookie": {
+      "video_annotations": "2f46f7aca55c499b4bb7d5bba1769505c02833009383c1544f046afb520d8594",
+      "coco_masks": "685dd4dbf15b69e6c8f903e2f02f62a6f407894761c2a8e4c80a9ec5e2cc1be0"
+    },
+    "chickchicken": {
+      "video_annotations": "a229fa6991de70ffb8416f4cf05a8cfe2ec8586980e13c3ccbd43b11d293fd0f",
+      "coco_masks": "85ffb6fe7bcc4bfe4e06189b8d911f73d88b46672e4b45d0ced9cbdd69aded9e"
+    }
+  },
+  "metric_protocols": {
+    "paper_declared": {
+      "acc": "exact predicted referent-set match averaged over queries",
+      "viou": "global spatiotemporal volume IoU averaged over queries",
+      "executable_from_current_release_annotations": false
+    },
+    "legacy_r4d_evaluator_v1_with_audit_fields": {
+      "acc": "temporal frame accuracy on rendered samples",
+      "viou": "mean IoU over annotated active-mask frames",
+      "tiou": "timeline IoU after nearest-sample hold"
+    },
+    "legacy_public_evaluator_v1_with_audit_fields": {
+      "acc": "temporal frame accuracy on the public timeline",
+      "viou": "mean IoU over annotation-mask frames in the temporal union",
+      "tiou": "timeline IoU"
+    }
+  }
+}

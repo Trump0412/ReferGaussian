@@ -10,13 +10,14 @@ the requested scenes (flexible matching against scene identifiers), and writes:
 2. ``query_root_map.json``   -- maps query_id -> output root subdirectory.
 3. ``dataset_dir_map.json``  -- maps query_id -> dataset_dir.
 
-The GPU assignment alternates (GPU 0 for even indices, GPU 1 for odd).
+The GPU assignment cycles over the indices supplied with ``--gpus``.
 
 Usage:
     python build_r4d_query_manifest.py \
         --benchmark data/benchmarks/r4d_bench_qa/benchmark_all_queries.json \
-        --scenes coffee_martini sear_steak cut_roasted_beef \
-                 cut_lemon espresso keyboard split_cookie torchchocolate \
+        --scenes americano coffee_martini cook_spinach cut_lemon \
+                 cut_roasted_beef espresso flame_salmon flame_steak \
+                 keyboard sear_steak split_cookie torchchocolate \
         --output manifest.jsonl \
         --output-root /path/to/query/outputs
 """
@@ -40,6 +41,10 @@ from query_text_utils import benchmark_record_with_english_query, choose_english
 # dataset path under REFERGAUSSIAN_DATA_ROOT). These are release layout hints,
 # not algorithm branches.
 SCENE_CONFIG: dict[str, tuple[str, str]] = {
+    "americano": (
+        "refergaussian/hypernerf/americano",
+        "hypernerf/misc/americano",
+    ),
     "cut_lemon": (
         "refergaussian/hypernerf/cut-lemon1",
         "hypernerf/interp/cut-lemon1",
@@ -63,6 +68,18 @@ SCENE_CONFIG: dict[str, tuple[str, str]] = {
     "coffee_martini": (
         "refergaussian/dynerf/coffee_martini",
         "dynerf/coffee_martini",
+    ),
+    "cook_spinach": (
+        "refergaussian/dynerf/cook_spinach",
+        "dynerf/cook_spinach",
+    ),
+    "flame_salmon": (
+        "refergaussian/dynerf/flame_salmon_1",
+        "dynerf/flame_salmon_1",
+    ),
+    "flame_steak": (
+        "refergaussian/dynerf/flame_steak",
+        "dynerf/flame_steak",
     ),
     "sear_steak": (
         "refergaussian/dynerf/sear_steak",

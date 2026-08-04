@@ -80,6 +80,21 @@ def _time_sensitive_protocol_rows(protocol_path: Path) -> list[tuple[str, str, s
     return selected
 
 
+def _filter_protocol_scenes(
+    rows: list[tuple[str, str, str]],
+    scenes: list[str] | None,
+) -> list[tuple[str, str, str]]:
+    if scenes is None:
+        return rows
+    requested = set(scenes)
+    selected = [row for row in rows if row[0] in requested]
+    found = {row[0] for row in selected}
+    missing = sorted(requested - found)
+    if missing:
+        raise ValueError("Protocol contains no time-sensitive rows for: " + ", ".join(missing))
+    return selected
+
+
 def _build_entry(
     *,
     scene: str,
@@ -152,6 +167,16 @@ def main() -> int:
         default=[0, 1, 2],
         help="GPU ids to assign round-robin in the manifest (default: 0 1 2).",
     )
+    parser.add_argument(
+        "--scenes",
+        nargs="+",
+        choices=sorted(SCENE_PATHS),
+        default=None,
+        help=(
+            "Optional exact scene subset. Use americano split-cookie espresso "
+            "for the three-scene paper protocol; omit for the four-scene extension."
+        ),
+    )
     args = parser.parse_args()
 
     output_path = Path(args.output)
@@ -166,7 +191,10 @@ def main() -> int:
         protocol_path = Path(args.protocol_json)
         if not protocol_path.is_file():
             parser.error(f"protocol not found: {protocol_path}")
-        source_rows = _time_sensitive_protocol_rows(protocol_path)
+        source_rows = _filter_protocol_scenes(
+            _time_sensitive_protocol_rows(protocol_path),
+            args.scenes,
+        )
 
         for index, (scene, query_id, query) in enumerate(source_rows):
             entries.append(

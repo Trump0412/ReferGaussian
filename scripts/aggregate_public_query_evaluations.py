@@ -11,7 +11,16 @@ from typing import Any
 import numpy as np
 
 
-METRICS = ("Acc", "vIoU", "temporal_tIoU", "temporal_precision", "temporal_recall")
+METRICS = (
+    "Acc",
+    "vIoU",
+    "temporal_tIoU",
+    "temporal_frame_accuracy",
+    "mean_annotated_frame_iou",
+    "annotated_volume_iou",
+    "temporal_precision",
+    "temporal_recall",
+)
 
 
 def _mean(rows: list[dict[str, Any]], key: str) -> float | None:
@@ -24,7 +33,11 @@ def aggregate_payloads(payloads: list[dict[str, Any]], expected_queries: int | N
     seen_ids: set[str] = set()
     missing_ids: list[str] = []
     expected_total = 0
+    metric_protocols: dict[str, dict[str, Any]] = {}
     for payload in payloads:
+        metric_protocol = payload.get("metric_protocol")
+        if isinstance(metric_protocol, dict) and metric_protocol.get("id"):
+            metric_protocols[str(metric_protocol["id"])] = metric_protocol
         coverage = payload.get("coverage", {}) if isinstance(payload.get("coverage"), dict) else {}
         expected_total += int(coverage.get("expected_queries", len(payload.get("queries", []))))
         missing_ids.extend(str(item) for item in coverage.get("missing_query_ids", []))
@@ -43,11 +56,17 @@ def aggregate_payloads(payloads: list[dict[str, Any]], expected_queries: int | N
         )
     if expected_total <= 0:
         raise ValueError("Cannot aggregate an empty public query set")
+    if len(metric_protocols) > 1:
+        raise ValueError(
+            "Cannot aggregate reports with different metric protocols: "
+            + ", ".join(sorted(metric_protocols))
+        )
     valid = [row for row in rows if row.get("Acc") is not None]
     nonempty = [row for row in valid if int(row.get("temporal_gt_active_count", 0)) > 0]
     empty = [row for row in valid if int(row.get("temporal_gt_active_count", 0)) == 0]
     coverage_missing = sorted(set(missing_ids) | {str(row["query_slug"]) for row in rows if row.get("Acc") is None})
     return {
+        "metric_protocol": next(iter(metric_protocols.values()), None),
         "summary": {
             "expected_queries": expected_total,
             "valid_queries": len(valid),
@@ -89,8 +108,10 @@ def main() -> None:
         lines = [
             "# Aggregated Public Query Evaluation",
             "",
+            f"- Metric protocol: `{(output.get('metric_protocol') or {}).get('id', 'legacy_input_without_id')}`",
             f"- Complete coverage: `{summary['complete']}` ({summary['valid_queries']} / {summary['expected_queries']})",
             f"- Acc / vIoU / tIoU: `{pct(summary['Acc'])}` / `{pct(summary['vIoU'])}` / `{pct(summary['temporal_tIoU'])}`",
+            f"- Annotated volume IoU: `{pct(summary['annotated_volume_iou'])}`",
             f"- Non-empty Acc / vIoU / tIoU: `{pct(summary['nonempty_only']['Acc'])}` / `{pct(summary['nonempty_only']['vIoU'])}` / `{pct(summary['nonempty_only']['temporal_tIoU'])}`",
             f"- Zero-target correctness: `{summary['zero_target_correct']} / {summary['zero_target_queries']}`",
         ]

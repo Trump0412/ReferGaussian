@@ -31,6 +31,28 @@ import numpy as np
 from PIL import Image
 
 
+METRIC_PROTOCOL = {
+    "id": "legacy_r4d_evaluator_v1_with_audit_fields",
+    "legacy_aliases": {
+        "Acc": "temporal_frame_accuracy",
+        "vIoU": "mean_annotated_frame_iou",
+        "tIoU": "temporal_iou_nearest_sample_hold",
+    },
+    "audit_fields": {
+        "annotated_volume_iou": (
+            "pixel intersection sum divided by pixel union sum over annotated "
+            "active-mask frames"
+        ),
+        "paper_exact_set_accuracy": "unavailable_without_auditable_instance-set_identities",
+        "paper_full_volume_iou": "unavailable_without_exhaustive_frame-aligned_masks",
+    },
+    "empty_set_rule": {
+        "empty_gt_empty_prediction": 1.0,
+        "empty_gt_nonempty_prediction": 0.0,
+    },
+}
+
+
 # ---------------------------------------------------------------------------
 # RLE (COCO format) decoder
 # ---------------------------------------------------------------------------
@@ -622,6 +644,8 @@ def evaluate_query(
 
     iou_sum = 0.0
     iou_count = 0
+    spatial_intersection_pixels = 0
+    spatial_union_pixels = 0
     mask_found = 0
     mask_missing = 0
     mask_missing_binary = 0
@@ -685,6 +709,7 @@ def evaluate_query(
         if tid is None:
             mask_missing += 1
             iou_count += 1
+            spatial_union_pixels += int(np.asarray(gt_mask, dtype=bool).sum())
             continue
 
         gt_active = tid in gt_time_ids
@@ -706,6 +731,7 @@ def evaluate_query(
             if not sorted_tids:
                 mask_missing += 1
                 iou_count += 1
+                spatial_union_pixels += int(np.asarray(gt_mask, dtype=bool).sum())
                 continue
             pos = bisect.bisect_left(sorted_tids, tid)
             if pos == 0:
@@ -721,12 +747,14 @@ def evaluate_query(
             if abs(int(nearest_tid) - int(tid)) > max_render_distance:
                 mask_missing += 1
                 iou_count += 1
+                spatial_union_pixels += int(np.asarray(gt_mask, dtype=bool).sum())
                 continue
             val_frame = val_by_time_id.get(nearest_tid)
             matched_tid = int(nearest_tid)
         if val_frame is None:
             mask_missing += 1
             iou_count += 1
+            spatial_union_pixels += int(np.asarray(gt_mask, dtype=bool).sum())
             continue
 
         pred_active = bool(pred_by_time_id.get(matched_tid, val_frame.get("query_active", False)))
@@ -734,27 +762,29 @@ def evaluate_query(
         mask_found += 1
         iou_count += 1
 
-        if binary_mask_dir is None or not binary_mask_dir.exists():
-            # No mask output dir
-            continue
-
-        pred_mask_path = binary_mask_dir / f"{frame_idx:05d}.png"
+        pred_mask = np.zeros_like(gt_mask, dtype=bool)
         if pred_active:
-            if pred_mask_path.exists():
+            pred_mask_path = (
+                binary_mask_dir / f"{frame_idx:05d}.png"
+                if binary_mask_dir is not None and binary_mask_dir.exists()
+                else None
+            )
+            if pred_mask_path is not None and pred_mask_path.exists():
                 with Image.open(pred_mask_path) as img:
                     pred_mask = np.asarray(img.convert("L"), dtype=np.uint8) > 0
-                # Resize pred_mask to match GT mask if sizes differ
                 if pred_mask.shape != gt_mask.shape:
                     pred_pil = Image.fromarray(pred_mask.astype(np.uint8) * 255)
                     pred_pil = pred_pil.resize((gt_mask.shape[1], gt_mask.shape[0]), Image.NEAREST)
                     pred_mask = np.asarray(pred_pil) > 0
-                iou = _mask_iou(pred_mask, gt_mask)
             else:
-                iou = 0.0
                 mask_missing_binary += 1
-        else:
-            # Pred not active but GT is active → IoU = 0
-            iou = 0.0
+
+        gt_mask_bool = np.asarray(gt_mask, dtype=bool)
+        frame_intersection = int(np.logical_and(pred_mask, gt_mask_bool).sum())
+        frame_union = int(np.logical_or(pred_mask, gt_mask_bool).sum())
+        spatial_intersection_pixels += frame_intersection
+        spatial_union_pixels += frame_union
+        iou = 1.0 if frame_union == 0 else _safe_div(frame_intersection, frame_union)
         iou_sum += iou
 
     # Empty-set rule: if GT and prediction are both empty over timeline,
@@ -763,6 +793,10 @@ def evaluate_query(
         v_iou = 1.0
     else:
         v_iou = _safe_div(iou_sum, iou_count)
+    if spatial_union_pixels == 0:
+        annotated_volume_iou = 1.0 if temporal_union == 0 else 0.0
+    else:
+        annotated_volume_iou = _safe_div(spatial_intersection_pixels, spatial_union_pixels)
     warnings = []
     if acc >= 0.90 and t_iou < 0.50:
         warnings.append("high_acc_low_tiou")
@@ -785,6 +819,11 @@ def evaluate_query(
         "Acc": acc,
         "vIoU": v_iou,
         "tIoU": t_iou,
+        "temporal_frame_accuracy": acc,
+        "mean_annotated_frame_iou": v_iou,
+        "annotated_volume_iou": annotated_volume_iou,
+        "paper_exact_set_accuracy": None,
+        "paper_full_volume_iou": None,
         "temporal_precision": temporal_precision,
         "temporal_recall": temporal_recall,
         "temporal_f1": temporal_f1,
@@ -806,6 +845,8 @@ def evaluate_query(
         "spatial_direct_camera_match_frames": direct_camera_match_count,
         "spatial_coverage_complete": spatial_coverage_complete,
         "vIoU_count": iou_count,
+        "spatial_intersection_pixels": spatial_intersection_pixels,
+        "spatial_union_pixels": spatial_union_pixels,
         "validation_path": str(validation_path),
         "binary_mask_dir_used": str(binary_mask_dir) if binary_mask_dir is not None else None,
         "dataset_dir_used": str(dataset_dir) if dataset_dir is not None else None,
@@ -816,6 +857,9 @@ _METRIC_KEYS = (
     "Acc",
     "vIoU",
     "tIoU",
+    "temporal_frame_accuracy",
+    "mean_annotated_frame_iou",
+    "annotated_volume_iou",
     "temporal_precision",
     "temporal_recall",
     "temporal_f1",
@@ -823,10 +867,11 @@ _METRIC_KEYS = (
 
 
 def _mean_metrics(rows: list[dict]) -> dict[str, float | None]:
-    return {
-        key: float(np.mean([row[key] for row in rows])) if rows else None
-        for key in _METRIC_KEYS
-    }
+    result = {}
+    for key in _METRIC_KEYS:
+        values = [row.get(key) for row in rows if row.get(key) is not None]
+        result[key] = float(np.mean(values)) if values else None
+    return result
 
 
 def summarize_query_results(valid: list[dict], total_queries: int) -> dict:
@@ -993,6 +1038,7 @@ def main() -> None:
         )
 
     payload = {
+        "metric_protocol": METRIC_PROTOCOL,
         "benchmark": str(args.benchmark),
         "query_manifest": str(args.query_manifest) if args.query_manifest else None,
         "summary": summary,
@@ -1009,6 +1055,9 @@ def main() -> None:
         lines = [
             "# Ours_benchmark Evaluation",
             "",
+            f"- Metric protocol: `{METRIC_PROTOCOL['id']}`",
+            "- Legacy `Acc` is temporal-frame accuracy; legacy `vIoU` is mean annotated-frame mask IoU.",
+            "- Paper exact-set Acc and exhaustive full-volume vIoU are not inferred from unavailable identities/masks.",
             f"- Total queries: {summary['total_queries']}",
             f"- Valid queries: {summary['valid_queries']}",
             f"- Complete coverage: {coverage['complete']} ({coverage['valid_queries']} / {coverage['expected_queries']})",
@@ -1017,6 +1066,7 @@ def main() -> None:
             lines += [
                 f"- Acc:  `{summary['Acc']*100:.4f}%`",
                 f"- vIoU: `{summary['vIoU']*100:.4f}%`",
+                f"- annotated volume IoU: `{summary['annotated_volume_iou']*100:.4f}%`",
                 f"- tIoU: `{summary['tIoU']*100:.4f}%`",
                 f"- temporal precision/recall: `{summary['temporal_precision']*100:.4f}%` / `{summary['temporal_recall']*100:.4f}%`",
                 f"- Non-empty queries: `{summary['nonempty_queries']}`",
@@ -1032,14 +1082,14 @@ def main() -> None:
                 f"`{summary['spatial_missing_binary_mask_frames']}`)",
                 f"- warnings: `{summary['warning_count']}`",
                 "",
-                "| Query | Status | Acc(%) | vIoU(%) | tIoU(%) | tPrec(%) | tRec(%) | Warnings |",
-                "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+                "| Query | Status | Acc(%) | mean-frame IoU(%) | annotated-volume IoU(%) | tIoU(%) | tPrec(%) | tRec(%) | Warnings |",
+                "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
             ]
             for r in per_query:
                 def fmt(v):
                     return f"{v*100:.2f}" if v is not None else "n/a"
                 lines.append(
-                    f"| {r['query_id']} | {r.get('status','')} | {fmt(r.get('Acc'))} | {fmt(r.get('vIoU'))} | {fmt(r.get('tIoU'))} | {fmt(r.get('temporal_precision'))} | {fmt(r.get('temporal_recall'))} | {','.join(r.get('score_warnings', []))} |"
+                    f"| {r['query_id']} | {r.get('status','')} | {fmt(r.get('Acc'))} | {fmt(r.get('vIoU'))} | {fmt(r.get('annotated_volume_iou'))} | {fmt(r.get('tIoU'))} | {fmt(r.get('temporal_precision'))} | {fmt(r.get('temporal_recall'))} | {','.join(r.get('score_warnings', []))} |"
                 )
         Path(args.output_md).write_text("\n".join(lines) + "\n", encoding="utf-8")
         print(f"Saved: {args.output_md}")

@@ -1,9 +1,10 @@
 # Release Reproduction Protocol
 
-This document defines the only result protocols that may be compared with the
-accepted-paper tables in the README. It is intentionally stricter than an
-exploratory run: a partial query set is useful for debugging, but is not a
-benchmark result.
+This document separates accepted-paper, executable dense-release, extension,
+and archival-subset protocols. A partial query set is useful for debugging,
+but is not a benchmark result. Exact sizes and source hashes are frozen in
+[`configs/benchmarks/release_protocols.json`](../configs/benchmarks/release_protocols.json),
+and metric compatibility is defined in [METRICS.md](METRICS.md).
 
 ## Reconstruction
 
@@ -18,19 +19,34 @@ Keep these files for each method:
 - `train_meta.json` and `render_meta.json`
 - `results.json` and `metrics.json`
 
-Do not include a scene in a paper-facing reconstruction average if either
-method has PSNR below 20 dB.
+Do not remove a completed scene after looking at its score. A quality gate or
+invalid-data exclusion must be declared before evaluation and reported with
+the excluded scene list. Fresh release comparison uses all scenes declared by
+its protocol and reports per-scene rows as well as the aggregate.
 
-## Public 4DLangSplat Protocol
+## Public 4DLangSplat Protocols
 
-The public time-sensitive release evaluates four HyperNeRF scenes:
-`americano`, `espresso`, `split-cookie`, and `chickchicken`. Queries are
-generated only from the pinned annotation snapshot and only from its
-`temporal_state_reference` rows. The resulting fixed protocol has 9 queries.
+The accepted-paper protocol evaluates `americano`, `split-cookie`, and
+`espresso`, for 7 annotation-derived time-sensitive queries. Build it with:
 
-Run the per-scene evaluator with `--require-complete`, then combine the four
-JSON reports with `scripts/aggregate_public_query_evaluations.py
---expected-queries 9 --require-complete`.
+```bash
+gs_python scripts/build_public_query_manifest.py \
+  --output "${OUT}/manifest.jsonl" \
+  --output-root "${OUT}/query_root" \
+  --protocol-json "${PROTOCOL_JSON}" \
+  --profile public_time_boundary_gated_v5 \
+  --scenes americano split-cookie espresso
+```
+
+The separate release extension adds `chickchicken`, for 4 scenes and 9
+queries. Omit `--scenes` to build that extension. Both derive text only from
+the pinned annotation snapshot's `temporal_state_reference` rows; they must
+not be aggregated under the same protocol name.
+
+Run the per-scene evaluator with `--require-complete`, then combine reports
+with `scripts/aggregate_public_query_evaluations.py`. Use
+`--expected-queries 7` for paper Public-3 or `--expected-queries 9` for the
+Public-4 extension.
 
 Before launching a query batch, run `GSAM2_INSTALL_EDITABLE=1 bash
 scripts/setup_grounded_sam2.sh` and `gsam2_python
@@ -38,19 +54,31 @@ scripts/check_query_runtime.py --require-qwen`. The pipeline repeats both
 runtime provenance checks before Stage-1 so that a missing Qwen checkpoint or
 an unrelated editable SAM2 package fails before expensive inference begins.
 
-## R4D-Bench-QA Protocol
+## R4D-Bench-QA Protocols
 
-The fixed release protocol contains 58 English queries across eight scenes:
+The paper reports 12 scenes and 266 sentence queries. The current release does
+not contain an executable 266-query dense-mask artifact, so this claim remains
+reported provenance rather than a fresh-run target.
+
+The executable dense tier contains 89 English queries across 12 scenes:
+`americano`, `coffee_martini`, `cook-spinach`, `cut_lemon`,
+`cut_roasted_beef`, `espresso`, `flame_salmon`, `flame_steak`, `keyboard`,
+`sear_steak`, `split_cookie`, and `torchchocolate`. It contains 36 temporal
+single-target, 29 multi-target/reasoning, and 24 zero-target/distractor
+queries. A final dense-tier evaluation must use all 89 official query IDs and
+`--require-complete`.
+
+The former selected 58-query subset is archival only:
 
 - DyNeRF: `coffee_martini`, `sear_steak`, `cut_roasted_beef`
 - HyperNeRF: `cut_lemon`, `espresso`, `keyboard`, `split_cookie`, `torchchocolate`
 
-The benchmark includes 42 non-empty queries, 16 zero-target queries, and 20
-multi-target queries. Final R4D evaluation must use the official query id
-manifest and `scripts/evaluate_ours_benchmark.py --require-complete`.
+It includes 42 non-empty, 16 zero-target, and 20 multi-target queries. It may
+be reproduced with its exact manifest for compatibility, but cannot be labeled
+as the paper 12-scene protocol or the full dense 12/89 release.
 
 Release query batches must use
-`scripts/run_query_batch_two_gpu.py --strict-release --force-rerun`. A strict
+`scripts/run_query_batch.py --strict-release --force-rerun`. A strict
 manifest may set the official query id, query text, run/data/output paths, and
 GPU assignment, but may not contain per-query environment overrides.
 
@@ -74,21 +102,9 @@ Gaussian entity first, then apply only a synchronized dilated Stage-1 boundary
 gate. A stale nearest-frame boundary or a direct 2D-mask output makes the query
 run fail after saving its diagnostics; it cannot enter a release aggregate.
 
-`r4d_multi_instance_boundary_v6` is an opt-in R4D canary profile for a
-compositional singular referring expression that yields multiple spatially
-distinct same-category detector candidates. It retains those candidates as
-separate full-timeline Stage-1 tracks and separately lifted Gaussian entities,
-records the selection policy in `grounded_sam2_query_tracks.json`, and keeps
-every final mask on the same boundary-gated Gaussian-rendering contract. Run
-and report it in a distinct output root; it does not alter the public v5
-baseline.
-
-The Qwen query planner remains required in every profile. V6 skips only the
-otherwise redundant post-lifting Qwen assignment and selector calls when a
-deterministic contract is satisfied: one planned subject, no successor phrase,
-an exact matching declared `multi_hypothesis` group with at least two object
-ids, and a separately lifted entitybank member for every id. All other v6
-queries and all v5 profiles run the ordinary Qwen assignment and selector.
+The Qwen query planner, semantic assignment, and final entity selection remain
+required for every released mainline query, including multi-target and
+zero-target cases.
 
 ## Reporting Rules
 
@@ -100,14 +116,20 @@ Every final query report must include:
 - source-camera match coverage, including the count of exact official-camera
   masks used for vIoU;
 - overall Acc/vIoU/tIoU;
+- the evaluator `metric_protocol.id`, explicit `temporal_frame_accuracy`,
+  `mean_annotated_frame_iou`, and `annotated_volume_iou` audit fields;
 - non-empty-only Acc/vIoU/tIoU;
 - zero-target correctness and false-positive count;
 - manifest, evaluator output, model/data revision manifests, and the
   ReferGaussian run `config.yaml`.
+- `batch_provenance.json`, written before query execution with manifest, Git
+  diff, core script, reconstruction checkpoint, and dataset metadata hashes.
 
 The evaluator accepts an empty GT and empty prediction as a correct zero-target
 answer. This rule never permits an empty set of *queries* to become a 100%
 benchmark, and an empty GT with predicted activity receives zero vIoU/tIoU.
+The compatibility fields called `Acc` and `vIoU` are not relabeled as the
+paper's exact-set Acc and exhaustive full-volume vIoU; see `METRICS.md`.
 
 ## Release Guards
 

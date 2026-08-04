@@ -8,9 +8,12 @@ has been regenerated from the public source tree.
 The release contract is defined by
 [RELEASE_REPRODUCTION_PROTOCOL.md](RELEASE_REPRODUCTION_PROTOCOL.md):
 
-- R4D-Bench-QA: 8 fixed scenes and 58 English queries.
-- Public 4DLangSplat time-sensitive protocol: 4 scenes and 9 annotation-derived
-  queries.
+- Paper R4D: reported as 12 scenes / 266 queries; its exact executable dense
+  artifact has not been located in the current release.
+- Dense R4D release candidate: 12 scenes / 89 English queries.
+- Historical R4D subset: 8 scenes / 58 queries, archival and noncanonical.
+- Paper Public: 3 scenes / 7 annotation-derived time-sensitive queries.
+- Public extension: 4 scenes / 9 annotation-derived time-sensitive queries.
 - Final reports require official query ids, `--strict-release --force-rerun`,
   `--require-complete`, model/data revision manifests, and the ReferGaussian
   run configuration.
@@ -18,6 +21,9 @@ The release contract is defined by
   the missing annotated frame and cannot pass the complete-coverage gate.
 - Empty-target scores are reported separately. Only an empty prediction for an
   empty target receives the empty-set score.
+- Evaluator outputs identify compatibility metrics explicitly; see
+  [METRICS.md](METRICS.md). Paper exact-set Acc and exhaustive full-volume vIoU
+  are not inferred when the required identity/mask supervision is unavailable.
 
 ## What Is Verified by the Public Source
 
@@ -89,11 +95,11 @@ replacement for the nine-query, four-scene public aggregate.
 
 ## Reporting Boundary
 
-The numerical tables in the README and project page are the accepted-paper
-reported values. Historical exploratory artifacts, partial query subsets,
-legacy run identities, per-scene environment overrides, and incomplete
-baseline records are not release verification evidence and must not be mixed
-into a new aggregate.
+The accepted-paper numerical tables and later historical selected-subset tables
+have separate identities. Historical exploratory artifacts, partial query
+subsets, legacy run identities, per-scene environment overrides, and
+incomplete baseline records are not release verification evidence and must not
+be mixed into a new aggregate.
 
 A fresh result becomes release-verifiable only when its complete manifest,
 batch summary, evaluator output, spatial coverage, run configuration, and

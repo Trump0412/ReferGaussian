@@ -111,6 +111,11 @@ class BenchmarkEvaluatorTest(unittest.TestCase):
         self.assertEqual(result["Acc"], 1.0)
         self.assertEqual(result["tIoU"], 1.0)
         self.assertEqual(result["vIoU"], 1.0)
+        self.assertEqual(result["temporal_frame_accuracy"], result["Acc"])
+        self.assertEqual(result["mean_annotated_frame_iou"], result["vIoU"])
+        self.assertEqual(result["annotated_volume_iou"], 1.0)
+        self.assertIsNone(result["paper_exact_set_accuracy"])
+        self.assertIsNone(result["paper_full_volume_iou"])
         self.assertEqual(result["vIoU_count"], 0)
 
     def test_empty_query_false_positive_is_not_awarded(self) -> None:
@@ -132,6 +137,46 @@ class BenchmarkEvaluatorTest(unittest.TestCase):
         self.assertEqual(result["Acc"], 0.5)
         self.assertEqual(result["tIoU"], 0.0)
         self.assertEqual(result["vIoU"], 0.0)
+        self.assertEqual(result["annotated_volume_iou"], 0.0)
+
+    def test_mean_frame_iou_is_not_relabelled_as_volume_iou(self) -> None:
+        small_polygon = [[1, 1, 2, 1, 2, 2, 1, 2]]
+        large_polygon = [[1, 1, 6, 1, 6, 4, 1, 4]]
+        query_item = {
+            "query_id": "volume_q1",
+            "ground_truth": {
+                "existence_frames": [0, 1],
+                "frames": [
+                    {"frame_id": 0, "masks": [{"segmentation": small_polygon}]},
+                    {"frame_id": 1, "masks": [{"segmentation": large_polygon}]},
+                ],
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            query_root = Path(temp_dir) / "volume_q1"
+            render_root = _write_validation(
+                query_root,
+                [
+                    {"image_id": "0000", "frame_index": 0, "query_active": True},
+                    {"image_id": "0001", "frame_index": 1, "query_active": False},
+                ],
+            )
+            mask_dir = render_root / "binary_masks"
+            mask_dir.mkdir()
+            image = Image.fromarray(np.zeros((6, 8), dtype=np.uint8), mode="L")
+            ImageDraw.Draw(image).polygon(
+                [(small_polygon[0][idx], small_polygon[0][idx + 1]) for idx in range(0, 8, 2)],
+                fill=255,
+            )
+            image.save(mask_dir / "00000.png")
+            result = EVALUATOR.evaluate_query(query_item, query_root)
+
+        self.assertEqual(result["vIoU"], 0.5)
+        self.assertLess(result["annotated_volume_iou"], result["vIoU"])
+        self.assertAlmostEqual(
+            result["annotated_volume_iou"],
+            result["spatial_intersection_pixels"] / result["spatial_union_pixels"],
+        )
 
     def test_polygon_annotation_uses_the_prediction_canvas(self) -> None:
         polygon = [[2, 1, 5, 1, 5, 4, 2, 4]]

@@ -41,6 +41,25 @@ class AggregatePublicEvaluationsTest(unittest.TestCase):
         self.assertFalse(output["summary"]["complete"])
         self.assertEqual(output["missing_query_ids"], ["scene_q2"])
 
+    def test_different_metric_protocols_cannot_be_mixed(self) -> None:
+        payload = {
+            "coverage": {"expected_queries": 1, "missing_query_ids": []},
+            "queries": [{"query_slug": "scene_q1", "Acc": 1.0}],
+        }
+
+        with self.assertRaisesRegex(ValueError, "different metric protocols"):
+            AGGREGATOR.aggregate_payloads(
+                [
+                    {**payload, "metric_protocol": {"id": "protocol_a"}},
+                    {
+                        "coverage": {"expected_queries": 1, "missing_query_ids": []},
+                        "queries": [{"query_slug": "scene_q2", "Acc": 1.0}],
+                        "metric_protocol": {"id": "protocol_b"},
+                    },
+                ],
+                expected_queries=2,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

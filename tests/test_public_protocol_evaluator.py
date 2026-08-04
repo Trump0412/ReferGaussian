@@ -96,6 +96,11 @@ class PublicProtocolEvaluatorTest(unittest.TestCase):
         self.assertEqual(result["Acc"], 1.0)
         self.assertEqual(result["vIoU"], 1.0)
         self.assertEqual(result["temporal_tIoU"], 1.0)
+        self.assertEqual(result["temporal_frame_accuracy"], result["Acc"])
+        self.assertEqual(result["mean_annotated_frame_iou"], result["vIoU"])
+        self.assertEqual(result["annotated_volume_iou"], 1.0)
+        self.assertIsNone(result["paper_exact_set_accuracy"])
+        self.assertIsNone(result["paper_full_volume_iou"])
 
     def test_empty_query_false_positive_scores_zero_spatiotemporally(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -110,6 +115,30 @@ class PublicProtocolEvaluatorTest(unittest.TestCase):
         self.assertEqual(result["Acc"], 0.5)
         self.assertEqual(result["vIoU"], 0.0)
         self.assertEqual(result["temporal_tIoU"], 0.0)
+        self.assertEqual(result["annotated_volume_iou"], 0.0)
+
+    def test_mean_frame_iou_is_distinct_from_annotated_volume_iou(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mask_dir = Path(temp_dir) / "binary_masks"
+            mask_dir.mkdir()
+            small_mask = np.zeros((6, 8), dtype=np.uint8)
+            small_mask[1:2, 1:2] = 255
+            large_mask = np.zeros((6, 8), dtype=np.uint8)
+            large_mask[1:5, 1:7] = 255
+            Image.fromarray(small_mask, mode="L").save(mask_dir / "00000.png")
+            result = EVALUATOR.evaluate_query(
+                query_item=_query([[0, 1]]),
+                validation_payload=_validation(mask_dir, [True, False]),
+                metadata_payload={"0000": {"time_id": 0}, "0001": {"time_id": 1}},
+                gt_masks_by_object={
+                    "target": {"0000": small_mask > 0, "0001": large_mask > 0}
+                },
+                top_level_objects=["target"],
+            )
+
+        self.assertEqual(result["vIoU"], 0.5)
+        self.assertLess(result["annotated_volume_iou"], result["vIoU"])
+        self.assertAlmostEqual(result["annotated_volume_iou"], 1.0 / 25.0)
 
     def test_matching_active_mask_scores_perfectly(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

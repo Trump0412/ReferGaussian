@@ -11,12 +11,16 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RELEASE_SCENES = {
+DENSE_RELEASE_SCENES = {
+    "americano": 10,
     "coffee_martini": 7,
+    "cook-spinach": 7,
     "sear_steak": 7,
     "cut_roasted_beef": 7,
     "cut_lemon": 8,
     "espresso": 8,
+    "flame_salmon": 7,
+    "flame_steak": 7,
     "keyboard": 6,
     "split_cookie": 8,
     "torchchocolate": 7,
@@ -30,6 +34,8 @@ FORBIDDEN_PATTERNS = {
 }
 TEXT_SUFFIXES = {".cff", ".html", ".json", ".md", ".py", ".sh", ".toml", ".yaml", ".yml"}
 REQUIRED_RUNTIME_FILES = (
+    "configs/benchmarks/release_protocols.json",
+    "docs/METRICS.md",
     "refergaussian/semantics/semantic_renderer.py",
     "refergaussian/semantics/surface_mask_field.py",
     "refergaussian/semantics/mask_supported_lifting.py",
@@ -67,7 +73,7 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/aggregate_public_query_evaluations.py": "--require-complete",
     "scripts/evaluate_public_query_protocol.py": "spatial_coverage_complete",
     "scripts/evaluate_ours_benchmark.py": "spatial_coverage_complete",
-    "scripts/run_query_batch_two_gpu.py": "--strict-release",
+    "scripts/run_query_batch.py": "batch_provenance.json",
     "scripts/validate_refergaussian_run.py": "validate_refergaussian_run",
     "scripts/eval_baseline.sh": "external/4DGaussians/render.py",
     "scripts/bootstrap_external.sh": "4dgaussians_metrics_cache.patch",
@@ -135,12 +141,13 @@ def check_release_queries() -> list[str]:
     path = ROOT / "configs" / "benchmarks" / "r4d_query_text_en.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     counts = Counter(str(query_id).rsplit("_q", 1)[0] for query_id in payload)
-    actual = {scene: counts.get(scene, 0) for scene in RELEASE_SCENES}
+    actual = dict(sorted(counts.items()))
+    expected = dict(sorted(DENSE_RELEASE_SCENES.items()))
     errors: list[str] = []
-    if actual != RELEASE_SCENES:
-        errors.append(f"R4D release scene counts differ: expected={RELEASE_SCENES}, actual={actual}")
-    if sum(actual.values()) != 58:
-        errors.append(f"R4D release query count is {sum(actual.values())}, expected 58")
+    if actual != expected:
+        errors.append(f"R4D dense release scene counts differ: expected={expected}, actual={actual}")
+    if sum(actual.values()) != 89:
+        errors.append(f"R4D dense release query count is {sum(actual.values())}, expected 89")
     non_english = [
         str(query_id)
         for query_id, query_text in payload.items()
@@ -151,6 +158,32 @@ def check_release_queries() -> list[str]:
             "R4D release query text must be English; found CJK text for: "
             + ", ".join(sorted(non_english)[:10])
         )
+    return errors
+
+
+def check_protocol_registry() -> list[str]:
+    path = ROOT / "configs" / "benchmarks" / "release_protocols.json"
+    if not path.is_file():
+        return ["Release protocol registry is missing"]
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    protocols = payload.get("protocols", {})
+    expected = {
+        "paper_r4d_reported": (12, 266),
+        "release_r4d_dense89": (12, 89),
+        "legacy_r4d_filtered58": (8, 58),
+        "paper_public3": (3, 7),
+        "release_public4_extension": (4, 9),
+    }
+    errors: list[str] = []
+    for protocol_id, (scene_count, query_count) in expected.items():
+        row = protocols.get(protocol_id)
+        if not isinstance(row, dict):
+            errors.append(f"Protocol registry entry is missing: {protocol_id}")
+            continue
+        if int(row.get("scene_count", -1)) != scene_count:
+            errors.append(f"Protocol {protocol_id} scene_count must be {scene_count}")
+        if int(row.get("query_count", -1)) != query_count:
+            errors.append(f"Protocol {protocol_id} query_count must be {query_count}")
     return errors
 
 
@@ -352,6 +385,7 @@ def main() -> int:
     errors = check_forbidden_text(tracked_files())
     errors.extend(check_readme_scripts())
     errors.extend(check_release_queries())
+    errors.extend(check_protocol_registry())
     errors.extend(check_runtime_contracts())
     errors.extend(check_runtime_release_guards())
     if errors:

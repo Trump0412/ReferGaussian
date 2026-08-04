@@ -53,3 +53,19 @@ class PublicQueryManifestTest(unittest.TestCase):
             MANIFEST._run_relative_path("refergaussian/hypernerf/espresso", "clean_reproduction"),
             "clean_reproduction/hypernerf/espresso",
         )
+
+    def test_scene_filter_separates_paper_three_from_four_scene_extension(self) -> None:
+        rows = [
+            ("americano", "a_q1", "query a"),
+            ("espresso", "e_q1", "query e"),
+            ("split-cookie", "s_q1", "query s"),
+            ("chickchicken", "c_q1", "query c"),
+        ]
+
+        selected = MANIFEST._filter_protocol_scenes(
+            rows,
+            ["americano", "split-cookie", "espresso"],
+        )
+
+        self.assertEqual([row[0] for row in selected], ["americano", "espresso", "split-cookie"])
+        self.assertNotIn("chickchicken", {row[0] for row in selected})
