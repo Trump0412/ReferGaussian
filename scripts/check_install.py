@@ -28,6 +28,7 @@ def main():
         "torchvision",
         "torchaudio",
         "plyfile",
+        "open3d",
         "arguments",
         "gaussian_renderer",
         "scene",
@@ -49,12 +50,6 @@ def main():
         results["cuda_home"] = os.environ.get("CUDA_HOME")
 
         results["upstream_4dgs_revision"] = "843d5ac636c37e4b611242287754f3d4ed150144"
-
-    try:
-        _, version = import_version("open3d")
-        results["open3d"] = version
-    except Exception as exc:  # noqa: BLE001
-        results["open3d"] = f"optional: {exc}"
 
     try:
         _, version = import_version("mmcv")

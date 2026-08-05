@@ -96,6 +96,7 @@ REQUIRED_RUNTIME_FILES = (
 )
 REQUIRED_RUNTIME_TOKENS = {
     "scripts/bootstrap_external.sh": "Pinned, unmodified external dependencies",
+    "scripts/setup_4dgs_env.sh": "open3d==0.18.0",
     "scripts/build_mask_supported_proposal_dir.py": "build_mask_supported_lifting_proposal_dir",
     "scripts/export_entitybank.py": "--proposal-supervision-mode",
     "scripts/render_query_video.py": "--eval-profile",
