@@ -477,6 +477,12 @@ The active profile and its effective fusion parameters are written into each
 `final_query_render_sourcebg/validation.json` as `eval_profile` and `fusion_options`.
 This makes public reruns auditable and easy to compare.
 
+Stage-1 point prompting defaults to `GSAM2_INFERENCE_SEED=0`. The isolated
+Grounded-SAM2 process applies this seed to Python, NumPy, and Torch before
+detection or tracking and records it in `grounded_sam2_query_tracks.json`.
+Keep the default fixed for formal reruns; changing it defines a different
+stochastic Stage-1 run and must be reported explicitly.
+
 The released query path is strictly `mask_supported_lifting`: if multi-frame
 lifting cannot form the requested entity, the query is reported as a failure
 with its Stage-1 and proposal diagnostics. It is never replaced by an

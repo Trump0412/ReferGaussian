@@ -30,6 +30,7 @@ def main() -> None:
     parser.add_argument("--track-window-radius", type=int, default=120)
     parser.add_argument("--frame-subsample-stride", type=int, default=10)
     parser.add_argument("--num-anchor-seeds", type=int, default=3)
+    parser.add_argument("--inference-seed", type=int, default=0)
     parser.add_argument(
         "--local-files-only",
         action=argparse.BooleanOptionalAction,
@@ -56,6 +57,7 @@ def main() -> None:
         track_window_radius=args.track_window_radius,
         frame_subsample_stride=args.frame_subsample_stride,
         num_anchor_seeds=args.num_anchor_seeds,
+        inference_seed=args.inference_seed,
         local_files_only=args.local_files_only,
     )
     print(out_dir)

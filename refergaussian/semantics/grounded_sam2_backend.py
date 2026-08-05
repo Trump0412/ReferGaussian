@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import shutil
 import sys
@@ -86,6 +87,15 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, ensure_ascii=False)
+
+
+def _seed_inference(seed: int) -> None:
+    """Seed every RNG used by the isolated Grounded-SAM2 process."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def _materialize_jpeg_frame_dir(image_entries: list[dict[str, Any]], output_dir: Path) -> Path:
@@ -616,6 +626,7 @@ def run_grounded_sam2_query(
     track_window_radius: int = 120,
     frame_subsample_stride: int = 10,
     num_anchor_seeds: int = 3,
+    inference_seed: int = 0,
     local_files_only: bool = True,
 ) -> Path:
     dataset_dir = Path(dataset_dir)
@@ -624,6 +635,8 @@ def run_grounded_sam2_query(
     output_dir.mkdir(parents=True, exist_ok=True)
     phrase_dir = output_dir / "phrases"
     phrase_dir.mkdir(parents=True, exist_ok=True)
+
+    _seed_inference(int(inference_seed))
 
     query_plan = _read_json(query_plan_path)
     detector_phrases = [str(item).strip() for item in query_plan.get("detector_phrases", []) if str(item).strip()]
@@ -702,6 +715,7 @@ def run_grounded_sam2_query(
             "grounding_model_revision": grounding_model_revision,
             "sam2_model_revision": sam2_model_revision,
             "local_files_only": bool(local_files_only),
+            "inference_seed": int(inference_seed),
             "prompt_type": prompt_type,
             "frame_subsample_stride": int(frame_subsample_stride),
             "num_tracking_frames": int(len(image_entries)),
@@ -1184,6 +1198,7 @@ def run_grounded_sam2_query(
         "grounding_model_revision": grounding_model_revision,
         "sam2_model_revision": sam2_model_revision,
         "local_files_only": bool(local_files_only),
+        "inference_seed": int(inference_seed),
         "prompt_type": prompt_type,
         "frame_subsample_stride": int(frame_subsample_stride),
         "num_tracking_frames": int(len(image_entries)),

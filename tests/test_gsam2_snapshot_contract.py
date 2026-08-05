@@ -30,6 +30,22 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
         self.assertIn("HF_HUB_OFFLINE=1", text)
         self.assertIn("TRANSFORMERS_OFFLINE=1", text)
 
+    def test_stage1_inference_seed_is_explicit_and_recorded(self) -> None:
+        launcher = (ROOT / "scripts" / "run_query_guided_grounded_sam2.sh").read_text(
+            encoding="utf-8"
+        )
+        cli = (ROOT / "scripts" / "run_grounded_sam2_query.py").read_text(
+            encoding="utf-8"
+        )
+        backend = (ROOT / "refergaussian/semantics/grounded_sam2_backend.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("GSAM2_INFERENCE_SEED:-0", launcher)
+        self.assertIn('parser.add_argument("--inference-seed", type=int, default=0)', cli)
+        self.assertIn("np.random.seed(seed)", backend)
+        self.assertIn("torch.manual_seed(seed)", backend)
+        self.assertGreaterEqual(backend.count('"inference_seed": int(inference_seed)'), 2)
+
     def test_setup_verifies_the_same_pinned_local_cache(self) -> None:
         text = (ROOT / "scripts" / "setup_grounded_sam2.sh").read_text(encoding="utf-8")
         self.assertIn("hf_hub_download(", text)

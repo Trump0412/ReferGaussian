@@ -234,3 +234,8 @@ Gaussian entity, final mask, and validation contract. Qwen planning is always
 required. Strict mode pins `Qwen3-VL-8B-Instruct` to the source revision in
 `scripts/check_query_runtime.py`; an environment revision override is accepted
 only by non-strict exploratory runs.
+
+Grounded-SAM2 point prompting is seeded with `GSAM2_INFERENCE_SEED=0` by
+default. The backend seeds Python, NumPy, and Torch before inference and writes
+the effective value into `grounded_sam2_query_tracks.json`. Formal comparisons
+must retain this seed or register the changed Stage-1 identity explicitly.

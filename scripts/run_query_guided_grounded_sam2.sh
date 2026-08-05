@@ -90,6 +90,7 @@ gsam2_python "${GS_ROOT}/scripts/run_grounded_sam2_query.py" \
   --track-window-radius "${GSAM2_TRACK_WINDOW_RADIUS:-160}" \
   --frame-subsample-stride "${GSAM2_FRAME_SUBSAMPLE_STRIDE:-10}" \
   --num-anchor-seeds "${GSAM2_NUM_ANCHOR_SEEDS:-3}" \
+  --inference-seed "${GSAM2_INFERENCE_SEED:-0}" \
   "${LOCAL_ONLY_ARGS[@]}"
 fi
 
