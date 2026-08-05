@@ -145,7 +145,7 @@ run_final_render_and_summary() {
 QUERY_EVAL_PROFILE="${QUERY_EVAL_PROFILE:-${REFERGAUSSIAN_QUERY_EVAL_PROFILE:-default}}"
 apply_query_eval_profile "${QUERY_EVAL_PROFILE}"
 echo "[profile] QUERY_EVAL_PROFILE=${QUERY_EVAL_PROFILE}"
-require_refergaussian_run "${RUN_DIR}"
+require_4dgs_run "${RUN_DIR}"
 
 QUERY_PROPOSAL_BUILDER="${QUERY_PROPOSAL_BUILDER:-mask_supported_lifting}"
 RENDERER_GEOMETRY_SUPPORT_DIR="${OUTPUT_ROOT}/renderer_geometry_support"

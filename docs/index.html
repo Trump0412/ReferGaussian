@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="description" content="ReferGaussian: Referring Segmentation in 4D Gaussian Splatting.">
+  <meta name="description" content="R4DGS: Referring Segmentation in 4D Gaussian Splatting.">
   <meta name="keywords" content="ReferGaussian, 4D Gaussian Splatting, R4DGS, Referring Segmentation">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ReferGaussian: Referring Segmentation in 4D Gaussian Splatting</title>
+  <title>R4DGS: Referring Segmentation in 4D Gaussian Splatting</title>
 
   <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
@@ -198,14 +198,14 @@
       <div class="columns is-centered">
         <div class="column has-text-centered">
           <p class="hero-kicker">Accepted at ACM MM 2026</p>
-          <h1 class="title is-1 publication-title">ReferGaussian: Referring Segmentation in 4D Gaussian Splatting</h1>
+          <h1 class="title is-1 publication-title">R4DGS: Referring Segmentation in 4D Gaussian Splatting</h1>
 
           <div class="is-size-5 publication-authors" style="margin-top:0.5rem;">
             <span class="author-block">Bangpu Chen<sup>1</sup>,</span>
             <span class="author-block">Yaxuan Li<sup>2</sup>,</span>
             <span class="author-block">Shirui Peng<sup>3</sup>,</span>
             <span class="author-block">Xiangtian Si<sup>1</sup>,</span>
-            <span class="author-block">Chu Liuxin<sup>1</sup>,</span>
+            <span class="author-block">Liuxin Chu<sup>1</sup>,</span>
             <span class="author-block">Xitong Cao<sup>1</sup>,</span>
             <span class="author-block">Hongbo Jin<sup>4</sup>,</span>
             <span class="author-block">Jiayu Ding<sup>4†</sup></span>
@@ -213,17 +213,17 @@
           <div class="is-size-6 publication-note">
             <sup>1</sup>China University of Geosciences, Wuhan, China &nbsp;|&nbsp;
             <sup>2</sup>Xinjiang University, Urumqi, China &nbsp;|&nbsp;
-            <sup>3</sup>The University of Nottingham Ningbo China, Ningbo, China &nbsp;|&nbsp;
-            <sup>4</sup>Peking University, Beijing, China
+            <sup>3</sup>University of Nottingham Ningbo China, Ningbo, China &nbsp;|&nbsp;
+            <sup>4</sup>Peking University, Shenzhen, China
             <br>
             <sup>†</sup>Corresponding author
             <br>
-            chenbangpu@cug.edu.cn; liyaxuan@stu.xju.edu.cn; dingjiayU@stu.pku.edu.cn
+            jyding25@stu.pku.edu.cn
           </div>
 
           <div class="publication-links">
             <span class="link-block">
-              <a href="#bibtex" class="external-link button is-normal is-rounded is-dark">
+              <a href="https://doi.org/10.1145/3767308.3836021" class="external-link button is-normal is-rounded is-dark" target="_blank" rel="noreferrer">
                 <span class="icon"><i class="fas fa-file-pdf"></i></span><span>Paper</span>
               </a>
             </span>
@@ -270,7 +270,7 @@
       <img src="assets/Fig1.png" alt="ReferGaussian teaser">
     </div>
     <p class="figure-caption has-text-centered" style="margin-top:1rem;">
-      <b>Figure 1.</b> ReferGaussian reconstructs dynamic scenes as 4D Gaussians and performs training-free referring inference for temporally varying, multi-target, reasoning-intensive, and zero-target queries.
+      <b>Figure 1.</b> ReferGaussian performs training-free referring inference over frozen 4D Gaussian scenes for temporally varying, multi-target, reasoning-intensive, and zero-target queries.
     </p>
   </div>
 </section>
@@ -287,7 +287,7 @@
         <img src="assets/Fig4.png" alt="R4D-Bench-QA statistics">
       </div>
       <p class="figure-caption has-text-centered" style="margin-top:1rem;">
-        <b>Figure 2.</b> R4D-Bench-QA statistics: expression word cloud, query composition, and token-length distribution.
+        <b>Benchmark overview.</b> R4D-Bench-QA statistics: expression word cloud, query composition, and token-length distribution.
       </p>
     </div>
   </div>
@@ -298,16 +298,7 @@
     <div class="section-intro has-text-centered">
       <p class="section-kicker">Method</p>
       <h2 class="title is-3 section-title">ReferGaussian Framework</h2>
-      <p class="section-copy">Dynamic reconstruction plus a Qwen-based Refer-Planner in three explicit referring stages.</p>
-    </div>
-
-    <div class="paper-card" style="margin-bottom:1.8rem;">
-      <div class="image-frame">
-        <img src="assets/Fig3.png" alt="ReferGaussian framework overview">
-      </div>
-      <p class="figure-caption has-text-centered" style="margin-top:1rem;">
-        <b>Figure 3.</b> Pipeline overview: dynamic reconstruction, static segmentation, semantic assignment, and spatio-temporal reasoning.
-      </p>
+      <p class="section-copy">A frozen 4DGS scene, mask-supported Gaussian entities, and a Qwen-based Refer-Planner form three explicit referring stages.</p>
     </div>
 
     <div class="columns">
@@ -341,7 +332,7 @@
     <div class="section-intro has-text-centered">
       <p class="section-kicker">Results</p>
       <h2 class="title is-3 section-title">Quantitative Comparison</h2>
-      <p class="section-copy">Reported accepted-paper referring and R4D-Bench reconstruction results.</p>
+      <p class="section-copy">Reported accepted-paper referring segmentation results on R4D-Bench-QA and the public HyperNeRF split.</p>
     </div>
 
     <div class="paper-card" style="margin-bottom:2rem;">
@@ -365,23 +356,7 @@
     </div>
 
     <div class="paper-card" style="margin-bottom:2rem;">
-      <p class="section-copy" style="margin-bottom:0.75rem;"><b>Table 2.</b> Reconstruction in the accepted-paper R4D-Bench main table.</p>
-      <div class="table-container">
-        <table class="table is-fullwidth is-hoverable">
-          <thead>
-            <tr><th>Method</th><th>PSNR ↑</th><th>SSIM ↑</th><th>LPIPS ↓</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>4D Gaussian Splatting</td><td>20.3208</td><td>0.7027</td><td>0.3971</td></tr>
-            <tr class="is-selected-row"><td>ReferGaussian (Ours)</td><td><b>20.4159</b></td><td><b>0.7069</b></td><td><b>0.3942</b></td></tr>
-          </tbody>
-        </table>
-      </div>
-      <p class="section-copy">Later selected-subset summaries and the fresh executable release protocol are kept separate from this accepted-paper table. The executable protocol verifies the complete patched external tree by content hash, not only patch markers. See the <a href="RELEASE_REPRODUCTION_PROTOCOL.md">reproduction protocol</a> for identities and verification status.</p>
-    </div>
-
-    <div class="paper-card" style="margin-bottom:2rem;">
-      <p class="section-copy" style="margin-bottom:0.75rem;"><b>Table 3.</b> Generalization on the 3-scene / 7-query 4D LangSplat HyperNeRF split.</p>
+      <p class="section-copy" style="margin-bottom:0.75rem;"><b>Table 2.</b> Generalization on the 3-scene / 7-query 4D LangSplat HyperNeRF split.</p>
       <div class="table-container">
         <table class="table is-fullwidth is-hoverable">
           <thead>
@@ -399,14 +374,14 @@
     </div>
 
     <div class="paper-card">
-      <p class="section-copy" style="margin-bottom:0.75rem;"><b>Table 4.</b> Module ablation on R4D-Bench-QA.</p>
+      <p class="section-copy" style="margin-bottom:0.75rem;"><b>Table 3.</b> Module ablation on R4D-Bench-QA.</p>
       <div class="table-container">
         <table class="table is-fullwidth is-hoverable">
           <thead>
             <tr><th>Variant</th><th>Acc ↑</th><th>vIoU ↑</th></tr>
           </thead>
           <tbody>
-            <tr><td>4DGS reconstruction backbone only</td><td>62.9</td><td>31.5</td></tr>
+            <tr><td>Gaussian backbone only</td><td>62.9</td><td>31.5</td></tr>
             <tr><td>w/o Stage 1 static segmentation</td><td>48.6</td><td>17.2</td></tr>
             <tr><td>w/o Stage 2 semantic assignment</td><td>62.9</td><td>29.8</td></tr>
             <tr><td>w/o Stage 3 spatio-temporal reasoning</td><td>36.0</td><td>26.1</td></tr>
@@ -473,7 +448,7 @@
         <img src="assets/Fig5_n.png" alt="Qualitative results on R4D-Bench-QA">
       </div>
       <p class="figure-caption has-text-centered" style="margin-top:1rem;">
-        <b>Figure 4.</b> Query-conditioned grounding on challenging R4D-Bench-QA cases.
+        <b>Qualitative comparison.</b> Query-conditioned grounding on challenging R4D-Bench-QA cases.
       </p>
     </div>
 
@@ -482,7 +457,7 @@
         <img src="assets/appen_fig1.png" alt="Additional qualitative results">
       </div>
       <p class="figure-caption has-text-centered" style="margin-top:1rem;">
-        <b>Figure 5.</b> Additional qualitative results across multi-target, reasoning-intensive, and zero-target settings.
+        <b>Additional examples.</b> Qualitative results across multi-target, reasoning-intensive, and zero-target settings.
       </p>
     </div>
   </div>
@@ -495,11 +470,12 @@
       <h2 class="title is-3 section-title">BibTeX</h2>
       <p class="section-copy">Please cite our ACM Multimedia 2026 paper.</p>
     </div>
-    <pre>@inproceedings{chen2026refergaussian,
-  title     = {ReferGaussian: Referring Segmentation in 4D Gaussian Splatting},
-  author    = {Bangpu Chen and Yaxuan Li and Shirui Peng and Xiangtian Si and Chu Liuxin and Xitong Cao and Hongbo Jin and Jiayu Ding},
-  booktitle = {Proceedings of the ACM International Conference on Multimedia},
-  year      = {2026}
+    <pre>@inproceedings{chen2026r4dgs,
+  title     = {R4DGS: Referring Segmentation in 4D Gaussian Splatting},
+  author    = {Bangpu Chen and Yaxuan Li and Shirui Peng and Xiangtian Si and Liuxin Chu and Xitong Cao and Hongbo Jin and Jiayu Ding},
+  booktitle = {Proceedings of the 34th ACM International Conference on Multimedia},
+  year      = {2026},
+  doi       = {10.1145/3767308.3836021}
 }</pre>
   </div>
 </section>
@@ -507,7 +483,7 @@
 <footer class="footer">
   <div class="container is-max-desktop has-text-centered">
     <p style="color:#64748b;font-size:0.9rem;">
-      ReferGaussian &middot; ACM MM 2026 &middot;
+      R4DGS / ReferGaussian &middot; ACM MM 2026 &middot;
       <a href="https://github.com/Trump0412/ReferGaussian" style="color:#2563eb;">GitHub</a>
       &middot;
       <a href="https://huggingface.co/datasets/LiYacheng/r4d-bench-qa" style="color:#2563eb;">Dataset</a>

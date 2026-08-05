@@ -563,8 +563,8 @@ def _find_render_dir(run_dir: Path) -> Path:
     if candidates:
         return candidates[-1]
     raise FileNotFoundError(
-        f"No ReferGaussian test render found under {test_dir}. "
-        "Run scripts/eval.sh for this exact model directory before query inference; "
+        f"No upstream 4DGS test render found under {test_dir}. "
+        "Render the test-camera split with the pinned upstream 4DGaussians code before query inference; "
         "source RGB frames are never substituted for model renders."
     )
 
@@ -1517,11 +1517,11 @@ def _frame_mask_at_render_times(
 ) -> np.ndarray:
     """Evaluate selection segments on another camera/time sampling grid.
 
-    Entity selections are defined on the reconstruction test sequence.  A
+    Entity selections are defined on the upstream 4DGS test sequence.  A
     benchmark can request masks from a different set of cameras at the same
     temporal positions, so re-indexing a segment by the output-list position
     would change the query's temporal meaning.  Hold the original selection at
-    the nearest reconstruction timestamp instead.
+    the nearest 4DGS timestamp instead.
     """
     reference = np.asarray(reference_times, dtype=np.float32).reshape(-1)
     target = np.asarray(target_times, dtype=np.float32).reshape(-1)
@@ -2202,7 +2202,7 @@ def render_hypernerf_query_video(
     requested_image_ids = [str(value).strip() for value in image_ids or [] if str(value).strip()]
     requested_image_ids = list(dict.fromkeys(requested_image_ids))
 
-    # The selection's temporal segments live on the reconstruction test grid.
+    # The selection's temporal segments live on the upstream 4DGS test grid.
     # Keep that grid even when the final entity is projected into an explicit
     # evaluation-camera set below.
     reference_render_dir = _find_render_dir(run_dir)
@@ -2225,7 +2225,7 @@ def render_hypernerf_query_video(
             raise ValueError("Explicit image_ids require background_mode='source' so camera/image pairs stay synchronized.")
         entries = resolve_dataset_image_entries(dataset_dir)
         entry_by_id = {str(entry["image_id"]): entry for entry in entries}
-        # Time-sensitive exports retain the reconstruction grid for temporal
+        # Time-sensitive exports retain the 4DGS grid for temporal
         # metrics. Time-agnostic evaluation uses only its declared test cameras.
         requested_cameras_only = _env_flag("QUERY_RENDER_REQUESTED_CAMERAS_ONLY", False)
         camera_image_ids = _explicit_camera_image_ids(
@@ -2320,7 +2320,7 @@ def render_hypernerf_query_video(
                     if evaluation_camera_export and requested_cameras_only
                     else "explicit_source_camera"
                     if evaluation_camera_export
-                    else "reconstruction_test_camera"
+                    else "4dgs_test_camera"
                 ),
                 "image_ids": list(test_ids),
                 "requested_image_ids": list(requested_image_ids),
@@ -2880,7 +2880,7 @@ def render_hypernerf_query_video(
                 if evaluation_camera_export and requested_cameras_only
                 else "explicit_source_camera"
                 if evaluation_camera_export
-                else "reconstruction_test_camera"
+                else "4dgs_test_camera"
             ),
             "image_ids": list(test_ids),
             "requested_image_ids": list(requested_image_ids),

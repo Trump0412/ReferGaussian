@@ -630,7 +630,7 @@ def evaluate_query(
     # Temporal IoU (tIoU) - full timeline comparison
     # -----------------------------------------------------------------------
     # Build full binary arrays over total_frames. The renderer only emits the
-    # reconstruction test grid, so densify its temporal labels before comparing
+    # upstream 4DGS test grid, so densify its temporal labels before comparing
     # them with the benchmark's dense ground-truth interval.
     gt_full = np.zeros(total_frames, dtype=bool)
     pred_full = _densify_sparse_temporal_prediction(pred_by_time_id, total_frames)
@@ -750,7 +750,7 @@ def evaluate_query(
         spatial_gt_mask_frames += 1
 
         # Prefer an exact source-camera output when the renderer exported the
-        # benchmark image id.  Falling back to a nearest reconstruction-test
+        # benchmark image id. Falling back to a nearest 4DGS-test
         # timestamp is retained for legacy outputs only; it can otherwise
         # compare a correct 3D entity from a moving camera with a different
         # camera view's annotation.

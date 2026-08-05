@@ -22,10 +22,10 @@ from query_text_utils import contains_cjk
 
 # These are dataset-layout hints, not algorithm branches.
 SCENE_PATHS: dict[str, tuple[str, str]] = {
-    "americano": ("refergaussian/hypernerf/americano", "hypernerf/misc/americano"),
-    "espresso": ("refergaussian/hypernerf/espresso", "hypernerf/misc/espresso"),
-    "split-cookie": ("refergaussian/hypernerf/split-cookie", "hypernerf/misc/split-cookie"),
-    "chickchicken": ("refergaussian/hypernerf/chickchicken", "hypernerf/interp/chickchicken"),
+    "americano": ("baseline_4dgs/hypernerf/americano", "hypernerf/misc/americano"),
+    "espresso": ("baseline_4dgs/hypernerf/espresso", "hypernerf/misc/espresso"),
+    "split-cookie": ("baseline_4dgs/hypernerf/split-cookie", "hypernerf/misc/split-cookie"),
+    "chickchicken": ("baseline_4dgs/hypernerf/chickchicken", "hypernerf/interp/chickchicken"),
 }
 
 QUERY_SETS = ("time_sensitive", "time_agnostic")
@@ -216,7 +216,7 @@ def _resolve_under_root(path_str: str, root: str) -> str:
 def _run_relative_path(run_path: str, namespace: str) -> str:
     """Replace only the release output namespace in a documented run layout."""
     path = Path(run_path)
-    if path.is_absolute() or not path.parts or path.parts[0] != "refergaussian":
+    if path.is_absolute() or not path.parts or path.parts[0] not in {"baseline_4dgs", "4dgs", "refergaussian"}:
         return str(path)
     return str(Path(namespace, *path.parts[1:]))
 
@@ -370,8 +370,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--run-namespace",
-        default=os.environ.get("REFERGAUSSIAN_RUN_NAMESPACE", "refergaussian"),
-        help="Run namespace beneath --run-root (default: REFERGAUSSIAN_RUN_NAMESPACE or refergaussian).",
+        default=os.environ.get("REFERGAUSSIAN_RUN_NAMESPACE", "baseline_4dgs"),
+        help="4DGS run namespace beneath --run-root (default: baseline_4dgs).",
     )
     parser.add_argument(
         "--gpus",

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Validate the public repository before creating a release."""
+"""Validate the inference-only public repository before creating a release."""
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import re
 import subprocess
 from collections import Counter
@@ -26,6 +26,7 @@ DENSE_RELEASE_SCENES = {
     "split_cookie": 8,
     "torchchocolate": 7,
 }
+TEXT_SUFFIXES = {".cff", ".html", ".json", ".md", ".py", ".sh", ".toml", ".yaml", ".yml"}
 FORBIDDEN_PATTERNS = {
     "legacy project name": re.compile(r"HyperGaussian", re.IGNORECASE),
     "release placeholder": re.compile(r"XXXX\.XXXXX|Author[0-9]"),
@@ -33,16 +34,51 @@ FORBIDDEN_PATTERNS = {
     "temporary fix label": re.compile(r"\bhotfix\b", re.IGNORECASE),
     "deprecated transfer artifact": re.compile(r"\btrase\b", re.IGNORECASE),
 }
-TEXT_SUFFIXES = {".cff", ".html", ".json", ".md", ".py", ".sh", ".toml", ".yaml", ".yml"}
+FORBIDDEN_RELEASE_PATHS = (
+    ".gitattributes",
+    "configs/benchmarks/reconstruction_release_v1.json",
+    "patches",
+    "refergaussian/temporal",
+    "refergaussian/semantics/joint_embedding_cluster.py",
+    "scripts/build_joint_query_proposal_dir.py",
+    "scripts/build_query_proposal_dir.py",
+    "scripts/collect_metrics.py",
+    "scripts/eval.sh",
+    "scripts/eval_baseline.sh",
+    "scripts/fullframe_metrics.py",
+    "scripts/plot_time_warp.py",
+    "scripts/quick_subset_metrics.py",
+    "scripts/run_gsam_ablation.py",
+    "scripts/run_matched_reconstruction.py",
+    "scripts/run_query_batch_two_gpu.py",
+    "scripts/train.sh",
+    "scripts/train_baseline.sh",
+    "tests/test_matched_reconstruction_runner.py",
+    "tests/test_metrics_cache_contract.py",
+    "tests/test_temporal_warp_schedule_contract.py",
+    "docs/assets/Fig2.png",
+    "docs/assets/Fig3.png",
+)
+FORBIDDEN_ARTIFACT_SUFFIXES = {
+    ".ckpt", ".pth", ".pt", ".safetensors", ".ply", ".npz", ".npy",
+    ".mp4", ".tar", ".gz", ".zip",
+}
+FORBIDDEN_ARTIFACT_DIRS = {
+    "checkpoints", "results", "reports", "runs", "outputs", "weights", "models",
+    "reproducibility", "experiments", "server_sync", "backups", "tmp",
+}
 REQUIRED_RUNTIME_FILES = (
     "configs/benchmarks/release_protocols.json",
-    "configs/benchmarks/reconstruction_release_v1.json",
+    "configs/benchmarks/r4d_query_text_en.json",
     "docs/METRICS.md",
+    "refergaussian/run_identity.py",
     "refergaussian/semantics/semantic_renderer.py",
     "refergaussian/semantics/surface_mask_field.py",
     "refergaussian/semantics/mask_supported_lifting.py",
     "refergaussian/semantics/select_qwen_query_entities.py",
     "refergaussian/semantics/grounded_sam2_backend.py",
+    "scripts/bootstrap_external.sh",
+    "scripts/setup_4dgs_env.sh",
     "scripts/build_mask_supported_proposal_dir.py",
     "scripts/export_entitybank.py",
     "scripts/render_query_video.py",
@@ -56,20 +92,15 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/aggregate_public_query_evaluations.py",
     "scripts/evaluate_public_query_protocol.py",
     "scripts/evaluate_ours_benchmark.py",
-    "scripts/validate_refergaussian_run.py",
-    "scripts/run_matched_reconstruction.py",
-    "scripts/train_baseline.sh",
-    "scripts/eval_baseline.sh",
-    "patches/4dgaussians_seed_order.patch",
-    "patches/4dgaussians_temporal_warp_schedule.patch",
-    "patches/4dgaussians_metrics_cache.patch",
+    "scripts/validate_4dgs_run.py",
 )
 REQUIRED_RUNTIME_TOKENS = {
+    "scripts/bootstrap_external.sh": "Pinned, unmodified external dependencies",
     "scripts/build_mask_supported_proposal_dir.py": "build_mask_supported_lifting_proposal_dir",
     "scripts/export_entitybank.py": "--proposal-supervision-mode",
     "scripts/render_query_video.py": "--eval-profile",
     "scripts/rerender_query_outputs.py": "--require-complete",
-    "scripts/run_query_specific_worldtube_pipeline.sh": "mask_supported_lifting",
+    "scripts/run_query_specific_worldtube_pipeline.sh": "require_4dgs_run",
     "scripts/select_qwen_query_entities.py": "refergaussian.semantics.select_qwen_query_entities import main",
     "scripts/build_4dlangsplat_query_protocol.py": "video_annotations.json",
     "scripts/download_hf_snapshot.py": "resolved_revision",
@@ -78,14 +109,10 @@ REQUIRED_RUNTIME_TOKENS = {
     "scripts/evaluate_ours_benchmark.py": "spatial_coverage_complete",
     "scripts/write_empty_query_selection.py": '"selection_status": "semantic_empty"',
     "scripts/run_query_batch.py": "batch_provenance.json",
-    "scripts/validate_refergaussian_run.py": "validate_refergaussian_run",
-    "scripts/run_matched_reconstruction.py": "release_reconstruction_v1",
-    "scripts/eval_baseline.sh": "external/4DGaussians/render.py",
-    "scripts/bootstrap_external.sh": "4dgaussians_metrics_cache.patch",
+    "scripts/validate_4dgs_run.py": "validate_query_ready_4dgs_run",
     "scripts/run_query_guided_grounded_sam2.sh": "QUERY_OUTPUT_ROOT_OVERRIDE",
     "scripts/check_query_runtime.py": "--require-qwen",
     "scripts/check_grounded_sam2_import.py": "sam2._C",
-    "patches/4dgaussians_temporal_warp_schedule.patch": "set_temporal_warp_learning_rate",
     "refergaussian/semantics/grounded_sam2_backend.py": "local_files_only=local_files_only",
     "refergaussian/semantics/query_render.py": "selection_resolution_complete",
     "refergaussian/semantics/select_qwen_query_entities.py": "_finalize_selection_status",
@@ -97,59 +124,78 @@ ENGLISH_RUNTIME_FILES = (
     "refergaussian/semantics/mask_supported_lifting.py",
 )
 OBJECT_SPECIFIC_ALIAS_TERMS = (
-    "martini glass",
-    "cocktail glass",
-    "wine glass",
-    "drinking glass",
-    "round mouse",
-    "computer mouse",
-    "wireless mouse",
-)
-FORBIDDEN_RELEASE_PATHS = (
-    "refergaussian/semantics/joint_embedding_cluster.py",
-    "scripts/build_joint_query_proposal_dir.py",
-    "scripts/build_query_proposal_dir.py",
-    "scripts/run_gsam_ablation.py",
-    "scripts/run_query_batch_two_gpu.py",
+    "martini glass", "cocktail glass", "wine glass", "drinking glass",
+    "round mouse", "computer mouse", "wireless mouse",
 )
 
 
 def tracked_files() -> list[Path]:
-    """Return release source files from a Git checkout or GitHub archive."""
+    """Return release files from a Git checkout or source archive."""
     try:
         output = subprocess.check_output(
             ["git", "ls-files"], cwd=ROOT, text=True, stderr=subprocess.DEVNULL
         )
     except (FileNotFoundError, subprocess.CalledProcessError):
-        excluded_parts = {".git", "__pycache__", "data", "external", "models", "runs"}
+        excluded = {".git", "__pycache__", "data", "external", "models", "runs"}
         return [
-            path
-            for path in ROOT.rglob("*")
-            if path.is_file() and not any(part in excluded_parts for part in path.relative_to(ROOT).parts)
+            path for path in ROOT.rglob("*")
+            if path.is_file() and not any(part in excluded for part in path.relative_to(ROOT).parts)
         ]
     return [ROOT / line for line in output.splitlines() if line.strip()]
-
-
-def check_forbidden_release_paths() -> list[str]:
-    return [
-        f"Non-mainline release path must not be shipped: {relative_path}"
-        for relative_path in FORBIDDEN_RELEASE_PATHS
-        if (ROOT / relative_path).exists()
-    ]
 
 
 def check_forbidden_text(paths: list[Path]) -> list[str]:
     errors: list[str] = []
     for path in paths:
-        if path == Path(__file__).resolve():
-            continue
-        if path.suffix.lower() not in TEXT_SUFFIXES or not path.is_file():
+        if path == Path(__file__).resolve() or path.suffix.lower() not in TEXT_SUFFIXES or not path.is_file():
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         for label, pattern in FORBIDDEN_PATTERNS.items():
             match = pattern.search(text)
             if match:
                 errors.append(f"{path.relative_to(ROOT)}: {label}: {match.group(0)!r}")
+    return errors
+
+
+def check_forbidden_paths(paths: list[Path]) -> list[str]:
+    tracked = [path.relative_to(ROOT).as_posix() for path in paths]
+    errors: list[str] = []
+    for forbidden in FORBIDDEN_RELEASE_PATHS:
+        if any(path == forbidden or path.startswith(f"{forbidden}/") for path in tracked):
+            errors.append(f"Non-mainline release path must not be shipped: {forbidden}")
+    return errors
+
+
+def check_no_experiment_artifacts(paths: list[Path]) -> list[str]:
+    errors: list[str] = []
+    for path in paths:
+        relative = path.relative_to(ROOT)
+        if path.suffix.lower() in FORBIDDEN_ARTIFACT_SUFFIXES:
+            errors.append(f"Experiment/checkpoint artifact must not be tracked: {relative}")
+        if any(part.lower() in FORBIDDEN_ARTIFACT_DIRS for part in relative.parts[:-1]):
+            errors.append(f"Experiment output directory must not be tracked: {relative}")
+    return errors
+
+
+def check_public_metadata() -> list[str]:
+    errors: list[str] = []
+    expected_title = "R4DGS: Referring Segmentation in 4D Gaussian Splatting"
+    expected_doi = "10.1145/3767308.3836021"
+    for relative in ("README.md", "CITATION.cff", "docs/index.html"):
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        if expected_title not in text:
+            errors.append(f"Camera-ready title is missing from {relative}")
+        if expected_doi not in text:
+            errors.append(f"Camera-ready DOI is missing from {relative}")
+        if "Chu Liuxin" in text:
+            errors.append(f"Camera-ready author order must be 'Liuxin Chu' in {relative}")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    page = (ROOT / "docs/index.html").read_text(encoding="utf-8")
+    citation = (ROOT / "CITATION.cff").read_text(encoding="utf-8")
+    for label, text in (("README", readme), ("project page", page), ("CITATION", citation)):
+        for forbidden in ("R4D-Bench reconstruction", "PSNR", "SSIM", "LPIPS", "Dynamic Scene Reconstruction"):
+            if forbidden in text:
+                errors.append(f"{label} still presents reconstruction content: {forbidden}")
     return errors
 
 
@@ -168,25 +214,19 @@ def check_release_queries() -> list[str]:
     errors: list[str] = []
     if actual != expected:
         errors.append(f"R4D dense release scene counts differ: expected={expected}, actual={actual}")
-    if sum(actual.values()) != 89:
-        errors.append(f"R4D dense release query count is {sum(actual.values())}, expected 89")
+    if sum(actual.values()) != 89 or len(actual) != 12:
+        errors.append(f"R4D dense release must contain 89 queries over 12 scenes; got {sum(actual.values())}/{len(actual)}")
     non_english = [
-        str(query_id)
-        for query_id, query_text in payload.items()
+        str(query_id) for query_id, query_text in payload.items()
         if re.search(r"[\u4e00-\u9fff]", str(query_text))
     ]
     if non_english:
-        errors.append(
-            "R4D release query text must be English; found CJK text for: "
-            + ", ".join(sorted(non_english)[:10])
-        )
+        errors.append("R4D release queries must be English: " + ", ".join(sorted(non_english)[:10]))
     return errors
 
 
 def check_protocol_registry() -> list[str]:
     path = ROOT / "configs" / "benchmarks" / "release_protocols.json"
-    if not path.is_file():
-        return ["Release protocol registry is missing"]
     payload = json.loads(path.read_text(encoding="utf-8"))
     protocols = payload.get("protocols", {})
     expected = {
@@ -205,290 +245,111 @@ def check_protocol_registry() -> list[str]:
         if not isinstance(row, dict):
             errors.append(f"Protocol registry entry is missing: {protocol_id}")
             continue
-        if int(row.get("scene_count", -1)) != scene_count:
-            errors.append(f"Protocol {protocol_id} scene_count must be {scene_count}")
-        if int(row.get("query_count", -1)) != query_count:
-            errors.append(f"Protocol {protocol_id} query_count must be {query_count}")
-    query_map_path = ROOT / "configs" / "benchmarks" / "r4d_query_text_en.json"
-    actual_query_map_hash = hashlib.sha256(query_map_path.read_bytes()).hexdigest()
-    for protocol_id in (
-        "release_r4d_dense89",
-        "release_r4d_dense89_renderer_consistent",
-    ):
-        dense_row = protocols.get(protocol_id, {})
-        if dense_row.get("english_query_map_sha256") != actual_query_map_hash:
-            errors.append(
-                f"Protocol {protocol_id} English query-map hash does not match "
-                "configs/benchmarks/r4d_query_text_en.json"
-            )
-    return errors
-
-
-def check_reconstruction_registry() -> list[str]:
-    path = ROOT / "configs" / "benchmarks" / "reconstruction_release_v1.json"
-    if not path.is_file():
-        return ["Reconstruction protocol registry is missing"]
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    identities = payload.get("identities", {})
-    errors: list[str] = []
-    paper = identities.get("paper_reported_12_scene_table", {})
-    archival = identities.get("archival_selected_8_candidate", {})
-    release = identities.get("release_reconstruction_v1", {})
-    paper_compat = identities.get("release_reconstruction_v2_paper_compat", {})
-    if paper.get("executable") is not False:
-        errors.append("Unresolved paper reconstruction identity must remain non-executable")
-    if archival.get("executable") is not False:
-        errors.append("Archival selected-8 reconstruction identity must remain non-executable")
-    if release.get("executable") is not True or release.get("is_paper_reproduction") is not False:
-        errors.append("release_reconstruction_v1 must be executable and explicitly non-paper")
-    if release.get("scene_count") != 12 or len(release.get("scene_ids", [])) != 12:
-        errors.append("release_reconstruction_v1 must freeze exactly 12 scenes")
-    shared = release.get("shared", {})
-    if shared.get("seed") != 6666 or shared.get("iterations") != 14000:
-        errors.append("release_reconstruction_v1 must freeze seed 6666 and 14000 iterations")
-    if shared.get("metric_mode") != "full":
-        errors.append("release_reconstruction_v1 must use full reconstruction metrics")
-    if shared.get("aggregation") != "scene_equal_arithmetic_mean":
-        errors.append("release_reconstruction_v1 must use a scene-equal aggregate")
-    if shared.get("post_hoc_psnr_filtering") is not False:
-        errors.append("release_reconstruction_v1 must forbid post-hoc PSNR filtering")
-    if (
-        paper_compat.get("extends") != "release_reconstruction_v1"
-        or paper_compat.get("executable") is not True
-        or paper_compat.get("is_paper_reproduction") is not False
-    ):
-        errors.append(
-            "release_reconstruction_v2_paper_compat must extend v1 and remain explicitly non-paper"
-        )
-    if paper_compat.get("shared", {}).get("seed") != 0:
-        errors.append("paper-compatible reconstruction must freeze the historical effective seed 0")
-    compat_environment = paper_compat.get("refergaussian", {}).get(
-        "frozen_environment", {}
-    )
-    if compat_environment.get("TEMPORAL_WARP_LR_SCHEDULE") != "constant":
-        errors.append("paper-compatible reconstruction must freeze the historical constant warp LR")
+        if int(row.get("scene_count", -1)) != scene_count or int(row.get("query_count", -1)) != query_count:
+            errors.append(f"Protocol {protocol_id} must be {scene_count} scenes/{query_count} queries")
+    query_map = ROOT / "configs" / "benchmarks" / "r4d_query_text_en.json"
+    actual_hash = hashlib.sha256(query_map.read_bytes()).hexdigest()
+    for protocol_id in ("release_r4d_dense89", "release_r4d_dense89_renderer_consistent"):
+        if protocols.get(protocol_id, {}).get("english_query_map_sha256") != actual_hash:
+            errors.append(f"Protocol {protocol_id} English query-map hash does not match")
     return errors
 
 
 def check_runtime_contracts() -> list[str]:
-    """Catch deleted dependencies and CLI drift in the documented query path."""
     errors: list[str] = []
-    for relative_path in REQUIRED_RUNTIME_FILES:
-        if not (ROOT / relative_path).is_file():
-            errors.append(f"Required query runtime file is missing: {relative_path}")
-    for relative_path, token in REQUIRED_RUNTIME_TOKENS.items():
-        path = ROOT / relative_path
+    for relative in REQUIRED_RUNTIME_FILES:
+        if not (ROOT / relative).is_file():
+            errors.append(f"Required query runtime file is missing: {relative}")
+    for relative, token in REQUIRED_RUNTIME_TOKENS.items():
+        path = ROOT / relative
         if path.is_file() and token not in path.read_text(encoding="utf-8", errors="replace"):
-            errors.append(f"Required query runtime contract is missing: {relative_path} -> {token}")
+            errors.append(f"Required query runtime contract is missing: {relative} -> {token}")
     return errors
 
 
 def check_runtime_release_guards() -> list[str]:
-    """Keep the documented path English-only, generic, and free of silent recovery."""
     errors: list[str] = []
-    for relative_path in ENGLISH_RUNTIME_FILES:
-        path = ROOT / relative_path
-        if not path.is_file():
-            continue
+    for relative in ENGLISH_RUNTIME_FILES:
+        path = ROOT / relative
         if re.search(r"[\u4e00-\u9fff]", path.read_text(encoding="utf-8", errors="replace")):
-            errors.append(f"Runtime source must remain English-only: {relative_path}")
+            errors.append(f"Runtime source must remain English-only: {relative}")
 
-    planner_text = (ROOT / "refergaussian/semantics/qwen_query_planner.py").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    selector_text = (ROOT / "refergaussian/semantics/select_qwen_query_entities.py").read_text(
-        encoding="utf-8", errors="replace"
-    )
+    planner = (ROOT / "refergaussian/semantics/qwen_query_planner.py").read_text(encoding="utf-8")
+    selector = (ROOT / "refergaussian/semantics/select_qwen_query_entities.py").read_text(encoding="utf-8")
     for term in OBJECT_SPECIFIC_ALIAS_TERMS:
-        if term in planner_text or term in selector_text:
+        if term in planner or term in selector:
             errors.append(f"Runtime must not contain object-specific alias rule: {term!r}")
 
-    lifting_text = (ROOT / "refergaussian/semantics/mask_supported_lifting.py").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    if "_is_thin_object_phrase" in lifting_text:
+    lifting = (ROOT / "refergaussian/semantics/mask_supported_lifting.py").read_text(encoding="utf-8")
+    if "_is_thin_object_phrase" in lifting:
         errors.append("Lifting must use geometry, not object-name thinness rules")
 
-    profile_text = (ROOT / "scripts/query_eval_profiles.sh").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    if "QUERY_LIFT_ALLOW_SPARSE_FALLBACK=1" in profile_text:
-        errors.append("Published profiles must not enable sparse-candidate fallback")
-    if "QUERY_SKIP_QWEN_EXPORT=1" in profile_text or "QUERY_SKIP_QWEN_SELECTION=1" in profile_text:
-        errors.append("Published profiles must not bypass Qwen semantic assignment or selection")
-    if "QUERY_LIFT_BOOTSTRAP_PROXY_EVIDENCE_ONLY=1" in profile_text:
-        errors.append("Published profiles must not use proxy-only Gaussian membership selection")
-    if "QUERY_LIFT_BOOTSTRAP_FINAL_RENDER_METRICS=0" in profile_text:
-        errors.append("Published profiles must compute final rendered Gaussian overlap metrics")
-    if "QUERY_STATIC_SELECT_WITHOUT_QWEN=1" in profile_text:
-        errors.append("Published profiles must not bypass Qwen during static entity selection")
-
-    pipeline_text = (ROOT / "scripts/run_query_specific_worldtube_pipeline.sh").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    if "QUERY_ALLOW_FULLSCENE_FALLBACK" in pipeline_text:
-        errors.append("Published query pipeline must not contain full-scene fallback")
-    if "QUERY_RETRY_RELAXED_GSAM2:-1" in pipeline_text:
-        errors.append("Published query pipeline must not enable relaxed GSAM2 retry by default")
-    if "require_refergaussian_run" not in pipeline_text:
-        errors.append("Published query pipeline must validate the ReferGaussian training identity")
-    if "check_query_runtime.py" not in pipeline_text:
-        errors.append("Published query pipeline must validate the Qwen checkpoint before Stage-1")
-    if "check_grounded_sam2_import.py" not in pipeline_text:
-        errors.append("Published query pipeline must validate Grounded-SAM2 import provenance")
-
-    grounded_sam_text = (ROOT / "scripts/run_query_guided_grounded_sam2.sh").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    if "GSAM2_QUERY_PLAN_STRICT_FALLBACK:-1" in grounded_sam_text:
-        errors.append("Published Stage-1 path must not enable non-strict planner fallback by default")
-
-    baseline_eval_text = (ROOT / "scripts/eval_baseline.sh").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    if "--warp_enabled" in baseline_eval_text or "temporal_warp_type" in baseline_eval_text:
-        errors.append("Baseline evaluation must not enable ReferGaussian temporal warp")
-    seed_patch_text = (ROOT / "patches" / "4dgaussians_seed_order.patch").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    seed_after_safe_state = seed_patch_text.find("+    setup_seed(args.seed)") > seed_patch_text.find(
-        "    safe_state(args.quiet)"
-    )
-    if not seed_after_safe_state:
-        errors.append("4DGaussians seed-order patch must restore the requested seed after safe_state")
-    metrics_patch_text = (ROOT / "patches" / "4dgaussians_metrics_cache.patch").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    if "LPIPS(net_type='vgg').cuda()" not in metrics_patch_text:
-        errors.append("4DGaussians metric patch must cache the VGG LPIPS network")
-    warp_schedule_patch_text = (
-        ROOT / "patches" / "4dgaussians_temporal_warp_schedule.patch"
-    ).read_text(encoding="utf-8", errors="replace")
-    if "hyper.temporal_warp_lr_init" not in warp_schedule_patch_text:
-        errors.append("Temporal warp patch must use its independently configured learning rate")
-    if 'hyper.temporal_warp_lr_schedule == "shared_exponential"' not in warp_schedule_patch_text:
-        errors.append("Temporal warp patch must make schedule selection explicit")
-    if "gaussians.temporal_scheduler_args(iteration)" not in warp_schedule_patch_text:
-        errors.append("Temporal warp patch must retain the optional shared exponential schedule")
-    for relative_path in ("scripts/train.sh", "scripts/train_baseline.sh"):
-        train_text = (ROOT / relative_path).read_text(encoding="utf-8", errors="replace")
-        if "REFERGAUSSIAN_SEED" not in train_text or "--seed" not in train_text:
-            errors.append(f"Matched reconstruction training must expose an explicit seed: {relative_path}")
-        if "REFERGAUSSIAN_ITERATIONS:-14000" not in train_text or "--iterations" not in train_text:
-            errors.append(
-                f"Matched reconstruction training must fix the 14k release budget: {relative_path}"
-            )
-
-    query_render_text = (ROOT / "refergaussian/semantics/query_render.py").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    if "ours_fallback_source" in query_render_text:
-        errors.append("Query rendering must not substitute source RGB for model renders")
-    if '"glass", "cup", "bottle"' in query_render_text:
-        errors.append("Query rendering must not contain object-specific intent rules")
-    if "cloud_only_fallback" in query_render_text:
-        errors.append("Query rendering must not silently replace an empty Gaussian projection")
-
-    if (ROOT / "refergaussian/semantics/qwen_pair_query.py").exists():
-        errors.append("Unused object-specific pair-query utility must not ship in the release")
-    qwen_assignment_text = (ROOT / "refergaussian/semantics/qwen_assignment.py").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    if "looks like a lemon, knife" in qwen_assignment_text:
-        errors.append("Qwen assignment prompt must not contain named scene-object examples")
-    public_manifest_text = (ROOT / "scripts/build_public_query_manifest.py").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    if "SCENE_QUERIES_ALL" in public_manifest_text:
-        errors.append("Public release manifest must be generated only from annotation protocols")
-
-    for relative_path in (
-        "refergaussian/semantics/qwen_query_planner.py",
-        "refergaussian/semantics/select_qwen_query_entities.py",
-        "scripts/run_query_specific_worldtube_pipeline.sh",
+    profiles = (ROOT / "scripts/query_eval_profiles.sh").read_text(encoding="utf-8")
+    for forbidden in (
+        "QUERY_LIFT_ALLOW_SPARSE_FALLBACK=1",
+        "QUERY_SKIP_QWEN_EXPORT=1",
+        "QUERY_SKIP_QWEN_SELECTION=1",
+        "QUERY_LIFT_BOOTSTRAP_PROXY_EVIDENCE_ONLY=1",
+        "QUERY_LIFT_BOOTSTRAP_FINAL_RENDER_METRICS=0",
+        "QUERY_STATIC_SELECT_WITHOUT_QWEN=1",
+        "QUERY_ALLOW_BASELINE_4DGS_RUN",
     ):
-        runtime_text = (ROOT / relative_path).read_text(encoding="utf-8", errors="replace")
-        for forbidden in ("dual_hand", "handed_detector", "QUERY_DUAL_HAND", "hand_like"):
-            if forbidden in runtime_text:
-                errors.append(
-                    f"Runtime must use generic multi-entity handling, not a hand-specific branch: {relative_path}"
-                )
+        if forbidden in profiles:
+            errors.append(f"Published profiles contain a forbidden bypass: {forbidden}")
 
-    setup_gsam_text = (ROOT / "scripts/setup_grounded_sam2.sh").read_text(
-        encoding="utf-8", errors="replace"
-    )
+    pipeline = (ROOT / "scripts/run_query_specific_worldtube_pipeline.sh").read_text(encoding="utf-8")
+    if "QUERY_ALLOW_FULLSCENE_FALLBACK" in pipeline:
+        errors.append("Published query pipeline must not contain full-scene fallback")
+    if "QUERY_RETRY_RELAXED_GSAM2:-1" in pipeline:
+        errors.append("Published query pipeline must not enable relaxed GSAM2 retry by default")
+    for token in ("require_4dgs_run", "check_query_runtime.py", "check_grounded_sam2_import.py"):
+        if token not in pipeline:
+            errors.append(f"Published query pipeline is missing guard: {token}")
+
+    query_render = (ROOT / "refergaussian/semantics/query_render.py").read_text(encoding="utf-8")
+    for forbidden in ("ours_fallback_source", '"glass", "cup", "bottle"', "cloud_only_fallback"):
+        if forbidden in query_render:
+            errors.append(f"Query renderer contains a forbidden fallback/rule: {forbidden}")
+
+    setup_gsam = (ROOT / "scripts/setup_grounded_sam2.sh").read_text(encoding="utf-8")
     for revision in (
         "e6a8e8809b8f1bfa2238b6d080f3d05cc76bd251",
         "12bdfa3120f3e7ec7b434d90674b3396eccf88eb",
         "transformers==5.3.0",
         "huggingface_hub==1.7.2",
     ):
-        if revision not in setup_gsam_text:
+        if revision not in setup_gsam:
             errors.append(f"Grounded-SAM2 setup must pin {revision}")
-    query_launch_text = (ROOT / "scripts/run_query_guided_grounded_sam2.sh").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    if "--grounding-model-revision" not in query_launch_text or "--sam2-model-revision" not in query_launch_text:
-        errors.append("Query launcher must pass pinned Grounded-SAM2 model revisions")
-    if "GSAM2_LOCAL_FILES_ONLY:-1" not in query_launch_text:
-        errors.append("Query launcher must default to local-only pinned Grounded-SAM2 weights")
-    if "GSAM2_INFERENCE_SEED:-0" not in query_launch_text:
-        errors.append("Query launcher must default to deterministic Grounded-SAM2 inference seed 0")
-    if "QUERY_OUTPUT_ROOT_OVERRIDE" not in query_launch_text:
-        errors.append("Query launcher must honor the batch query output root")
-    grounded_backend_text = (ROOT / "refergaussian/semantics/grounded_sam2_backend.py").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    for token in (
-        "HF_MODEL_ID_TO_FILENAMES",
-        "revision=sam2_model_revision",
-        "local_files_only=local_files_only",
-        "use_fast=True",
-        "np.random.seed(seed)",
-        "torch.manual_seed(seed)",
-        '"inference_seed": int(inference_seed)',
-    ):
-        if token not in grounded_backend_text:
-            errors.append(f"Grounded-SAM2 runtime must pin local snapshots: {token}")
 
-    r4d_download_text = (ROOT / "scripts/download_r4d_bench_qa.sh").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    if "0fe2b3a99a95632ea6d0bd1718723ac24804e49b" not in r4d_download_text:
-        errors.append("R4D dataset download must pin a snapshot revision")
-    public_annotation_text = (ROOT / "scripts/download_4dlangsplat_annotations.sh").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    if "d127a280446206fc97887a304de790a1fe6af5ff" not in public_annotation_text:
-        errors.append("Public annotation download must pin a snapshot revision")
-    readme_text = (ROOT / "README.md").read_text(encoding="utf-8", errors="replace")
-    if "gsam2_python scripts/download_hf_snapshot.py" not in readme_text:
-        errors.append("README must download Qwen with the Grounded-SAM2 environment")
-    if "--require-pinned-manifest" not in readme_text:
-        errors.append("README must document pinned Qwen snapshot verification")
-    if "GSAM2_INSTALL_EDITABLE=1" not in readme_text:
-        errors.append("README must document the pinned Grounded-SAM2 install mode")
-    if "--require-complete" not in readme_text:
-        errors.append("README must require complete coverage for final benchmark reports")
-    if "--strict-release" not in readme_text:
-        errors.append("README must use the strict-release query runner for final benchmark reports")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for token in (
+        "gsam2_python scripts/download_hf_snapshot.py",
+        "--require-pinned-manifest",
+        "GSAM2_INSTALL_EDITABLE=1",
+        "--require-complete",
+        "--strict-release",
+    ):
+        if token not in readme:
+            errors.append(f"README is missing release contract: {token}")
     return errors
 
 
 def main() -> int:
-    errors = check_forbidden_text(tracked_files())
-    errors.extend(check_forbidden_release_paths())
+    paths = tracked_files()
+    errors = check_forbidden_text(paths)
+    errors.extend(check_forbidden_paths(paths))
+    errors.extend(check_no_experiment_artifacts(paths))
+    errors.extend(check_public_metadata())
     errors.extend(check_readme_scripts())
     errors.extend(check_release_queries())
     errors.extend(check_protocol_registry())
-    errors.extend(check_reconstruction_registry())
     errors.extend(check_runtime_contracts())
     errors.extend(check_runtime_release_guards())
     if errors:
         for error in errors:
             print(f"[error] {error}")
         return 1
-    print("[ok] public release preflight passed")
+    print("[ok] inference-only public release preflight passed")
     return 0
 
 

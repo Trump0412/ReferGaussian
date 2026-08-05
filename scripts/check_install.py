@@ -28,8 +28,9 @@ def main():
         "torchvision",
         "torchaudio",
         "plyfile",
-        "refergaussian.temporal",
-        "utils.config_utils",
+        "arguments",
+        "gaussian_renderer",
+        "scene",
         "diff_gaussian_rasterization",
         "simple_knn._C",
     ]:
@@ -47,22 +48,7 @@ def main():
         results["cuda_runtime"] = torch.version.cuda
         results["cuda_home"] = os.environ.get("CUDA_HOME")
 
-        from argparse import Namespace
-        from refergaussian.temporal import build_temporal_warp
-        from utils.config_utils import load_config_dict
-
-        dummy_args = Namespace(
-            warp_enabled=True,
-            temporal_warp_type="mlp",
-            warp_hidden_dim=16,
-            warp_num_layers=2,
-            warp_num_bins=128,
-        )
-        warp = build_temporal_warp(dummy_args, device="cuda" if torch.cuda.is_available() else "cpu")
-        probe = torch.linspace(0.0, 1.0, 4, device=warp.device).unsqueeze(-1)
-        results["temporal_probe"] = warp(probe).detach().cpu().tolist()
-        config = load_config_dict(os.path.join(UPSTREAM_ROOT, "arguments", "dnerf", "bouncingballs.py"))
-        results["config_loader"] = config["ModelHiddenParams"]["kplanes_config"]["resolution"]
+        results["upstream_4dgs_revision"] = "843d5ac636c37e4b611242287754f3d4ed150144"
 
     try:
         _, version = import_version("open3d")

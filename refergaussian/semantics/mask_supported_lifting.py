@@ -544,7 +544,7 @@ def _collect_support(
                     f"got {None if covariance_world is None else covariance_world.shape}"
                 )
             # Stage-1 masks are produced at the same source resolution as the
-            # reconstruction inputs.  Use the renderer's centered-FoV camera,
+            # upstream 4DGS inputs.  Use the renderer's centered-FoV camera,
             # not the dataset JSON lens model, for both support and splatting.
             camera = renderer_geometry.resolve_projection_camera(
                 image_id=image_id,

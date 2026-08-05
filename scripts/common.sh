@@ -153,13 +153,9 @@ gs_python() {
   fi
 }
 
-require_refergaussian_run() {
+require_4dgs_run() {
   local run_dir="$1"
-  local args=(--run-dir "${run_dir}")
-  if [[ "${QUERY_ALLOW_BASELINE_4DGS_RUN:-0}" == "1" ]]; then
-    args+=(--allow-baseline-4dgs)
-  fi
-  gs_python "${GS_ROOT}/scripts/validate_refergaussian_run.py" "${args[@]}"
+  gs_python "${GS_ROOT}/scripts/validate_4dgs_run.py" --run-dir "${run_dir}"
 }
 
 gs_pip() {

@@ -21,14 +21,14 @@ from refergaussian.semantics.source_images import resolve_dataset_image_entries,
 
 
 PROMPT_TEMPLATE = """You are selecting candidate aliases from a query-specific ReferGaussian 4D entity library.
-You will receive a natural-language query, a query plan, a small candidate set of reconstructed entities,
+You will receive a natural-language query, a query plan, and a small candidate set of Gaussian entities,
 and candidate entity-pair interaction windows. Decide which candidate aliases are the main query subjects and,
 if relevant, which candidate aliases are successor state objects. Do not choose numeric entity ids.
 
 Total test frames: {total_frames}
 
 Temporal field guide (all segment indices are test-frame indices, 0-based):
-- support_segments_test: frames where the entity is reconstructed / visible
+- support_segments_test: frames where the entity is visible
 - moving_segments_test: frames where the entity is actively moving
 - stationary_segments_test: frames where the entity is stationary
 - query_relevant_segments_test: frames where this entity participates in a detected interaction

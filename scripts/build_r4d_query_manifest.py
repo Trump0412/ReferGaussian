@@ -56,51 +56,51 @@ QUERY_TYPE_TO_CATEGORY = {
 # not algorithm branches.
 SCENE_CONFIG: dict[str, tuple[str, str]] = {
     "americano": (
-        "refergaussian/hypernerf/americano",
+        "baseline_4dgs/hypernerf/americano",
         "hypernerf/misc/americano",
     ),
     "cut_lemon": (
-        "refergaussian/hypernerf/cut-lemon1",
+        "baseline_4dgs/hypernerf/cut-lemon1",
         "hypernerf/interp/cut-lemon1",
     ),
     "split_cookie": (
-        "refergaussian/hypernerf/split-cookie",
+        "baseline_4dgs/hypernerf/split-cookie",
         "hypernerf/misc/split-cookie",
     ),
     "espresso": (
-        "refergaussian/hypernerf/espresso",
+        "baseline_4dgs/hypernerf/espresso",
         "hypernerf/misc/espresso",
     ),
     "keyboard": (
-        "refergaussian/hypernerf/keyboard",
+        "baseline_4dgs/hypernerf/keyboard",
         "hypernerf/misc/keyboard",
     ),
     "torchchocolate": (
-        "refergaussian/hypernerf/torchocolate",
+        "baseline_4dgs/hypernerf/torchocolate",
         "hypernerf/interp/torchocolate",
     ),
     "coffee_martini": (
-        "refergaussian/dynerf/coffee_martini",
+        "baseline_4dgs/dynerf/coffee_martini",
         "dynerf/coffee_martini",
     ),
     "cook_spinach": (
-        "refergaussian/dynerf/cook_spinach",
+        "baseline_4dgs/dynerf/cook_spinach",
         "dynerf/cook_spinach",
     ),
     "flame_salmon": (
-        "refergaussian/dynerf/flame_salmon_1",
+        "baseline_4dgs/dynerf/flame_salmon_1",
         "dynerf/flame_salmon_1",
     ),
     "flame_steak": (
-        "refergaussian/dynerf/flame_steak",
+        "baseline_4dgs/dynerf/flame_steak",
         "dynerf/flame_steak",
     ),
     "sear_steak": (
-        "refergaussian/dynerf/sear_steak",
+        "baseline_4dgs/dynerf/sear_steak",
         "dynerf/sear_steak",
     ),
     "cut_roasted_beef": (
-        "refergaussian/dynerf/cut_roasted_beef",
+        "baseline_4dgs/dynerf/cut_roasted_beef",
         "dynerf/cut_roasted_beef",
     ),
 }
@@ -351,7 +351,7 @@ def _resolve_under_root(path_str: str, root: str) -> str:
 def _run_relative_path(run_path: str, namespace: str) -> str:
     """Replace only the release output namespace in a documented run layout."""
     path = Path(run_path)
-    if path.is_absolute() or not path.parts or path.parts[0] != "refergaussian":
+    if path.is_absolute() or not path.parts or path.parts[0] not in {"baseline_4dgs", "4dgs", "refergaussian"}:
         return str(path)
     return str(Path(namespace, *path.parts[1:]))
 
@@ -431,8 +431,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--run-namespace",
-        default=os.environ.get("REFERGAUSSIAN_RUN_NAMESPACE", "refergaussian"),
-        help="Run namespace beneath --run-root (default: REFERGAUSSIAN_RUN_NAMESPACE or refergaussian).",
+        default=os.environ.get("REFERGAUSSIAN_RUN_NAMESPACE", "baseline_4dgs"),
+        help="4DGS run namespace beneath --run-root (default: baseline_4dgs).",
     )
     parser.add_argument(
         "--allow-non-english-query-text",

@@ -26,12 +26,6 @@ class StorageRootContractTest(unittest.TestCase):
             "/tmp/refergaussian-data/dynerf/coffee_martini",
         )
 
-    def test_train_and_eval_wrappers_use_configurable_run_root(self) -> None:
-        expected = "${GS_RUN_ROOT}/${RUN_NAMESPACE}/${DATASET}/${SCENE##*/}"
-        for name in ("train.sh", "train_baseline.sh", "eval.sh", "eval_baseline.sh"):
-            text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
-            self.assertIn(expected, text, name)
-
     def test_hypernerf_preparation_uses_data_root_and_fails_without_point_cloud(self) -> None:
         text = (ROOT / "scripts" / "prepare_hypernerf.sh").read_text(encoding="utf-8")
         self.assertIn('DATA_ROOT="${GS_DATA_ROOT}/hypernerf"', text)
@@ -39,24 +33,11 @@ class StorageRootContractTest(unittest.TestCase):
         self.assertIn("COLMAP is required to finish", text)
         self.assertIn('if [[ ! -s "${target_dir}/points3D_downsample2.ply" ]]', text)
 
-    def test_matched_training_wrappers_fix_the_release_iteration_budget(self) -> None:
-        for name in ("train.sh", "train_baseline.sh"):
+    def test_manifest_builders_default_to_frozen_4dgs_inputs(self) -> None:
+        for name in ("build_public_query_manifest.py", "build_r4d_query_manifest.py"):
             text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
-            self.assertIn("REFERGAUSSIAN_ITERATIONS:-14000", text, name)
-            self.assertIn("--iterations '${TRAIN_ITERATIONS}'", text, name)
-            self.assertIn("iterations: ${TRAIN_ITERATIONS}", text, name)
-
-    def test_full_metric_eval_streams_only_the_test_camera_split(self) -> None:
-        for name in ("eval.sh", "eval_baseline.sh"):
-            text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
-            for option in (
-                "--skip_train",
-                "--skip_video",
-                "--only_split test",
-                "--stream_write",
-                "--no_video_file",
-            ):
-                self.assertIn(option, text, f"{name}: {option}")
+            self.assertIn('"baseline_4dgs"', text, name)
+            self.assertNotIn('"refergaussian/hypernerf/', text, name)
 
 
 if __name__ == "__main__":

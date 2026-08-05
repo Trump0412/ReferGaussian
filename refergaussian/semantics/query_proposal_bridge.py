@@ -1067,7 +1067,7 @@ def build_query_proposal_dir(
                     expansion_factor=float(expansion_factor),
                 )
             except ValueError as _phrase_err:
-                # Phrase has no Gaussian support in the reconstruction — skip gracefully.
+                # Phrase has no support in the frozen Gaussian scene; skip gracefully.
                 # This can happen for post-split sub-variants that were tracked by GSAM2
                 # but don't have a distinct Gaussian cluster in the bank.
                 print(f"[query_proposal_bridge] WARNING: Skipping phrase '{variant['alias']}': {_phrase_err}")

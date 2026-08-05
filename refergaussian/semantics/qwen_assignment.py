@@ -42,7 +42,7 @@ DEFAULT_QWEN_MODEL = Path(
 )
 
 ENTITY_PROMPT_TEMPLATE = """You are assigning continuous semantics to one ReferGaussian 4D worldtube entity.
-You are given a few representative crops from the same entity across time and a geometry prior derived from the 4D reconstruction.
+You are given a few representative crops from the same entity across time and a geometry prior derived from the frozen 4DGS scene.
 Your job is to identify the entity and describe its continuous semantics over time.
 
 Entity prior:

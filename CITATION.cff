@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: "ReferGaussian: Referring Segmentation in 4D Gaussian Splatting"
+title: "R4DGS: Referring Segmentation in 4D Gaussian Splatting"
 message: "If you use this project, please cite our ACM Multimedia 2026 paper."
 type: software
 authors:
@@ -23,16 +23,17 @@ repository-code: "https://github.com/Trump0412/ReferGaussian"
 url: "https://trump0412.github.io/ReferGaussian/"
 license: "MIT"
 abstract: >-
-  ReferGaussian is a unified framework for dynamic 4D Gaussian reconstruction
-  and training-free referring inference under complex spatiotemporal queries.
+  ReferGaussian performs training-free referring inference over frozen 4D
+  Gaussian scenes under complex spatiotemporal queries.
 keywords:
   - 4D Gaussian Splatting
-  - Dynamic Scene Reconstruction
+  - Referring Segmentation
   - Referring Understanding
   - Multimodal Reasoning
+doi: "10.1145/3767308.3836021"
 preferred-citation:
   type: conference-paper
-  title: "ReferGaussian: Referring Segmentation in 4D Gaussian Splatting"
+  title: "R4DGS: Referring Segmentation in 4D Gaussian Splatting"
   authors:
     - family-names: "Chen"
       given-names: "Bangpu"
@@ -51,5 +52,6 @@ preferred-citation:
     - family-names: "Ding"
       given-names: "Jiayu"
   conference:
-    name: "ACM Multimedia 2026"
+    name: "Proceedings of the 34th ACM International Conference on Multimedia"
   year: 2026
+  doi: "10.1145/3767308.3836021"

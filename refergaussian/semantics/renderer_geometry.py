@@ -1,7 +1,7 @@
 """Renderer-consistent Gaussian geometry caches for query-time lifting.
 
 The training-free semantic stages must use the same deformed Gaussian state as
-the reconstruction renderer.  This module provides a compact on-disk cache
+the frozen upstream 4DGS renderer.  This module provides a compact on-disk cache
 contract and the GPU exporter that evaluates that state at source-camera times.
 It deliberately fails when a requested state is unavailable rather than
 silently falling back to the old analytic trajectory approximation.
@@ -117,35 +117,6 @@ def _read_json(path: Path) -> dict[str, Any]:
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, ensure_ascii=False)
-
-
-def _read_simple_yaml(path: Path) -> dict[str, Any]:
-    """Read the scalar run metadata written by ``scripts/train.sh``."""
-    payload: dict[str, Any] = {}
-    if not path.exists():
-        return payload
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        key = key.strip()
-        value = value.strip()
-        if value.lower() in {"true", "false"}:
-            payload[key] = value.lower() == "true"
-            continue
-        try:
-            payload[key] = int(value)
-            continue
-        except ValueError:
-            pass
-        try:
-            payload[key] = float(value)
-            continue
-        except ValueError:
-            pass
-        payload[key] = value
-    return payload
 
 
 def _pack_covariance(covariance: np.ndarray) -> np.ndarray:
@@ -322,7 +293,7 @@ class RendererGeometryCache:
         *,
         require_exact_image_id: bool = True,
     ) -> RendererProjectionCamera:
-        """Return the exact source-camera projection used during reconstruction."""
+        """Return the exact source-camera projection used by the frozen 4DGS renderer."""
         frame_index, _exact_image_id = self._resolve_frame_index(
             image_id,
             time_value,
@@ -406,70 +377,34 @@ def _prepare_external_imports(project_root: Path) -> None:
             sys.path.insert(0, candidate)
 
 
-def _overlay_run_config(args: Any, config_path: Path) -> Any:
-    for key, value in _read_simple_yaml(config_path).items():
-        if hasattr(args, key):
-            setattr(args, key, value)
-    return args
-
-
 def _load_renderer_runtime(run_dir: Path) -> tuple[Any, Any, Any, Any, int]:
-    """Load the exact fine-stage model used by ``external/4DGaussians/render.py``."""
+    """Load a frozen model with the pinned upstream 4DGaussians runtime."""
     project_root = Path(__file__).resolve().parents[2]
     _prepare_external_imports(project_root)
 
     from arguments import ModelHiddenParams, ModelParams, PipelineParams, get_combined_args
     from gaussian_renderer import GaussianModel
     from scene import Scene
-    from utils.config_utils import apply_config_file
-
-    from refergaussian.temporal import attach_temporal_warp, build_temporal_warp, load_temporal_warp
 
     argv_before = sys.argv[:]
     try:
-        # Reuse the upstream parser and cfg_args loader, then restore the explicit
-        # ReferGaussian values recorded by scripts/train.sh.  The latter is needed
-        # because the base 4DGaussians config intentionally has no knowledge of
-        # ReferGaussian-only temporal flags.
+        # get_combined_args reads the standard cfg_args stored in the run root.
         sys.argv = [argv_before[0] if argv_before else "renderer_geometry", "-m", str(run_dir)]
         parser = argparse.ArgumentParser(description="ReferGaussian renderer geometry")
         model = ModelParams(parser, sentinel=True)
         PipelineParams(parser)
         hidden = ModelHiddenParams(parser)
         args = get_combined_args(parser)
-        if getattr(args, "configs", None):
-            args = apply_config_file(args, args.configs)
-        args = _overlay_run_config(args, run_dir / "config.yaml")
     finally:
         sys.argv = argv_before
 
     gaussians = GaussianModel(args.sh_degree, hidden.extract(args))
     scene = Scene(model.extract(args), gaussians, load_iteration=-1, shuffle=False)
-    temporal_warp = build_temporal_warp(hidden.extract(args))
-    attach_temporal_warp(gaussians, temporal_warp)
-    warp_loaded = load_temporal_warp(temporal_warp, args.model_path, iteration=scene.loaded_iter)
-    if bool(getattr(args, "warp_enabled", False)) and not warp_loaded:
-        raise RuntimeError(
-            f"ReferGaussian temporal warp is enabled but no compatible checkpoint was loaded from {run_dir}"
-        )
-    return args, gaussians, temporal_warp, scene, int(scene.loaded_iter)
-
-
-def _select_context(gaussians: Any, indices: Any) -> dict[str, Any]:
-    context = dict(gaussians.get_temporal_context())
-    total = int(gaussians.get_xyz.shape[0])
-    selected: dict[str, Any] = {}
-    for key, value in context.items():
-        if hasattr(value, "ndim") and value.ndim >= 1 and int(value.shape[0]) == total:
-            selected[key] = value.index_select(0, indices)
-        else:
-            selected[key] = value
-    return selected
+    return args, gaussians, None, scene, int(scene.loaded_iter)
 
 
 def _renderer_state_at_time(
     gaussians: Any,
-    temporal_warp: Any,
     time_value: float,
     gaussian_ids: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -492,34 +427,6 @@ def _renderer_state_at_time(
             device=base_xyz.device,
         )
         means = base_xyz
-        time_for_deformation = raw_time
-        temporal_tube_slice = None
-        temporal_slice = None
-
-        if bool(getattr(gaussians, "temporal_extent_enabled", False)):
-            if bool(getattr(gaussians, "temporal_worldtube_enabled", False)):
-                raise RuntimeError(
-                    "renderer_geometry does not yet export multi-sample temporal_worldtube states; "
-                    "disable that experimental renderer mode rather than using an inconsistent semantic projection"
-                )
-            if bool(getattr(gaussians, "temporal_tube_enabled", False)):
-                temporal_tube_slice = gaussians.get_temporal_tube_slice(raw_time, indices=ids)
-                means = means + float(getattr(gaussians, "temporal_drift_mix", 1.0)) * temporal_tube_slice["mean_drift"]
-            else:
-                temporal_slice = gaussians.get_temporal_slice(raw_time, indices=ids)
-                means = means + float(getattr(gaussians, "temporal_drift_mix", 1.0)) * temporal_slice["drift"]
-
-        if temporal_warp is not None:
-            context = _select_context(gaussians, ids)
-            if temporal_tube_slice is not None:
-                context["query_delta"] = temporal_tube_slice["delta"]
-                context["query_normalized_time"] = temporal_tube_slice["normalized_time"]
-                context["query_gate"] = temporal_tube_slice["gate"]
-            elif temporal_slice is not None:
-                context["query_delta"] = temporal_slice["delta"]
-                context["query_normalized_time"] = temporal_slice["normalized_time"]
-                context["query_gate"] = temporal_slice["gate"]
-            time_for_deformation = temporal_warp(raw_time, context=context)
 
         means_final, scaling_raw_final, rotation_raw_final, opacity_raw_final, _ = gaussians._deformation(
             means,
@@ -527,14 +434,12 @@ def _renderer_state_at_time(
             raw_rotation,
             raw_opacity,
             shs,
-            time_for_deformation,
+            raw_time,
         )
         scaling_final = gaussians.scaling_activation(scaling_raw_final)
         rotation_final = gaussians.rotation_activation(rotation_raw_final)
         covariance_factor = build_scaling_rotation(scaling_final, rotation_final)
         covariance = covariance_factor @ covariance_factor.transpose(1, 2)
-        if temporal_tube_slice is not None:
-            covariance = covariance + float(getattr(gaussians, "temporal_tube_covariance_mix", 1.0)) * temporal_tube_slice["covariance"]
 
     return (
         means_final.detach().cpu().numpy().astype(np.float32),
@@ -669,7 +574,7 @@ def export_renderer_geometry(
             + ", ".join(missing_source_entries[:8])
         )
 
-    args, gaussians, temporal_warp, _scene, iteration = _load_renderer_runtime(run_dir)
+    args, gaussians, _unused_adapter, _scene, iteration = _load_renderer_runtime(run_dir)
     total_gaussians = int(gaussians.get_xyz.shape[0])
     if gaussian_ids is None:
         ids = np.arange(total_gaussians, dtype=np.int64)
@@ -734,7 +639,6 @@ def export_renderer_geometry(
     for frame_index, request in enumerate(normalized_requests):
         state_centers, state_covariance, state_opacity = _renderer_state_at_time(
             gaussians,
-            temporal_warp,
             float(request["time_value"]),
             ids,
         )
@@ -768,10 +672,7 @@ def export_renderer_geometry(
         "state_fields": ["centers", "covariance_packed", "opacity_logit"],
         "projection_fields": ["projection_world_view", "projection_full", "projection_image_sizes"],
         "projection_mode": "4dgs_renderer_camera",
-        "temporal_warp_enabled": bool(getattr(args, "warp_enabled", False)),
-        "temporal_warp_type": str(getattr(args, "temporal_warp_type", "identity")),
-        "temporal_extent_enabled": bool(getattr(args, "temporal_extent_enabled", False)),
-        "temporal_tube_enabled": bool(getattr(args, "temporal_tube_enabled", False)),
+        "input_backbone": "upstream_4dgaussians",
         "elapsed_seconds": float(time.monotonic() - start),
     }
     _write_json(output_dir / GEOMETRY_MANIFEST_NAME, manifest)

@@ -27,7 +27,7 @@ Historical outputs use the following compatibility aliases:
 - `vIoU`: arithmetic mean of 2D mask IoU over the evaluator's annotated mask
   frames. Missing required masks score zero.
 - `tIoU`: intersection over union of predicted and ground-truth active time.
-  R4D first applies nearest-sample hold from its sparse reconstruction test
+  R4D first applies nearest-sample hold from its sparse upstream 4DGS test
   grid; Public uses its dense timeline directly.
 
 ### Public time-agnostic compatibility metrics
@@ -75,7 +75,7 @@ results together. Aggregation refuses to mix evaluator protocol IDs.
 Evaluator JSON also embeds SHA-256 identities for the benchmark/protocol,
 annotation, manifest, and mapping files used to produce that report. Batch
 provenance records the pinned Qwen manifest, model metadata, weight filenames
-and sizes, source commit, reconstruction checkpoints, and data metadata.
+and sizes, source commit, frozen 4DGS checkpoints, and data metadata.
 
 ## Protocol registry
 

@@ -1,4 +1,4 @@
-# ReferGaussian: Referring Segmentation in 4D Gaussian Splatting
+# R4DGS: Referring Segmentation in 4D Gaussian Splatting
 
 <div align="center">
 
@@ -7,18 +7,18 @@
 [![CUDA 12.1](https://img.shields.io/badge/CUDA-12.1-orange.svg)](#installation)
 [![ACM MM 2026](https://img.shields.io/badge/ACM%20MM-2026-8A2BE2.svg)](#citation)
 
-[Project Page](https://trump0412.github.io/ReferGaussian/) | Paper (coming soon) | [Dataset](https://huggingface.co/datasets/LiYacheng/r4d-bench-qa) | [Citation](#citation)
+[Project Page](https://trump0412.github.io/ReferGaussian/) | [Paper](https://doi.org/10.1145/3767308.3836021) | [Dataset](https://huggingface.co/datasets/LiYacheng/r4d-bench-qa) | [Citation](#citation)
 
 </div>
 
-**Bangpu Chen, Yaxuan Li, Shirui Peng, Xiangtian Si, Chu Liuxin, Xitong Cao, Hongbo Jin, Jiayu Ding**
+**Bangpu Chen, Yaxuan Li, Shirui Peng, Xiangtian Si, Liuxin Chu, Xitong Cao, Hongbo Jin, Jiayu Ding**
 
 Accepted at **ACM Multimedia 2026**.
 
-ReferGaussian grounds natural-language queries in dynamic 4D Gaussian scenes. It combines a dynamic Gaussian reconstruction, a Qwen-based Refer-Planner, Grounded-SAM2 masks, and training-free multi-frame mask-supported lifting. Stage-1 masks supervise and gate Gaussian assignment; final benchmark masks are rendered from the selected Gaussian entity.
+R4DGS studies natural-language referring segmentation in dynamic 4D Gaussian scenes. Our ReferGaussian framework takes a pretrained, frozen 4DGS scene as input and combines a Qwen-based Refer-Planner, Grounded-SAM2 masks, and training-free multi-frame mask-supported lifting. Stage-1 masks supervise and gate Gaussian assignment; final benchmark masks are rendered from the selected Gaussian entity. ReferGaussian does not train or modify the underlying 4DGS representation.
 
 <p align="center">
-  <img src="docs/assets/Fig3.png" width="90%" alt="ReferGaussian framework overview"/>
+  <img src="docs/assets/Fig1.png" width="90%" alt="R4DGS task overview"/>
 </p>
 
 ## Results
@@ -32,13 +32,6 @@ The following values are from the accepted paper. Reproduced runs must retain th
 | Segment then Splat | 55.6 | 28.4 |
 | 4D LangSplat | 58.4 | 32.1 |
 | **ReferGaussian** | **76.5** | **34.4** |
-
-### R4D-Bench reconstruction
-
-| Method | PSNR (higher) | SSIM (higher) | LPIPS (lower) |
-|---|---:|---:|---:|
-| 4D Gaussian Splatting | 20.3208 | 0.7027 | 0.3971 |
-| **ReferGaussian** | **20.4159** | **0.7069** | **0.3942** |
 
 ### 4D LangSplat HyperNeRF split
 
@@ -67,8 +60,8 @@ cd ReferGaussian
 # Pinned 4DGaussians and Grounded-SAM-2 sources.
 bash scripts/bootstrap_external.sh
 
-# Reconstruction, rendering, and evaluation environment.
-bash scripts/setup_baseline_env.sh cuda121
+# 4DGS rendering and ReferGaussian evaluation environment.
+bash scripts/setup_4dgs_env.sh cuda121
 
 # Grounded-SAM2 and Qwen environment.
 GSAM2_INSTALL_EDITABLE=1 bash scripts/setup_grounded_sam2.sh
@@ -143,36 +136,20 @@ bash scripts/download_r4d_bench_qa.sh
 
 Both downloaders pin the source revision and write a manifest beside the downloaded data.
 
-## Reconstruction
+## 4DGS Input
 
-Train ReferGaussian and a matched 4DGS baseline with the same seed and iteration budget:
+ReferGaussian is an inference method over a frozen 4D Gaussian scene. Scene training is outside this release; the repository does not ship scene checkpoints or rendered benchmark outputs. Prepare the input with the pinned upstream [4DGaussians](https://github.com/hustvl/4DGaussians) code or use a compatible existing 4DGS checkpoint.
 
-```bash
-export REFERGAUSSIAN_SEED=6666
-export REFERGAUSSIAN_ITERATIONS=14000
+Each query-ready run directory must contain the standard model and test-render artifacts:
 
-bash scripts/train.sh hypernerf misc/keyboard
-bash scripts/train_baseline.sh hypernerf misc/keyboard
-
-bash scripts/eval.sh hypernerf misc/keyboard
-bash scripts/eval_baseline.sh hypernerf misc/keyboard
+```text
+<run_dir>/
+|-- cfg_args
+|-- point_cloud/iteration_*/point_cloud.ply
+`-- test/ours_*/renders/*.png
 ```
 
-Outputs are written to `${GS_RUN_ROOT}/refergaussian/...` and `${GS_RUN_ROOT}/baseline_4dgs/...`. Evaluation uses the complete test-camera split and writes PSNR, SSIM, and LPIPS to each run directory.
-
-For the frozen multi-scene comparison, use the strict runner:
-
-```bash
-source scripts/common.sh
-OUT="reports/reconstruction_$(date -u +%Y%m%dT%H%M%SZ)"
-gs_python scripts/run_matched_reconstruction.py \
-  --protocol release_reconstruction_v2_paper_compat \
-  --data-root "${GS_DATA_ROOT}" \
-  --output-root "${OUT}" \
-  --gpu 0
-```
-
-The runner requires a clean checkout, verifies all patches and source hashes, and reports a final aggregate only for a complete protocol.
+Register those directories below `${GS_RUN_ROOT}/baseline_4dgs/<dataset>/<scene>` or pass an explicit run root/namespace when building a manifest. `scripts/preflight_query_batch.py` validates the checkpoint contract before inference.
 
 ## Referring Inference
 
@@ -362,10 +339,9 @@ Formal evaluators require complete manifests and report non-empty and zero-targe
 
 ```text
 ReferGaussian/
-|-- refergaussian/      # reconstruction, EntityBank, and semantic grounding
-|-- scripts/            # supported setup, training, inference, and evaluation CLIs
+|-- refergaussian/      # EntityBank and training-free semantic grounding
+|-- scripts/            # supported setup, inference, and evaluation CLIs
 |-- configs/benchmarks/ # immutable protocol registries and English query map
-|-- patches/            # pinned 4DGaussians integration patches
 |-- tests/              # release and metric contract tests
 |-- docs/               # protocol documentation and project page
 `-- external/           # fetched dependencies; not tracked
@@ -374,11 +350,12 @@ ReferGaussian/
 ## Citation
 
 ```bibtex
-@inproceedings{chen2026refergaussian,
-  title     = {ReferGaussian: Referring Segmentation in 4D Gaussian Splatting},
-  author    = {Chen, Bangpu and Li, Yaxuan and Peng, Shirui and Si, Xiangtian and Liuxin, Chu and Cao, Xitong and Jin, Hongbo and Ding, Jiayu},
-  booktitle = {Proceedings of the ACM International Conference on Multimedia},
-  year      = {2026}
+@inproceedings{chen2026r4dgs,
+  title     = {R4DGS: Referring Segmentation in 4D Gaussian Splatting},
+  author    = {Chen, Bangpu and Li, Yaxuan and Peng, Shirui and Si, Xiangtian and Chu, Liuxin and Cao, Xitong and Jin, Hongbo and Ding, Jiayu},
+  booktitle = {Proceedings of the 34th ACM International Conference on Multimedia},
+  year      = {2026},
+  doi       = {10.1145/3767308.3836021}
 }
 ```
 
