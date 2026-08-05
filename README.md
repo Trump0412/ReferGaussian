@@ -467,8 +467,9 @@ is required for a complete released compatibility aggregate.
 The four-scene annotation snapshot contains 9 time-sensitive state queries.
 Its COCO masks also contain 20 scene-local static category prompts with actual
 annotations (15 on the three paper scenes). The current builder's four
-`static_reference` base-object rows are not the complete time-agnostic split,
-and no full time-agnostic result is claimed by this release.
+`static_reference` base-object rows are not the complete time-agnostic split.
+Use the separate COCO-category protocol below for time-agnostic evaluation;
+never combine its `mAcc/mIoU` with the 9-query temporal result.
 
 Reproducible profile switch:
 
@@ -482,6 +483,9 @@ export QUERY_EVAL_PROFILE=public_time_boundary_gated_v5
 
 # Score-only variant: identical v5 inference and masks, without qualitative exports
 export QUERY_EVAL_PROFILE=public_time_boundary_gated_v5_numeric
+
+# COCO-category spatial protocol over the complete observed entity lifecycle.
+export QUERY_EVAL_PROFILE=public_time_agnostic_v1
 ```
 
 The active profile and its effective fusion parameters are written into each
@@ -598,6 +602,72 @@ For the separate four-scene extension, replace `paper_public3` with
 `release_public4_extension` in the builder, preflight, and runner; include
 `chickchicken` in the evaluation loop and use `--expected-queries 9`. Never
 merge the 3-scene paper and 4-scene extension under one result label.
+
+### Time-agnostic COCO categories
+
+The four-scene protocol contains all 20 categories with at least one COCO mask:
+5 americano, 5 chickchicken, 6 espresso, and 4 split-cookie. The three-scene
+paper subset contains 15. The commands below use a separately trained vanilla
+4DGS backbone to make that input identity explicit; the time-sensitive
+ReferGaussian protocol above is unchanged.
+
+```bash
+OUT="reports/PUBLIC4_TIME_AGNOSTIC_$(date -u +%Y%m%dT%H%M%SZ)"
+ANN_ROOT="${GS_DATA_ROOT}/benchmarks/4dlangsplat/HyperNeRF-Annotation"
+source scripts/common.sh
+
+gs_python scripts/build_4dlangsplat_time_agnostic_protocol.py \
+  --annotation-root "${ANN_ROOT}" \
+  --output-json "${OUT}/protocol.json"
+
+gs_python scripts/build_public_query_manifest.py \
+  --output "${OUT}/manifest.jsonl" \
+  --output-root "${OUT}/query_root" \
+  --query-set time_agnostic \
+  --protocol-json "${OUT}/protocol.json" \
+  --protocol-id release_public4_time_agnostic \
+  --annotation-root "${ANN_ROOT}" \
+  --profile public_time_agnostic_v1 \
+  --run-namespace baseline_4dgs \
+  --gpus 0 1 2 3
+
+gs_python scripts/preflight_query_batch.py \
+  --manifest "${OUT}/manifest.jsonl" \
+  --protocol-id release_public4_time_agnostic \
+  --profile public_time_agnostic_v1 \
+  --strict-release --gpu 0 1 2 3 --require-visible-gpu --create-output-root
+
+gs_python scripts/run_query_batch.py \
+  --manifest "${OUT}/manifest.jsonl" \
+  --protocol-id release_public4_time_agnostic \
+  --profile public_time_agnostic_v1 \
+  --gpu 0 1 2 3 --force-rerun --strict-release --timeout 10800
+
+# Hold the selected Gaussian entities fixed and project them on every exact
+# COCO test camera. This consumes image ids only, never annotation masks.
+gs_python scripts/rerender_query_outputs.py \
+  --manifest "${OUT}/manifest.jsonl" \
+  --public-protocol "${OUT}/protocol.json" \
+  --output-root "${OUT}/exact_query_root" \
+  --profile public_time_agnostic_v1 \
+  --gpu 0 --require-complete
+
+gs_python scripts/evaluate_public_time_agnostic.py \
+  --protocol-json "${OUT}/protocol.json" \
+  --manifest "${OUT}/manifest.jsonl" \
+  --annotation-root "${ANN_ROOT}" \
+  --query-root "${OUT}/exact_query_root" \
+  --require-complete \
+  --output-json "${OUT}/official_eval.json" \
+  --output-md "${OUT}/official_eval.md"
+```
+
+`mAcc` is the macro mean foreground class accuracy (`sum TP / sum GT pixels`)
+and `mIoU` is the macro mean category intersection-over-union after pooling all
+declared test frames. The evaluator also reports the released 4D LangSplat
+code-compatible mean IoU over category-present frames and binary pixel
+accuracy as audit fields. Exact source image ids are required; nearest-time
+camera substitution is rejected.
 
 The commands above use portable GPU 0. On a verified multi-GPU host, replace
 the builder's `--gpus 0` and both consumers' `--gpu 0` with the same list, for

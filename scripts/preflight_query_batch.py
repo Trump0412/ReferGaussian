@@ -21,7 +21,10 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from refergaussian.run_identity import validate_query_ready_refergaussian_run
+from refergaussian.run_identity import (
+    validate_query_ready_baseline_4dgs_run,
+    validate_query_ready_refergaussian_run,
+)
 from run_query_batch import resolve_profile, validate_release_manifest
 
 
@@ -105,6 +108,7 @@ def _check_rows(
     active_gpus: set[int] | None,
     create_output_root: bool,
     check_camera: bool,
+    allow_baseline_4dgs: bool = False,
 ) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -130,8 +134,13 @@ def _check_rows(
         if not run_dir.is_dir():
             errors.append(f"{query_id}: run_dir missing: {run_dir}")
         else:
-            for run_error in validate_query_ready_refergaussian_run(run_dir):
-                errors.append(f"{query_id}: query-ready ReferGaussian run required: {run_error}")
+            run_errors = validate_query_ready_refergaussian_run(run_dir)
+            run_label = "ReferGaussian"
+            if run_errors and allow_baseline_4dgs:
+                run_errors = validate_query_ready_baseline_4dgs_run(run_dir)
+                run_label = "ReferGaussian or baseline 4DGS"
+            for run_error in run_errors:
+                errors.append(f"{query_id}: query-ready {run_label} run required: {run_error}")
         if not dataset_dir.is_dir():
             errors.append(f"{query_id}: dataset_dir missing: {dataset_dir}")
         if not _is_writable_dir(output_root, create=create_output_root):
@@ -248,6 +257,7 @@ def main() -> int:
         active_gpus=active_gpus,
         create_output_root=bool(args.create_output_root),
         check_camera=not bool(args.no_camera_check),
+        allow_baseline_4dgs=(args.profile == "public_time_agnostic_v1"),
     )
     errors.extend(row_errors)
     warnings.extend(row_warnings)
