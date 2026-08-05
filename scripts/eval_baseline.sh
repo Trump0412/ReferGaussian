@@ -21,7 +21,7 @@ if [[ ! -d "${RUN_DIR}" ]]; then
 fi
 
 run_with_gpu_monitor "${LOG_PATH}" "${META_PATH}" \
-  bash -lc "cd '${GS_ROOT}' && export PYTHONPATH='${PYTHONPATH}' && ${PY_CMD} external/4DGaussians/render.py -m '${RUN_DIR}' --iteration -1 ${EXTRA_ARGS}"
+  bash -lc "cd '${GS_ROOT}' && export PYTHONPATH='${PYTHONPATH}' && ${PY_CMD} external/4DGaussians/render.py -m '${RUN_DIR}' --iteration -1 --skip_train --skip_video --only_split test --stream_write --no_video_file ${EXTRA_ARGS}"
 
 if [[ "${GS_SKIP_FULL_METRICS:-0}" == "1" ]]; then
   gs_python "${GS_ROOT}/scripts/quick_subset_metrics.py" \

@@ -360,7 +360,11 @@ bash scripts/eval.sh hypernerf misc/keyboard
 bash scripts/eval_baseline.sh hypernerf misc/keyboard
 ```
 
-The two commands write PSNR / SSIM / LPIPS to their respective run directories.
+The two commands stream the complete test-camera split to disk and write PSNR /
+SSIM / LPIPS to their respective run directories. Train-camera renders and
+preview videos are omitted because they are not metric inputs; this prevents
+long sequences from accumulating every rendered tensor in GPU memory without
+changing the evaluated frames or metric definitions.
 For a fair reconstruction comparison, use the same dataset source, 4DGaussians
 scene config, iteration budget, seed, and metric mode for both runs. The wrappers
 write `config.yaml`, `results.json`, and `metrics.json` beside each output for

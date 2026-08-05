@@ -1022,6 +1022,20 @@ def _normalize_boundary_refinement(
     }
 
 
+def _notes_declare_absent_query(notes: str) -> bool:
+    """Recognize only the explicit zero-query markers requested by the prompt."""
+
+    normalized = re.sub(r"[^A-Z0-9]+", " ", str(notes).upper()).strip()
+    if normalized.startswith(("ZERO QUERY", "ZERO DISTRACTOR QUERY")):
+        return True
+    return bool(
+        re.search(
+            r"\bTHIS IS (?:A )?(?:ZERO(?: DISTRACTOR)?|DISTRACTOR) QUERY\b",
+            normalized,
+        )
+    )
+
+
 def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True) -> dict[str, Any]:
     video_inventory_phrases = _normalize_phrase_list(raw_payload.get("video_inventory_phrases", []))[:8]
     # Set and exclusion questions may legitimately refer to every visible
@@ -1047,9 +1061,12 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
     stop_condition = " ".join(str(raw_payload.get("stop_condition", "")).strip().split())
     preferred_detector = str(raw_payload.get("preferred_detector", "grounded_sam2")).strip().lower()
     notes = " ".join(str(raw_payload.get("notes", "")).strip().split())
-    absent_query = bool(raw_payload.get("absent_query", False) or raw_payload.get("empty_query", False) or raw_payload.get("zero_query", False))
-    if notes.upper().startswith("ZERO_QUERY"):
-        absent_query = True
+    absent_query = bool(
+        raw_payload.get("absent_query", False)
+        or raw_payload.get("empty_query", False)
+        or raw_payload.get("zero_query", False)
+        or _notes_declare_absent_query(notes)
+    )
     action_window_hint = " ".join(str(raw_payload.get("action_window_hint", "")).strip().split())
     support_window_hint = " ".join(str(raw_payload.get("support_window_hint", "")).strip().split())
 
@@ -1156,6 +1173,18 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         detector_phrases = broad_candidates[:detector_limit] or detector_phrases
         must_track_phrases = _merge_unique_phrases(query_subject_phrases, detector_phrases)[:detector_limit]
 
+    if absent_query:
+        # A planner can occasionally explain that the requested identity is
+        # absent while leaving stale positive phrases in other JSON fields.
+        # Resolve that internal contradiction before any detector is invoked.
+        primary_subject_phrases = []
+        query_subject_phrases = []
+        query_successor_phrases = []
+        relation_context_phrases = []
+        detector_phrases = []
+        must_track_phrases = []
+        phase_transition_hints = []
+
     return {
         "query": query,
         "video_inventory_phrases": video_inventory_phrases,
@@ -1176,7 +1205,9 @@ def _normalize_plan(raw_payload: dict[str, Any], query: str, strict: bool = True
         "must_track_phrases": must_track_phrases,
         "action_window_hint": action_window_hint,
         "support_window_hint": support_window_hint,
-        "requested_instance_count": 1 if counted_subject_spec is None else int(counted_subject_spec[1]),
+        "requested_instance_count": (
+            0 if absent_query else (1 if counted_subject_spec is None else int(counted_subject_spec[1]))
+        ),
         "absent_query": bool(absent_query),
         "empty_query": bool(absent_query),
         "empty_reason": notes if absent_query else "",

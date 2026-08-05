@@ -46,6 +46,18 @@ class StorageRootContractTest(unittest.TestCase):
             self.assertIn("--iterations '${TRAIN_ITERATIONS}'", text, name)
             self.assertIn("iterations: ${TRAIN_ITERATIONS}", text, name)
 
+    def test_full_metric_eval_streams_only_the_test_camera_split(self) -> None:
+        for name in ("eval.sh", "eval_baseline.sh"):
+            text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+            for option in (
+                "--skip_train",
+                "--skip_video",
+                "--only_split test",
+                "--stream_write",
+                "--no_video_file",
+            ):
+                self.assertIn(option, text, f"{name}: {option}")
+
 
 if __name__ == "__main__":
     unittest.main()

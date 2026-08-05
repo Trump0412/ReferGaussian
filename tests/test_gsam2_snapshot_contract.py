@@ -59,11 +59,11 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
         text = (ROOT / "scripts" / "check_grounded_sam2_import.py").read_text(encoding="utf-8")
         self.assertIn("sam2._C resolved outside", text)
 
-    def test_multi_instance_profile_keeps_full_sequence_tracking_opt_in(self) -> None:
+    def test_formal_r4d_profile_enables_counted_full_sequence_tracking(self) -> None:
         profiles = ROOT / "scripts" / "query_eval_profiles.sh"
         command = (
             f"source {profiles}; "
-            "apply_query_eval_profile r4d_multi_instance_boundary_v6; "
+            "apply_query_eval_profile r4d_boundary_gated_v5; "
             "printf '%s' \"${GSAM2_INSTANCE_FULL_SEQUENCE_TRACKS:-}\""
         )
         enabled = subprocess.check_output(["bash", "-lc", command], text=True)
@@ -77,11 +77,11 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
         disabled = subprocess.check_output(["bash", "-lc", command], text=True)
         self.assertEqual(disabled, "")
 
-    def test_multi_instance_profile_enables_only_the_declared_group_fast_path(self) -> None:
+    def test_formal_r4d_profile_enables_only_the_declared_group_fast_path(self) -> None:
         profiles = ROOT / "scripts" / "query_eval_profiles.sh"
         command = (
             f"source {profiles}; "
-            "apply_query_eval_profile r4d_multi_instance_boundary_v6; "
+            "apply_query_eval_profile r4d_boundary_gated_v5; "
             "printf '%s' \"${QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS:-}\""
         )
         enabled = subprocess.check_output(["bash", "-lc", command], text=True)

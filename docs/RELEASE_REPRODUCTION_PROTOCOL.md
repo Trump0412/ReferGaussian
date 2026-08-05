@@ -34,6 +34,10 @@ metric mode before launching work. It trains ReferGaussian and the matched 4D
 Gaussian Splatting baseline from the same source data and scene configuration.
 It verifies identical render filenames and dimensions and reports LPIPS-vgg as
 the headline LPIPS metric, with LPIPS-alex retained as a diagnostic.
+Evaluation streams the complete test-camera split directly to disk. It skips
+train-camera renders and preview-video generation because neither contributes
+to reconstruction metrics; this changes memory use and runtime only, not the
+evaluated frame set or reductions.
 
 Keep these files for each method:
 

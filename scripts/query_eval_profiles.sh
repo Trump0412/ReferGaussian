@@ -578,20 +578,24 @@ apply_query_eval_profile() {
       export GS_QUERY_ALLOW_CLOUD_ONLY_WITH_QUERY=0
       export GS_QUERY_ALLOW_DIRECT_2D_MASKS=0
       export GS_QUERY_STRICT_GAUSSIAN_PROJECTION=1
+
+      # Resolve explicitly counted referents as distinct tracks. Candidate
+      # discovery is grammar-driven and activates only when the normalized
+      # plan requests multiple instances; ordinary single-target queries keep
+      # the same detector and selection path.
+      export GSAM2_ENABLE_INSTANCE_CANDIDATES=1
+      export GSAM2_INSTANCE_MAX_CANDIDATES=2
+      export GSAM2_INSTANCE_RESOLUTION_POLICY=multi_hypothesis
+      export GSAM2_INSTANCE_FULL_SEQUENCE_TRACKS=1
+      export QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS=1
       ;;
     r4d_multi_instance_boundary_v6)
       apply_query_eval_profile r4d_boundary_gated_v5
       export QUERY_EVAL_PROFILE="r4d_multi_instance_boundary_v6"
       export REFERGAUSSIAN_QUERY_EVAL_PROFILE="r4d_multi_instance_boundary_v6"
 
-      # Candidate instances are discovered from a grammar-derived noun head,
-      # then lifted and rendered as distinct Gaussian entities. This never
-      # changes a public profile or injects a scene/object-specific rule.
-      export GSAM2_ENABLE_INSTANCE_CANDIDATES=1
-      export GSAM2_INSTANCE_MAX_CANDIDATES=2
-      export GSAM2_INSTANCE_RESOLUTION_POLICY=multi_hypothesis
-      export GSAM2_INSTANCE_FULL_SEQUENCE_TRACKS=1
-      export QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS=1
+      # Backward-compatible profile name retained for existing manifests. Its
+      # multi-instance behavior is now part of the formal R4D mainline above.
       ;;
     r4d_renderer_geometry_v7)
       apply_query_eval_profile r4d_multi_instance_boundary_v6

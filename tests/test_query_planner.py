@@ -15,6 +15,7 @@ from refergaussian.semantics.qwen_query_planner import (
     _canonicalize_phrase,
     _count_neutral_detector_phrases,
     _normalize_plan,
+    _notes_declare_absent_query,
     _qwen_gpu_memory_budget_gib,
     _qwen_max_new_tokens,
     _query_semantic_profile,
@@ -32,6 +33,41 @@ from refergaussian.semantics.select_qwen_query_entities import (
 
 
 class QueryPlannerPhraseTest(unittest.TestCase):
+    def test_explicit_zero_query_note_clears_stale_positive_plan_fields(self) -> None:
+        plan = _normalize_plan(
+            {
+                "video_inventory_phrases": ["brown chocolate", "tray"],
+                "primary_subject_phrases": ["white chocolate"],
+                "query_subject_phrases": ["white chocolate"],
+                "query_successor_phrases": ["white chocolate pieces"],
+                "detector_phrases": ["white chocolate"],
+                "must_track_phrases": ["white chocolate"],
+                "absent_query": False,
+                "notes": (
+                    "The visible chocolate is brown, not white. "
+                    "This is a ZERO / DISTRACTOR QUERY."
+                ),
+            },
+            "The white chocolate on the tray.",
+        )
+
+        self.assertTrue(plan["absent_query"])
+        self.assertTrue(plan["empty_query"])
+        self.assertEqual(plan["requested_instance_count"], 0)
+        for key in (
+            "primary_subject_phrases",
+            "query_subject_phrases",
+            "query_successor_phrases",
+            "relation_context_phrases",
+            "detector_phrases",
+            "must_track_phrases",
+            "phase_transition_hints",
+        ):
+            self.assertEqual(plan[key], [], key)
+
+    def test_non_marker_distractor_prose_does_not_force_empty_plan(self) -> None:
+        self.assertFalse(_notes_declare_absent_query("This is not a distractor query."))
+
     def test_candidate_visual_evidence_uses_mask_overlay_crops(self) -> None:
         with TemporaryDirectory() as directory:
             overlay_path = Path(directory) / "overlay.png"
