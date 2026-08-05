@@ -141,6 +141,9 @@ class QueryRenderReleaseContractTest(unittest.TestCase):
         self.assertIn("QUERY_FAST_VALIDATION_ONLY=1", block)
         self.assertIn("QUERY_RENDER_ACTIVE_MASKS_ONLY=0", block)
         self.assertIn("QUERY_RENDER_REQUESTED_CAMERAS_ONLY=1", block)
+        self.assertIn("GSAM2_ENABLE_INSTANCE_CANDIDATES=1", block)
+        self.assertIn("GSAM2_INSTANCE_MAX_CANDIDATES=3", block)
+        self.assertNotIn("QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS=1", block)
 
         pipeline = (
             Path(__file__).resolve().parents[1]

@@ -503,6 +503,13 @@ apply_query_eval_profile() {
       export QUERY_RENDER_TORCH_MORPHOLOGY=1
       export QUERY_RENDER_TORCH_MORPHOLOGY_DEVICE=cuda
       export QUERY_RENDER_REQUESTED_CAMERAS_ONLY=1
+      # Attribute-bearing static prompts can ground to a nearby container on
+      # the first detector anchor. Enumerate generic head-noun hypotheses and
+      # keep Qwen visual selection responsible for the final entity identity.
+      export GSAM2_ENABLE_INSTANCE_CANDIDATES=1
+      export GSAM2_INSTANCE_MAX_CANDIDATES=3
+      export GSAM2_INSTANCE_RESOLUTION_POLICY=multi_hypothesis
+      export GSAM2_INSTANCE_FULL_SEQUENCE_TRACKS=1
       ;;
     r4d_shape_v4_recall|r4d_time_shape_v4_recall)
       apply_query_eval_profile public_time_shape_v4_recall
