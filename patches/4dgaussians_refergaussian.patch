@@ -1,6 +1,6 @@
 --- a/arguments/__init__.py
 +++ b/arguments/__init__.py
-@@ -102,6 +102,63 @@
+@@ -102,6 +102,65 @@
          self.grid_pe=0 # useless, I was trying to add positional encoding to hexplane's features
          self.static_mlp=False # useless
          self.apply_rotation=False # useless
@@ -13,6 +13,8 @@
 +        self.warp_smooth_weight = 0.01
 +        self.warp_budget_weight = 0.01
 +        self.warp_sample_count = 128
++        self.temporal_warp_lr_init = 0.00016
++        self.temporal_warp_lr_schedule = "constant"
 +        self.temporal_extent_enabled = False
 +        self.temporal_gate_sharpness = 1.0
 +        self.temporal_drift_scale = 1.0

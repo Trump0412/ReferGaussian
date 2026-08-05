@@ -112,6 +112,8 @@
           "WARP_SMOOTH_WEIGHT": "0.01",
           "WARP_BUDGET_WEIGHT": "0.01",
           "WARP_SAMPLE_COUNT": "128",
+          "TEMPORAL_WARP_LR_INIT": "0.00012",
+          "TEMPORAL_WARP_LR_SCHEDULE": "shared_exponential",
           "TEMPORAL_LR_INIT": "0.00012",
           "TEMPORAL_LR_FINAL": "0.000012",
           "TEMPORAL_LR_DELAY_MULT": "0.01",
@@ -142,7 +144,7 @@
       "external_4dgaussians": {
         "repository": "https://github.com/hustvl/4DGaussians.git",
         "commit": "843d5ac636c37e4b611242287754f3d4ed150144",
-        "patched_diff_sha256": "a42af9ff42b6b3facb1596a893d8eeaf7338e46b700fdc49ee90253c64252789",
+        "patched_diff_sha256": "c4cf8b2e635d890eff3735d644b761e823cd8db1ebb59fa1cab1d4918b281b65",
         "untracked_files": [
           {
             "path": "arguments/hypernerf/cut-lemon1.py",
@@ -156,7 +158,7 @@
         "patches": [
           {
             "path": "patches/4dgaussians_refergaussian.patch",
-            "sha256": "69172b4de15180b96dea787cf45bd717955c02010f92271f9d3bb65068b8db70",
+            "sha256": "219db223cd0281c4ae8069cf4f1832a992f01d347d85cbba57de03e258f7ffd6",
             "marker_file": "train.py",
             "marker_text": "from refergaussian.temporal import"
           },
@@ -168,7 +170,7 @@
           },
           {
             "path": "patches/4dgaussians_temporal_warp_schedule.patch",
-            "sha256": "decc45b748bd7745b9aeb2d115ffa491bafbebe0f0646c0376256f34def3b39d",
+            "sha256": "fe57227b43c1a43532822046370a8947c005685cc3c9b79948478abf0d2cfb65",
             "marker_file": "train.py",
             "marker_text": "set_temporal_warp_learning_rate("
           },

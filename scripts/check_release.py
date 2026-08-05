@@ -331,10 +331,12 @@ def check_runtime_release_guards() -> list[str]:
     warp_schedule_patch_text = (
         ROOT / "patches" / "4dgaussians_temporal_warp_schedule.patch"
     ).read_text(encoding="utf-8", errors="replace")
-    if "opt.temporal_lr_init" not in warp_schedule_patch_text:
-        errors.append("Temporal warp patch must use the configured temporal learning rate")
+    if "hyper.temporal_warp_lr_init" not in warp_schedule_patch_text:
+        errors.append("Temporal warp patch must use its independently configured learning rate")
+    if 'hyper.temporal_warp_lr_schedule == "shared_exponential"' not in warp_schedule_patch_text:
+        errors.append("Temporal warp patch must make schedule selection explicit")
     if "gaussians.temporal_scheduler_args(iteration)" not in warp_schedule_patch_text:
-        errors.append("Temporal warp patch must apply the configured temporal schedule")
+        errors.append("Temporal warp patch must retain the optional shared exponential schedule")
     for relative_path in ("scripts/train.sh", "scripts/train_baseline.sh"):
         train_text = (ROOT / relative_path).read_text(encoding="utf-8", errors="replace")
         if "REFERGAUSSIAN_SEED" not in train_text or "--seed" not in train_text:
