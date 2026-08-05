@@ -667,7 +667,8 @@ def run_grounded_sam2_query(
             allow_singleton=relation_disambiguation,
         )
         if candidate_head and (
-            candidate_head != _normalize_query_text(subject_phrase).rstrip(".")
+            int(requested_instance_count) > 1
+            or candidate_head != _normalize_query_text(subject_phrase).rstrip(".")
             or relation_disambiguation
         ):
             # Count-neutral prompt expansion may replace ``both hands`` with

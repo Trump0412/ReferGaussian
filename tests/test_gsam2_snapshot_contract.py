@@ -116,6 +116,7 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("candidate_semantic_phrase_by_phrase", text)
+        self.assertIn("int(requested_instance_count) > 1", text)
         self.assertIn("candidate_head in detector_phrases", text)
         self.assertIn('"semantic_phrase": semantic_phrase', text)
 
