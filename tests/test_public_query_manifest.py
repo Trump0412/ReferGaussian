@@ -22,8 +22,8 @@ SPEC.loader.exec_module(MANIFEST)
 
 
 class PublicQueryManifestTest(unittest.TestCase):
-    def test_release_exposes_only_annotation_derived_time_sensitive_queries(self) -> None:
-        self.assertEqual(MANIFEST.QUERY_SETS, ("time_sensitive",))
+    def test_release_exposes_annotation_derived_query_sets(self) -> None:
+        self.assertEqual(MANIFEST.QUERY_SETS, ("time_sensitive", "time_agnostic"))
 
     def test_time_sensitive_rows_preserve_protocol_id_and_text(self) -> None:
         payload = {

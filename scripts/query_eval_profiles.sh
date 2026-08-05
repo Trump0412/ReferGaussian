@@ -486,6 +486,15 @@ apply_query_eval_profile() {
       export QUERY_SAVE_KEY_FRAMES=0
       export GS_QUERY_EXPORT_ENTITY_LIFECYCLE=0
       ;;
+    public_time_agnostic_v1)
+      # Spatial query protocol for all masked COCO categories. It preserves the
+      # released Gaussian-only boundary gate while evaluating the selected
+      # entity over its complete observed lifecycle instead of a state window.
+      apply_query_eval_profile public_time_boundary_gated_v5_numeric
+      export QUERY_EVAL_PROFILE="public_time_agnostic_v1"
+      export REFERGAUSSIAN_QUERY_EVAL_PROFILE="public_time_agnostic_v1"
+      export QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT=1
+      ;;
     r4d_shape_v4_recall|r4d_time_shape_v4_recall)
       apply_query_eval_profile public_time_shape_v4_recall
       export QUERY_EVAL_PROFILE="r4d_shape_v4_recall"
@@ -639,7 +648,7 @@ apply_query_eval_profile() {
       export REFERGAUSSIAN_QUERY_EVAL_PROFILE="r4d_renderer_consistent"
       ;;
     *)
-      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, public_time_boundary_gated_v5, r4d_shape_v4_recall, r4d_boundary_gated_v5, r4d_multi_instance_boundary_v6, r4d_renderer_geometry_v7, r4d_renderer_consistent)" >&2
+      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, public_time_boundary_gated_v5, public_time_agnostic_v1, r4d_shape_v4_recall, r4d_boundary_gated_v5, r4d_multi_instance_boundary_v6, r4d_renderer_geometry_v7, r4d_renderer_consistent)" >&2
       return 2
       ;;
   esac

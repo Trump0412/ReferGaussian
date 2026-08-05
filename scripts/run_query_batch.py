@@ -43,6 +43,7 @@ STRICT_RELEASE_PROFILES = frozenset(
     {
         "public_time_boundary_gated_v5",
         "public_time_boundary_gated_v5_numeric",
+        "public_time_agnostic_v1",
         "r4d_boundary_gated_v5",
         "r4d_renderer_consistent",
     }
@@ -51,7 +52,13 @@ R4D_RELEASE_PROTOCOLS = frozenset(
     {"release_r4d_dense89", "release_r4d_dense89_renderer_consistent"}
 )
 EXECUTABLE_RELEASE_PROTOCOLS = frozenset(
-    {"paper_public3", "release_public4_extension", *R4D_RELEASE_PROTOCOLS}
+    {
+        "paper_public3",
+        "release_public4_extension",
+        "paper_public3_time_agnostic",
+        "release_public4_time_agnostic",
+        *R4D_RELEASE_PROTOCOLS,
+    }
 )
 PROTOCOL_PROFILES = {
     "paper_public3": frozenset(
@@ -60,6 +67,8 @@ PROTOCOL_PROFILES = {
     "release_public4_extension": frozenset(
         {"public_time_boundary_gated_v5", "public_time_boundary_gated_v5_numeric"}
     ),
+    "paper_public3_time_agnostic": frozenset({"public_time_agnostic_v1"}),
+    "release_public4_time_agnostic": frozenset({"public_time_agnostic_v1"}),
     "release_r4d_dense89": frozenset({"r4d_boundary_gated_v5"}),
     "release_r4d_dense89_renderer_consistent": frozenset(
         {"r4d_renderer_consistent"}
@@ -88,6 +97,49 @@ PUBLIC_PROTOCOL_QUERY_IDS = {
             "espresso__the_glass_cup_with_liquid_above_the_midpoint_of_the_cup",
             "split-cookie__the_cookie_broken_into_smaller_pieces",
             "split-cookie__the_complete_cookie",
+        }
+    ),
+    "paper_public3_time_agnostic": frozenset(
+        {
+            "americano__time_agnostic__coasters_braided_from_straw_and_black_thread",
+            "americano__time_agnostic__glass_cup",
+            "americano__time_agnostic__hands",
+            "americano__time_agnostic__metal_cup",
+            "americano__time_agnostic__tray",
+            "espresso__time_agnostic__electronic_scales_with_cup",
+            "espresso__time_agnostic__glass_cup",
+            "espresso__time_agnostic__metal_cup",
+            "espresso__time_agnostic__round_wooden_coasters",
+            "espresso__time_agnostic__table",
+            "espresso__time_agnostic__white_bottle",
+            "split-cookie__time_agnostic__bare_hands",
+            "split-cookie__time_agnostic__checkered_tablecloth",
+            "split-cookie__time_agnostic__cookie",
+            "split-cookie__time_agnostic__square_wooden_board",
+        }
+    ),
+    "release_public4_time_agnostic": frozenset(
+        {
+            "americano__time_agnostic__coasters_braided_from_straw_and_black_thread",
+            "americano__time_agnostic__glass_cup",
+            "americano__time_agnostic__hands",
+            "americano__time_agnostic__metal_cup",
+            "americano__time_agnostic__tray",
+            "chickchicken__time_agnostic__board",
+            "chickchicken__time_agnostic__chicken_container",
+            "chickchicken__time_agnostic__hands",
+            "chickchicken__time_agnostic__white_chicken",
+            "chickchicken__time_agnostic__yellow_chicken",
+            "espresso__time_agnostic__electronic_scales_with_cup",
+            "espresso__time_agnostic__glass_cup",
+            "espresso__time_agnostic__metal_cup",
+            "espresso__time_agnostic__round_wooden_coasters",
+            "espresso__time_agnostic__table",
+            "espresso__time_agnostic__white_bottle",
+            "split-cookie__time_agnostic__bare_hands",
+            "split-cookie__time_agnostic__checkered_tablecloth",
+            "split-cookie__time_agnostic__cookie",
+            "split-cookie__time_agnostic__square_wooden_board",
         }
     ),
 }

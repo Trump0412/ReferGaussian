@@ -4,7 +4,8 @@
 The time-sensitive benchmark manifest is derived from the protocol generated
 from ``video_annotations.json``. This keeps query text and query identifiers
 aligned with the public evaluator instead of maintaining a second hand-written
-copy of the temporal annotations.
+copy of the temporal annotations. Time-agnostic manifests are derived from all
+COCO categories that have at least one mask, matching 4D LangSplat evaluation.
 """
 
 from __future__ import annotations
@@ -27,10 +28,17 @@ SCENE_PATHS: dict[str, tuple[str, str]] = {
     "chickchicken": ("refergaussian/hypernerf/chickchicken", "hypernerf/interp/chickchicken"),
 }
 
-QUERY_SETS = ("time_sensitive",)
+QUERY_SETS = ("time_sensitive", "time_agnostic")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL_REGISTRY_PATH = REPO_ROOT / "configs" / "benchmarks" / "release_protocols.json"
-FORMAL_PUBLIC_PROTOCOLS = frozenset({"paper_public3", "release_public4_extension"})
+FORMAL_PUBLIC_PROTOCOLS = frozenset(
+    {
+        "paper_public3",
+        "release_public4_extension",
+        "paper_public3_time_agnostic",
+        "release_public4_time_agnostic",
+    }
+)
 PUBLIC_PROTOCOL_QUERY_IDS = {
     "paper_public3": frozenset(
         {
@@ -54,6 +62,49 @@ PUBLIC_PROTOCOL_QUERY_IDS = {
             "espresso__the_glass_cup_with_liquid_above_the_midpoint_of_the_cup",
             "split-cookie__the_cookie_broken_into_smaller_pieces",
             "split-cookie__the_complete_cookie",
+        }
+    ),
+    "paper_public3_time_agnostic": frozenset(
+        {
+            "americano__time_agnostic__coasters_braided_from_straw_and_black_thread",
+            "americano__time_agnostic__glass_cup",
+            "americano__time_agnostic__hands",
+            "americano__time_agnostic__metal_cup",
+            "americano__time_agnostic__tray",
+            "espresso__time_agnostic__electronic_scales_with_cup",
+            "espresso__time_agnostic__glass_cup",
+            "espresso__time_agnostic__metal_cup",
+            "espresso__time_agnostic__round_wooden_coasters",
+            "espresso__time_agnostic__table",
+            "espresso__time_agnostic__white_bottle",
+            "split-cookie__time_agnostic__bare_hands",
+            "split-cookie__time_agnostic__checkered_tablecloth",
+            "split-cookie__time_agnostic__cookie",
+            "split-cookie__time_agnostic__square_wooden_board",
+        }
+    ),
+    "release_public4_time_agnostic": frozenset(
+        {
+            "americano__time_agnostic__coasters_braided_from_straw_and_black_thread",
+            "americano__time_agnostic__glass_cup",
+            "americano__time_agnostic__hands",
+            "americano__time_agnostic__metal_cup",
+            "americano__time_agnostic__tray",
+            "chickchicken__time_agnostic__board",
+            "chickchicken__time_agnostic__chicken_container",
+            "chickchicken__time_agnostic__hands",
+            "chickchicken__time_agnostic__white_chicken",
+            "chickchicken__time_agnostic__yellow_chicken",
+            "espresso__time_agnostic__electronic_scales_with_cup",
+            "espresso__time_agnostic__glass_cup",
+            "espresso__time_agnostic__metal_cup",
+            "espresso__time_agnostic__round_wooden_coasters",
+            "espresso__time_agnostic__table",
+            "espresso__time_agnostic__white_bottle",
+            "split-cookie__time_agnostic__bare_hands",
+            "split-cookie__time_agnostic__checkered_tablecloth",
+            "split-cookie__time_agnostic__cookie",
+            "split-cookie__time_agnostic__square_wooden_board",
         }
     ),
 }
@@ -170,7 +221,11 @@ def _run_relative_path(run_path: str, namespace: str) -> str:
     return str(Path(namespace, *path.parts[1:]))
 
 
-def _time_sensitive_protocol_rows(protocol_path: Path) -> list[tuple[str, str, str]]:
+def _protocol_rows(
+    protocol_path: Path,
+    *,
+    category: str,
+) -> list[tuple[str, str, str]]:
     """Return ``(scene, query_id, query)`` rows from a generated protocol."""
 
     payload = json.loads(protocol_path.read_text(encoding="utf-8"))
@@ -181,7 +236,7 @@ def _time_sensitive_protocol_rows(protocol_path: Path) -> list[tuple[str, str, s
     selected: list[tuple[str, str, str]] = []
     seen: set[str] = set()
     for row in rows:
-        if not isinstance(row, dict) or row.get("category") != "temporal_state_reference":
+        if not isinstance(row, dict) or row.get("category") != category:
             continue
         scene = str(row.get("scene", "")).rsplit("/", 1)[-1]
         query_id = str(row.get("query_slug", "")).strip()
@@ -194,13 +249,20 @@ def _time_sensitive_protocol_rows(protocol_path: Path) -> list[tuple[str, str, s
         selected.append((scene, query_id, query))
 
     if not selected:
-        raise ValueError(f"Protocol contains no supported time-sensitive queries: {protocol_path}")
+        raise ValueError(f"Protocol contains no supported {category} queries: {protocol_path}")
     return selected
+
+
+def _time_sensitive_protocol_rows(protocol_path: Path) -> list[tuple[str, str, str]]:
+    """Backward-compatible helper for callers that only need state queries."""
+    return _protocol_rows(protocol_path, category="temporal_state_reference")
 
 
 def _filter_protocol_scenes(
     rows: list[tuple[str, str, str]],
     scenes: list[str] | None,
+    *,
+    category: str = "temporal_state_reference",
 ) -> list[tuple[str, str, str]]:
     if scenes is None:
         return rows
@@ -209,7 +271,7 @@ def _filter_protocol_scenes(
     found = {row[0] for row in selected}
     missing = sorted(requested - found)
     if missing:
-        raise ValueError("Protocol contains no time-sensitive rows for: " + ", ".join(missing))
+        raise ValueError(f"Protocol contains no {category} rows for: " + ", ".join(missing))
     return selected
 
 
@@ -336,11 +398,20 @@ def main() -> int:
         parser.error("choose a formal --protocol-id or explicitly pass --allow-incomplete")
     if not args.gpus or len(set(args.gpus)) != len(args.gpus):
         parser.error("--gpus must contain one or more unique GPU ids")
-    if args.protocol_id and args.profile not in {
-        "public_time_boundary_gated_v5",
-        "public_time_boundary_gated_v5_numeric",
-    }:
-        parser.error(f"{args.protocol_id} requires a formal public v5 profile")
+    time_agnostic_protocol = bool(
+        args.protocol_id and args.protocol_id.endswith("_time_agnostic")
+    )
+    if args.protocol_id and time_agnostic_protocol != (args.query_set == "time_agnostic"):
+        parser.error(f"{args.protocol_id} is incompatible with --query-set {args.query_set}")
+    allowed_profiles = (
+        {"public_time_agnostic_v1"}
+        if args.query_set == "time_agnostic"
+        else {"public_time_boundary_gated_v5", "public_time_boundary_gated_v5_numeric"}
+    )
+    if args.protocol_id and args.profile not in allowed_profiles:
+        parser.error(
+            f"{args.protocol_id} requires one of: {', '.join(sorted(allowed_profiles))}"
+        )
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -365,9 +436,15 @@ def main() -> int:
             requested_scenes = expected_scenes
         else:
             requested_scenes = args.scenes
+        protocol_category = (
+            "time_agnostic_reference"
+            if args.query_set == "time_agnostic"
+            else "temporal_state_reference"
+        )
         source_rows = _filter_protocol_scenes(
-            _time_sensitive_protocol_rows(protocol_path),
+            _protocol_rows(protocol_path, category=protocol_category),
             requested_scenes,
+            category=protocol_category,
         )
         if args.protocol_id:
             _validate_formal_identity(

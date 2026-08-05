@@ -97,6 +97,20 @@
       "query_count": 9,
       "scenes": ["americano", "split-cookie", "espresso", "chickchicken"],
       "status": "fresh_full_run_pending"
+    },
+    "paper_public3_time_agnostic": {
+      "scene_count": 3,
+      "query_count": 15,
+      "scenes": ["americano", "split-cookie", "espresso"],
+      "profile": "public_time_agnostic_v1",
+      "status": "fresh_full_run_pending"
+    },
+    "release_public4_time_agnostic": {
+      "scene_count": 4,
+      "query_count": 20,
+      "scenes": ["americano", "split-cookie", "espresso", "chickchicken"],
+      "profile": "public_time_agnostic_v1",
+      "status": "fresh_full_run_pending"
     }
   },
   "public_annotation_sha256": {
@@ -132,6 +146,11 @@
       "acc": "temporal frame accuracy on the public timeline",
       "viou": "mean IoU over annotation-mask frames in the temporal union",
       "tiou": "timeline IoU"
+    },
+    "4dlangsplat_time_agnostic_v1": {
+      "macc": "macro category foreground accuracy over all declared test frames",
+      "miou": "macro category pixel intersection-over-union over all declared test frames",
+      "reference_code_iou": "macro category mean of per-frame IoU on category-present frames"
     }
   }
 }
