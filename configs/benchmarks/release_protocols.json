@@ -1,5 +1,5 @@
 {
-  "registry_version": "2026-08-05.2",
+  "registry_version": "2026-08-05.3",
   "status": "paper_and_release_protocols_kept_separate",
   "protocols": {
     "paper_r4d_reported": {
@@ -148,9 +148,15 @@
       "tiou": "timeline IoU"
     },
     "4dlangsplat_time_agnostic_v1": {
-      "macc": "macro category foreground accuracy over all declared test frames",
-      "miou": "macro category pixel intersection-over-union over all declared test frames",
-      "reference_code_iou": "macro category mean of per-frame IoU on category-present frames"
+      "macc": "macro category mean of per-frame binary pixel accuracy (TP+TN)/(H*W) on category-present test frames",
+      "miou": "macro category mean of per-frame mask IoU on category-present test frames",
+      "reference_code_iou": "the released 4D LangSplat eval loop exposes the same present-frame IoU aggregation used by miou; its public code does not emit macc",
+      "all_frame_audit_fields": [
+        "foreground_recall_all_test_frames",
+        "pooled_mask_iou_all_test_frames",
+        "all_test_frame_mean_iou",
+        "binary_pixel_accuracy_all_test_frames"
+      ]
     }
   }
 }
