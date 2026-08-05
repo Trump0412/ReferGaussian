@@ -77,8 +77,10 @@ class PublicTimeAgnosticProtocolTest(unittest.TestCase):
         )
 
         self.assertEqual(result["mAcc"], 1.0)
-        self.assertAlmostEqual(result["mIoU"], 6.0 / 7.0)
+        self.assertEqual(result["mIoU"], 1.0)
         self.assertEqual(result["reference_present_frame_mean_iou"], 1.0)
+        self.assertAlmostEqual(result["pooled_mask_iou_all_test_frames"], 6.0 / 7.0)
+        self.assertLess(result["binary_pixel_accuracy_all_test_frames"], 1.0)
         self.assertTrue(result["coverage_complete"])
 
 

@@ -146,6 +146,7 @@ def evaluate_query(
     total_correct_pixels = 0
     total_pixels = 0
     present_frame_ious = []
+    present_frame_accuracies = []
     all_frame_ious = []
     missing_prediction_ids = []
     for image_id in expected_ids:
@@ -162,6 +163,7 @@ def evaluate_query(
         gt_pixels = int(gt.sum())
         correct_pixels = int((prediction == gt).sum())
         frame_iou = _safe_div(intersection, union, empty=1.0)
+        frame_accuracy = _safe_div(correct_pixels, int(gt.size), empty=1.0)
         total_intersection += intersection
         total_union += union
         total_gt += gt_pixels
@@ -170,6 +172,7 @@ def evaluate_query(
         all_frame_ious.append(frame_iou)
         if gt_pixels:
             present_frame_ious.append(frame_iou)
+            present_frame_accuracies.append(frame_accuracy)
         frame_rows.append(
             {
                 "image_id": image_id,
@@ -179,6 +182,7 @@ def evaluate_query(
                 "union_pixels": union,
                 "gt_pixels": gt_pixels,
                 "iou": frame_iou,
+                "pixel_accuracy": frame_accuracy,
             }
         )
 
@@ -190,11 +194,19 @@ def evaluate_query(
         "target_category_name": category_name,
         "test_frames": len(expected_ids),
         "category_present_frames": len(present_frame_ious),
-        "mAcc": _safe_div(total_intersection, total_gt, empty=1.0),
-        "mIoU": _safe_div(total_intersection, total_union, empty=1.0),
+        "mAcc": float(np.mean(present_frame_accuracies)),
+        "mIoU": float(np.mean(present_frame_ious)),
         "reference_present_frame_mean_iou": float(np.mean(present_frame_ious)),
+        "foreground_recall_all_test_frames": _safe_div(
+            total_intersection, total_gt, empty=1.0
+        ),
+        "pooled_mask_iou_all_test_frames": _safe_div(
+            total_intersection, total_union, empty=1.0
+        ),
         "all_test_frame_mean_iou": float(np.mean(all_frame_ious)),
-        "binary_pixel_accuracy": _safe_div(total_correct_pixels, total_pixels, empty=1.0),
+        "binary_pixel_accuracy_all_test_frames": _safe_div(
+            total_correct_pixels, total_pixels, empty=1.0
+        ),
         "intersection_pixels": total_intersection,
         "union_pixels": total_union,
         "gt_pixels": total_gt,
@@ -215,8 +227,16 @@ def _summary(rows: list[dict]) -> dict:
         "mAcc": _macro(rows, "mAcc"),
         "mIoU": _macro(rows, "mIoU"),
         "reference_present_frame_mean_iou": _macro(rows, "reference_present_frame_mean_iou"),
+        "foreground_recall_all_test_frames": _macro(
+            rows, "foreground_recall_all_test_frames"
+        ),
+        "pooled_mask_iou_all_test_frames": _macro(
+            rows, "pooled_mask_iou_all_test_frames"
+        ),
         "all_test_frame_mean_iou": _macro(rows, "all_test_frame_mean_iou"),
-        "binary_pixel_accuracy": _macro(rows, "binary_pixel_accuracy"),
+        "binary_pixel_accuracy_all_test_frames": _macro(
+            rows, "binary_pixel_accuracy_all_test_frames"
+        ),
         "coverage_complete": all(bool(row["coverage_complete"]) for row in rows),
         "missing_prediction_frames": sum(len(row["missing_prediction_image_ids"]) for row in rows),
     }
@@ -229,18 +249,18 @@ def _write_markdown(path: Path, payload: dict) -> None:
         "",
         f"- mAcc: {100.0 * summary['mAcc']:.2f}%",
         f"- mIoU: {100.0 * summary['mIoU']:.2f}%",
-        f"- 4D LangSplat code-compatible present-frame mean IoU: {100.0 * summary['reference_present_frame_mean_iou']:.2f}%",
+        f"- Pooled all-test-frame mask IoU (audit): {100.0 * summary['pooled_mask_iou_all_test_frames']:.2f}%",
         f"- Queries: {summary['queries']}",
         f"- Coverage complete: {summary['coverage_complete']}",
         "",
-        "| Scene | Query | mAcc | mIoU | Present-frame IoU | Coverage |",
+        "| Scene | Query | mAcc | mIoU | Pooled all-frame IoU | Coverage |",
         "|---|---|---:|---:|---:|---:|",
     ]
     for row in payload["per_query"]:
         lines.append(
             f"| {row['scene']} | {row['target_category_name']} | "
             f"{100.0 * row['mAcc']:.2f}% | {100.0 * row['mIoU']:.2f}% | "
-            f"{100.0 * row['reference_present_frame_mean_iou']:.2f}% | "
+            f"{100.0 * row['pooled_mask_iou_all_test_frames']:.2f}% | "
             f"{row['coverage_complete']} |"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -307,10 +327,21 @@ def main() -> int:
     payload = {
         "metric_protocol": {
             "id": "4dlangsplat_time_agnostic_v1",
-            "mAcc": "macro mean category foreground accuracy: sum TP / sum GT pixels across all test frames",
-            "mIoU": "macro mean category IoU: sum intersection / sum union across all test frames",
+            "mAcc": (
+                "macro category mean of per-frame binary pixel accuracy "
+                "(TP+TN)/(H*W) on category-present test frames"
+            ),
+            "mIoU": (
+                "macro category mean of per-frame mask IoU on category-present "
+                "test frames, matching the released 4D LangSplat eval loop"
+            ),
             "reference_present_frame_mean_iou": (
-                "macro category mean of frame IoU on category-present frames, matching the released 4D LangSplat eval loop"
+                "compatibility alias of mIoU"
+            ),
+            "foreground_recall_all_test_frames": "sum TP / sum GT pixels across all declared test frames",
+            "pooled_mask_iou_all_test_frames": "sum intersection / sum union across all declared test frames",
+            "binary_pixel_accuracy_all_test_frames": (
+                "sum correct foreground/background pixels / all pixels across all declared test frames"
             ),
             "polygon_policy": "first_polygon_per_annotation_for_4dlangsplat_code_parity",
             "empty_mask_rule": "empty_gt_and_prediction_scores_one; empty_gt_with_prediction_scores_zero",

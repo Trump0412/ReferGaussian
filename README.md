@@ -662,12 +662,12 @@ gs_python scripts/evaluate_public_time_agnostic.py \
   --output-md "${OUT}/official_eval.md"
 ```
 
-`mAcc` is the macro mean foreground class accuracy (`sum TP / sum GT pixels`)
-and `mIoU` is the macro mean category intersection-over-union after pooling all
-declared test frames. The evaluator also reports the released 4D LangSplat
-code-compatible mean IoU over category-present frames and binary pixel
-accuracy as audit fields. Exact source image ids are required; nearest-time
-camera substitution is rejected.
+`mAcc` is the macro category mean of per-frame binary pixel accuracy
+`(TP+TN)/(H*W)`, and `mIoU` is the macro category mean of per-frame mask IoU on
+category-present test frames, matching the released 4D LangSplat evaluation
+loop. The evaluator separately reports pooled mask IoU, foreground recall, and
+binary pixel accuracy across every declared test frame as audit values. Exact
+source image ids are required; nearest-time camera substitution is rejected.
 
 The commands above use portable GPU 0. On a verified multi-GPU host, replace
 the builder's `--gpus 0` and both consumers' `--gpu 0` with the same list, for
