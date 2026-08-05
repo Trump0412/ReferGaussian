@@ -38,6 +38,7 @@ apply_query_eval_profile() {
   unset QUERY_RENDER_MASK_PNG_COMPRESS_LEVEL
   unset QUERY_RENDER_TORCH_MORPHOLOGY
   unset QUERY_RENDER_TORCH_MORPHOLOGY_DEVICE
+  unset QUERY_RENDER_REQUESTED_CAMERAS_ONLY
   unset QUERY_SKIP_VIDEO_EXPORT
   unset QUERY_SKIP_OVERLAY_FRAME_EXPORT
   unset QUERY_SKIP_DIAGNOSTIC_EXPORT
@@ -501,6 +502,7 @@ apply_query_eval_profile() {
       export QUERY_RENDER_MASK_PNG_COMPRESS_LEVEL=1
       export QUERY_RENDER_TORCH_MORPHOLOGY=1
       export QUERY_RENDER_TORCH_MORPHOLOGY_DEVICE=cuda
+      export QUERY_RENDER_REQUESTED_CAMERAS_ONLY=1
       ;;
     r4d_shape_v4_recall|r4d_time_shape_v4_recall)
       apply_query_eval_profile public_time_shape_v4_recall

@@ -76,6 +76,7 @@ _FORMAL_BOUNDARY_GATED_PROFILES = frozenset(
         "boundary_gated_gaussian_v5",
         "public_time_boundary_gated_v5_numeric",
         "boundary_gated_gaussian_v5_numeric",
+        "public_time_agnostic_v1",
         "r4d_boundary_gated_v5",
         "r4d_multi_instance_boundary_v6",
         "r4d_renderer_geometry_v7",
@@ -506,19 +507,20 @@ def _apply_render_profile_env_defaults(eval_profile: str) -> None:
         # Formal profiles are intentionally not overrideable through inherited
         # shell state. The strict runner also clears inherited tuning, but this
         # guard keeps direct Python entry points on the same contract.
-        os.environ.update(
-            {
-                "REFERGAUSSIAN_QUERY_EVAL_PROFILE": normalized,
-                "GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY": "0",
-                "GS_QUERY_REQUIRE_STAGE1_TRACKS": "1",
-                "GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY": "1",
-                "GS_QUERY_FUSE_CLIP_TO_QUERY_TRACK": "1",
-                "GS_QUERY_FUSE_PREFER_CLIPPED_CLOUD": "1",
-                "GS_QUERY_ALLOW_CLOUD_ONLY_WITH_QUERY": "0",
-                "GS_QUERY_ALLOW_DIRECT_2D_MASKS": "0",
-                "GS_QUERY_STRICT_GAUSSIAN_PROJECTION": "1",
-            }
-        )
+        formal_overrides = {
+            "REFERGAUSSIAN_QUERY_EVAL_PROFILE": normalized,
+            "GS_QUERY_ALLOW_STALE_STAGE1_BOUNDARY": "0",
+            "GS_QUERY_REQUIRE_STAGE1_TRACKS": "1",
+            "GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY": "1",
+            "GS_QUERY_FUSE_CLIP_TO_QUERY_TRACK": "1",
+            "GS_QUERY_FUSE_PREFER_CLIPPED_CLOUD": "1",
+            "GS_QUERY_ALLOW_CLOUD_ONLY_WITH_QUERY": "0",
+            "GS_QUERY_ALLOW_DIRECT_2D_MASKS": "0",
+            "GS_QUERY_STRICT_GAUSSIAN_PROJECTION": "1",
+        }
+        if normalized == "public_time_agnostic_v1":
+            formal_overrides["QUERY_RENDER_REQUESTED_CAMERAS_ONLY"] = "1"
+        os.environ.update(formal_overrides)
 
 
 def _merge_ranges(frame_indices: list[int]) -> list[list[int]]:
@@ -537,6 +539,19 @@ def _merge_ranges(frame_indices: list[int]) -> list[list[int]]:
         prev = value
     merged.append([start, prev])
     return merged
+
+
+def _explicit_camera_image_ids(
+    reference_ids: list[str] | np.ndarray,
+    requested_image_ids: list[str],
+    *,
+    requested_only: bool,
+) -> list[str]:
+    """Resolve the exact camera grid for an explicit evaluation export."""
+    requested = list(dict.fromkeys(map(str, requested_image_ids)))
+    if requested_only:
+        return requested
+    return list(dict.fromkeys([*map(str, reference_ids), *requested]))
 
 
 def _find_render_dir(run_dir: Path) -> Path:
@@ -2209,10 +2224,14 @@ def render_hypernerf_query_video(
             raise ValueError("Explicit image_ids require background_mode='source' so camera/image pairs stay synchronized.")
         entries = resolve_dataset_image_entries(dataset_dir)
         entry_by_id = {str(entry["image_id"]): entry for entry in entries}
-        # Retain the complete reconstruction test grid for temporal metrics,
-        # then add exact benchmark cameras for spatial metrics.  A target-only
-        # export could make a sparse active-frame subset look temporally perfect.
-        camera_image_ids = list(dict.fromkeys([*map(str, reference_ids), *requested_image_ids]))
+        # Time-sensitive exports retain the reconstruction grid for temporal
+        # metrics. Time-agnostic evaluation uses only its declared test cameras.
+        requested_cameras_only = _env_flag("QUERY_RENDER_REQUESTED_CAMERAS_ONLY", False)
+        camera_image_ids = _explicit_camera_image_ids(
+            reference_ids,
+            requested_image_ids,
+            requested_only=requested_cameras_only,
+        )
         missing_ids = [image_id for image_id in camera_image_ids if image_id not in entry_by_id]
         if missing_ids:
             raise FileNotFoundError(
@@ -2295,9 +2314,16 @@ def render_hypernerf_query_video(
             "query_intent_mode": _query_intent_mode(str(selection_payload.get("query", "")), track_state_mode=None),
             "empty_selection": True,
             "camera_export": {
-                "mode": "explicit_source_camera" if evaluation_camera_export else "reconstruction_test_camera",
+                "mode": (
+                    "explicit_requested_source_camera"
+                    if evaluation_camera_export and requested_cameras_only
+                    else "explicit_source_camera"
+                    if evaluation_camera_export
+                    else "reconstruction_test_camera"
+                ),
                 "image_ids": list(test_ids),
                 "requested_image_ids": list(requested_image_ids),
+                "requested_cameras_only": bool(evaluation_camera_export and requested_cameras_only),
             },
             "frame_exports": {
                 "overlay_frames": str(overlay_frame_dir),
@@ -2848,9 +2874,16 @@ def render_hypernerf_query_video(
         "dataset_dir": str(dataset_dir),
         "native_render": True,
         "camera_export": {
-            "mode": "explicit_source_camera" if evaluation_camera_export else "reconstruction_test_camera",
+            "mode": (
+                "explicit_requested_source_camera"
+                if evaluation_camera_export and requested_cameras_only
+                else "explicit_source_camera"
+                if evaluation_camera_export
+                else "reconstruction_test_camera"
+            ),
             "image_ids": list(test_ids),
             "requested_image_ids": list(requested_image_ids),
+            "requested_cameras_only": bool(evaluation_camera_export and requested_cameras_only),
             "selection_temporal_reference_frame_count": int(len(reference_times)),
         },
         "background_mode": background_mode,

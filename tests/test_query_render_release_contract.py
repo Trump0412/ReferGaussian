@@ -14,6 +14,7 @@ from PIL import Image
 from refergaussian.semantics.query_render import (
     QueryTrack,
     _apply_render_profile_env_defaults,
+    _explicit_camera_image_ids,
     _frame_mask_at_render_times,
     _find_render_dir,
     _fuse_query_and_cloud_masks,
@@ -139,6 +140,7 @@ class QueryRenderReleaseContractTest(unittest.TestCase):
         self.assertIn("QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT=1", block)
         self.assertIn("QUERY_FAST_VALIDATION_ONLY=1", block)
         self.assertIn("QUERY_RENDER_ACTIVE_MASKS_ONLY=0", block)
+        self.assertIn("QUERY_RENDER_REQUESTED_CAMERAS_ONLY=1", block)
 
         pipeline = (
             Path(__file__).resolve().parents[1]
@@ -147,6 +149,24 @@ class QueryRenderReleaseContractTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("QUERY_RENDER_IMAGE_IDS_JSON", pipeline)
         self.assertIn('--image-ids-json "${QUERY_RENDER_IMAGE_IDS_JSON}"', pipeline)
+
+        with patch.dict(os.environ, {}, clear=True):
+            _apply_render_profile_env_defaults("public_time_agnostic_v1")
+            self.assertEqual(os.environ["QUERY_RENDER_REQUESTED_CAMERAS_ONLY"], "1")
+            self.assertEqual(os.environ["GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY"], "1")
+
+    def test_explicit_camera_grid_can_be_restricted_to_requested_ids(self) -> None:
+        reference_ids = ["000001", "000003", "000005"]
+        requested_ids = ["000002", "000003", "000002"]
+
+        self.assertEqual(
+            _explicit_camera_image_ids(reference_ids, requested_ids, requested_only=True),
+            ["000002", "000003"],
+        )
+        self.assertEqual(
+            _explicit_camera_image_ids(reference_ids, requested_ids, requested_only=False),
+            ["000001", "000003", "000005", "000002"],
+        )
 
     def test_probability_opacity_round_trips_to_logits(self) -> None:
         probabilities = np.asarray([0.1, 0.5, 0.9], dtype=np.float32)
