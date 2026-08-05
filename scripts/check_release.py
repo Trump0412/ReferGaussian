@@ -415,6 +415,8 @@ def check_runtime_release_guards() -> list[str]:
         errors.append("Query launcher must pass pinned Grounded-SAM2 model revisions")
     if "GSAM2_LOCAL_FILES_ONLY:-1" not in query_launch_text:
         errors.append("Query launcher must default to local-only pinned Grounded-SAM2 weights")
+    if "GSAM2_INFERENCE_SEED:-0" not in query_launch_text:
+        errors.append("Query launcher must default to deterministic Grounded-SAM2 inference seed 0")
     if "QUERY_OUTPUT_ROOT_OVERRIDE" not in query_launch_text:
         errors.append("Query launcher must honor the batch query output root")
     grounded_backend_text = (ROOT / "refergaussian/semantics/grounded_sam2_backend.py").read_text(
@@ -425,6 +427,9 @@ def check_runtime_release_guards() -> list[str]:
         "revision=sam2_model_revision",
         "local_files_only=local_files_only",
         "use_fast=True",
+        "np.random.seed(seed)",
+        "torch.manual_seed(seed)",
+        '"inference_seed": int(inference_seed)',
     ):
         if token not in grounded_backend_text:
             errors.append(f"Grounded-SAM2 runtime must pin local snapshots: {token}")
