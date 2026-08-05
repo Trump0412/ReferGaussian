@@ -95,6 +95,7 @@ apply_query_eval_profile() {
   unset QUERY_LIFT_MASK_AWARE_PREFILTER_MARGIN
   unset QUERY_LIFT_ENTITY_ROLE_SCOPE
   unset QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT
+  unset QUERY_ALLOW_BASELINE_4DGS_RUN
   unset QUERY_RELATIONAL_ACTION_MOTION_GATE
   unset QUERY_RELATIONAL_ACTION_MIN_NORMALIZED_MOTION
 
@@ -494,6 +495,7 @@ apply_query_eval_profile() {
       export QUERY_EVAL_PROFILE="public_time_agnostic_v1"
       export REFERGAUSSIAN_QUERY_EVAL_PROFILE="public_time_agnostic_v1"
       export QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT=1
+      export QUERY_ALLOW_BASELINE_4DGS_RUN=1
       ;;
     r4d_shape_v4_recall|r4d_time_shape_v4_recall)
       apply_query_eval_profile public_time_shape_v4_recall

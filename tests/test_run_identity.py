@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from refergaussian.run_identity import (
+    validate_query_ready_baseline_4dgs_run,
     validate_query_ready_refergaussian_run,
     validate_refergaussian_run,
 )
@@ -58,6 +59,19 @@ class RunIdentityTest(unittest.TestCase):
             (run_dir / "point_cloud").mkdir()
             (run_dir / "test").mkdir()
             self.assertEqual(validate_query_ready_refergaussian_run(run_dir), [])
+
+    def test_explicit_baseline_contract_requires_identity_and_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run_dir = Path(temp_dir)
+            (run_dir / "config.yaml").write_text(
+                "phase: baseline\nwarp_enabled: false\n",
+                encoding="utf-8",
+            )
+            (run_dir / "point_cloud").mkdir()
+            (run_dir / "test").mkdir()
+
+            self.assertEqual(validate_query_ready_baseline_4dgs_run(run_dir), [])
+            self.assertNotEqual(validate_refergaussian_run(run_dir), [])
 
 
 if __name__ == "__main__":

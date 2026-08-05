@@ -11,6 +11,7 @@ REQUIRED_CONFIG = {
 }
 REQUIRED_QUERY_ARTIFACTS = ("point_cloud", "test")
 _TRUTHY = {"1", "true", "yes", "on"}
+_FALSY = {"0", "false", "no", "off"}
 
 
 def _read_flat_yaml(path: Path) -> dict[str, str]:
@@ -62,6 +63,28 @@ def validate_query_ready_refergaussian_run(run_dir: str | Path) -> list[str]:
     if errors:
         return errors
 
+    for artifact in REQUIRED_QUERY_ARTIFACTS:
+        path = run_path / artifact
+        if not path.is_dir():
+            errors.append(f"missing query-render artifact: {path}")
+    return errors
+
+
+def validate_query_ready_baseline_4dgs_run(run_dir: str | Path) -> list[str]:
+    """Validate an explicitly requested vanilla 4DGS query backbone."""
+    run_path = Path(run_dir)
+    if not run_path.is_dir():
+        return [f"run directory is missing: {run_path}"]
+    config_path = run_path / "config.yaml"
+    if not config_path.is_file():
+        return [f"missing baseline training identity: {config_path}"]
+
+    config = _read_flat_yaml(config_path)
+    errors: list[str] = []
+    if config.get("phase") != "baseline":
+        errors.append(f"phase={config.get('phase')!r}, expected 'baseline'")
+    if config.get("warp_enabled", "").lower() not in _FALSY:
+        errors.append("warp_enabled is not false")
     for artifact in REQUIRED_QUERY_ARTIFACTS:
         path = run_path / artifact
         if not path.is_dir():
