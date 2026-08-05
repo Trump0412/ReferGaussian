@@ -217,6 +217,7 @@ def check_reconstruction_registry() -> list[str]:
     paper = identities.get("paper_reported_12_scene_table", {})
     archival = identities.get("archival_selected_8_candidate", {})
     release = identities.get("release_reconstruction_v1", {})
+    paper_compat = identities.get("release_reconstruction_v2_paper_compat", {})
     if paper.get("executable") is not False:
         errors.append("Unresolved paper reconstruction identity must remain non-executable")
     if archival.get("executable") is not False:
@@ -234,6 +235,21 @@ def check_reconstruction_registry() -> list[str]:
         errors.append("release_reconstruction_v1 must use a scene-equal aggregate")
     if shared.get("post_hoc_psnr_filtering") is not False:
         errors.append("release_reconstruction_v1 must forbid post-hoc PSNR filtering")
+    if (
+        paper_compat.get("extends") != "release_reconstruction_v1"
+        or paper_compat.get("executable") is not True
+        or paper_compat.get("is_paper_reproduction") is not False
+    ):
+        errors.append(
+            "release_reconstruction_v2_paper_compat must extend v1 and remain explicitly non-paper"
+        )
+    if paper_compat.get("shared", {}).get("seed") != 0:
+        errors.append("paper-compatible reconstruction must freeze the historical effective seed 0")
+    compat_environment = paper_compat.get("refergaussian", {}).get(
+        "frozen_environment", {}
+    )
+    if compat_environment.get("TEMPORAL_WARP_LR_SCHEDULE") != "constant":
+        errors.append("paper-compatible reconstruction must freeze the historical constant warp LR")
     return errors
 
 

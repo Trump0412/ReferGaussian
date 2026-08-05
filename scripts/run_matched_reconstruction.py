@@ -9,6 +9,7 @@ and records immutable provenance before launching either method.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -135,6 +136,40 @@ RELEASE_SCENE_LAYOUT = {
         True,
     ),
 }
+RECONSTRUCTION_PROTOCOL_CONTRACTS = {
+    "release_reconstruction_v1": {
+        "seed": 6666,
+        "tube": {
+            "temporal_tube_samples": 3,
+            "temporal_tube_span": 0.4,
+            "temporal_tube_sigma": 0.34,
+            "temporal_tube_covariance_mix": 0.05,
+        },
+        "environment": {
+            "TEMPORAL_WARP_LR_INIT": "0.00012",
+            "TEMPORAL_WARP_LR_SCHEDULE": "shared_exponential",
+            "TEMPORAL_LR_INIT": "0.00012",
+            "TEMPORAL_LR_FINAL": "0.000012",
+            "TEMPORAL_TUBE_SIGMA": "0.34",
+        },
+    },
+    "release_reconstruction_v2_paper_compat": {
+        "seed": 0,
+        "tube": {
+            "temporal_tube_samples": 3,
+            "temporal_tube_span": 0.4,
+            "temporal_tube_sigma": 0.32,
+            "temporal_tube_covariance_mix": 0.05,
+        },
+        "environment": {
+            "TEMPORAL_WARP_LR_INIT": "0.00016",
+            "TEMPORAL_WARP_LR_SCHEDULE": "constant",
+            "TEMPORAL_LR_INIT": "0.00016",
+            "TEMPORAL_LR_FINAL": "0.000016",
+            "TEMPORAL_TUBE_SIGMA": "0.32",
+        },
+    },
+}
 
 
 class HarnessError(RuntimeError):
@@ -254,9 +289,15 @@ def validate_protocol(protocol_id: str, protocol: Mapping[str, Any]) -> None:
             f"Protocol {protocol_id!r} must explicitly state that it is not a paper reproduction"
         )
 
+    contract = RECONSTRUCTION_PROTOCOL_CONTRACTS.get(protocol_id)
+    if contract is None:
+        raise HarnessError(f"No executable parameter contract for {protocol_id!r}")
+
     shared = _require_mapping(protocol.get("shared"), f"{protocol_id}.shared")
-    if shared.get("seed") != 6666 or shared.get("iterations") != 14000:
-        raise HarnessError("release_reconstruction_v1 requires seed 6666 and 14000 iterations")
+    if shared.get("seed") != contract["seed"] or shared.get("iterations") != 14000:
+        raise HarnessError(
+            f"{protocol_id} requires seed {contract['seed']} and 14000 iterations"
+        )
     if shared.get("metric_mode") != "full":
         raise HarnessError("Matched release metrics must use full mode")
     if shared.get("aggregation") != "scene_equal_arithmetic_mean":
@@ -271,12 +312,7 @@ def validate_protocol(protocol_id: str, protocol: Mapping[str, Any]) -> None:
     refer = _require_mapping(
         protocol.get("refergaussian"), f"{protocol_id}.refergaussian"
     )
-    expected_tube = {
-        "temporal_tube_samples": 3,
-        "temporal_tube_span": 0.4,
-        "temporal_tube_sigma": 0.34,
-        "temporal_tube_covariance_mix": 0.05,
-    }
+    expected_tube = contract["tube"]
     for key, expected in expected_tube.items():
         if refer.get(key) != expected:
             raise HarnessError(f"Frozen ReferGaussian parameter {key} must be {expected}")
@@ -289,9 +325,9 @@ def validate_protocol(protocol_id: str, protocol: Mapping[str, Any]) -> None:
     expected_tube_environment = {
         "TEMPORAL_TUBE_SAMPLES": "3",
         "TEMPORAL_TUBE_SPAN": "0.40",
-        "TEMPORAL_TUBE_SIGMA": "0.34",
         "TEMPORAL_TUBE_COVARIANCE_MIX": "0.05",
     }
+    expected_tube_environment.update(contract["environment"])
     for key, expected in expected_tube_environment.items():
         if frozen_environment.get(key) != expected:
             raise HarnessError(f"Frozen environment value {key} must be {expected}")
@@ -374,13 +410,38 @@ def validate_protocol(protocol_id: str, protocol: Mapping[str, Any]) -> None:
         raise HarnessError("External untracked file paths must be unique")
 
 
+def _merge_protocol(parent: Mapping[str, Any], child: Mapping[str, Any]) -> dict[str, Any]:
+    merged = copy.deepcopy(dict(parent))
+    for key, value in child.items():
+        if key == "extends":
+            continue
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_protocol(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
+def _resolve_protocol(
+    identities: Mapping[str, Any], protocol_id: str, stack: tuple[str, ...] = ()
+) -> dict[str, Any]:
+    if protocol_id in stack:
+        raise HarnessError(f"Protocol inheritance cycle: {' -> '.join(stack + (protocol_id,))}")
+    raw = identities.get(protocol_id)
+    if raw is None:
+        raise HarnessError(f"Unknown protocol identity: {protocol_id}")
+    protocol = dict(_require_mapping(raw, protocol_id))
+    parent_id = protocol.get("extends")
+    if not parent_id:
+        return copy.deepcopy(protocol)
+    parent = _resolve_protocol(identities, str(parent_id), stack + (protocol_id,))
+    return _merge_protocol(parent, protocol)
+
+
 def load_protocol(registry_path: Path, protocol_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
     registry = _require_mapping(read_json(registry_path), "registry")
     identities = _require_mapping(registry.get("identities"), "registry.identities")
-    protocol_raw = identities.get(protocol_id)
-    if protocol_raw is None:
-        raise HarnessError(f"Unknown protocol identity: {protocol_id}")
-    protocol = dict(_require_mapping(protocol_raw, protocol_id))
+    protocol = _resolve_protocol(identities, protocol_id)
     validate_protocol(protocol_id, protocol)
     return dict(registry), protocol
 
@@ -1039,6 +1100,7 @@ def _validate_resume(
 
 def _execute(
     output_root: Path,
+    protocol_id: str,
     protocol: Mapping[str, Any],
     selected_scenes: Sequence[Mapping[str, Any]],
     commands: Sequence[Mapping[str, Any]],
@@ -1126,7 +1188,7 @@ def _execute(
             write_json_atomic(
                 results_path,
                 {
-                    "protocol_id": "release_reconstruction_v1",
+                    "protocol_id": protocol_id,
                     "complete_protocol": state["complete_protocol"],
                     "scenes": per_scene,
                 },
@@ -1145,7 +1207,7 @@ def _execute(
     if state["complete_protocol"]:
         aggregate = aggregate_scene_equal(per_scene, required_ids)
         final = {
-            "protocol_id": "release_reconstruction_v1",
+            "protocol_id": protocol_id,
             "is_paper_reproduction": False,
             "status": "complete",
             "completed_at_utc": utc_now(),
@@ -1157,7 +1219,7 @@ def _execute(
         state["status"] = "complete"
     else:
         subset = {
-            "protocol_id": "release_reconstruction_v1",
+            "protocol_id": protocol_id,
             "status": "incomplete_canary_subset",
             "is_final_aggregate": False,
             "selected_scene_ids": state["selected_scene_ids"],
@@ -1280,6 +1342,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         _execute(
             output_root,
+            args.protocol,
             protocol,
             selected_scenes,
             commands,

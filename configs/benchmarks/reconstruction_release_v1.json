@@ -64,6 +64,26 @@
       },
       "note": "Historical selected-scene candidate. It is not canonical, not the paper table, and must not be promoted as a release aggregate."
     },
+    "release_reconstruction_v2_paper_compat": {
+      "extends": "release_reconstruction_v1",
+      "status": "executable_frozen",
+      "executable": true,
+      "is_paper_reproduction": false,
+      "note": "Matched protocol using the effective seed and optimizer behavior of the historical released training path. It is paper-compatible evidence, not the unresolved paper-exact 12-scene aggregate.",
+      "shared": {
+        "seed": 0
+      },
+      "refergaussian": {
+        "temporal_tube_sigma": 0.32,
+        "frozen_environment": {
+          "TEMPORAL_WARP_LR_INIT": "0.00016",
+          "TEMPORAL_WARP_LR_SCHEDULE": "constant",
+          "TEMPORAL_LR_INIT": "0.00016",
+          "TEMPORAL_LR_FINAL": "0.000016",
+          "TEMPORAL_TUBE_SIGMA": "0.32"
+        }
+      }
+    },
     "release_reconstruction_v1": {
       "status": "executable_frozen",
       "executable": true,

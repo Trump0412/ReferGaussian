@@ -384,9 +384,10 @@ launching the two methods by hand:
 
 ```bash
 source scripts/common.sh
-OUT="reports/RECONSTRUCTION_RELEASE_V1_$(date -u +%Y%m%dT%H%M%SZ)"
+PROTOCOL=release_reconstruction_v2_paper_compat
+OUT="reports/${PROTOCOL}_$(date -u +%Y%m%dT%H%M%SZ)"
 gs_python scripts/run_matched_reconstruction.py \
-  --protocol release_reconstruction_v1 \
+  --protocol "${PROTOCOL}" \
   --data-root "${GS_DATA_ROOT}" \
   --output-root "${OUT}" \
   --gpu 0
@@ -394,16 +395,19 @@ gs_python scripts/run_matched_reconstruction.py \
 
 This command requires a clean Git checkout, validates the pinned 4DGaussians
 commit, patch-file hashes, exact patched-tree diff, and generated-file hashes,
-then trains both methods at seed 6666 for 14,000
+then trains both methods at the protocol's fixed seed for 14,000
 fine iterations, evaluates the same full test-camera set, and writes a
 scene-equal aggregate only after all 12 registered scenes complete. It never
 filters scenes by PSNR. A `--scenes` subset is emitted only as an incomplete
 canary and has no final aggregate.
 
-`release_reconstruction_v1` is a separately labeled executable protocol, not
-an asserted reproduction of the accepted-paper reconstruction table. The
-paper-reported identity, historical selected-8 candidate, unresolved temporal
-tube settings, and executable release identity are kept side by side in
+`release_reconstruction_v2_paper_compat` makes the historical effective seed
+(`0`) and constant contextual-warp learning rate explicit while applying the
+fixed seed in the correct RNG order. `release_reconstruction_v1` remains frozen
+as the seed-6666/shared-schedule August audit baseline. Neither executable
+identity is relabeled as the unresolved accepted-paper reconstruction table.
+The paper-reported identity, historical selected-8 candidate, conflicting
+temporal tube settings, and both executable identities are kept side by side in
 [`configs/benchmarks/reconstruction_release_v1.json`](configs/benchmarks/reconstruction_release_v1.json).
 
 The full and subset metric paths cache each LPIPS network once per evaluated

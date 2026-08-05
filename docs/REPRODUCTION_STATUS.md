@@ -14,8 +14,9 @@ The release contract is defined by
 - Historical R4D subset: 8 scenes / 58 queries, archival and noncanonical.
 - Paper Public: 3 scenes / 7 annotation-derived time-sensitive queries.
 - Public extension: 4 scenes / 9 annotation-derived time-sensitive queries.
-- Matched reconstruction release: a separate executable 12-scene protocol;
-  its fresh full result is pending and is not the accepted-paper table.
+- Matched reconstruction release: two separate executable 12-scene identities
+  preserve the seed-6666 audit baseline and historical effective-seed behavior;
+  their fresh full results are pending and neither is the accepted-paper table.
 - Final reports require official query ids, `--strict-release --force-rerun`,
   `--require-complete`, model/data revision manifests, and the ReferGaussian
   run configuration.
@@ -49,6 +50,8 @@ The release gate and regression suite verify the executable contract:
 - public and R4D evaluators reject incomplete query or spatial-frame coverage;
 - ReferGaussian and the integrated 4DGS control accept the same explicit seed,
   and the external bootstrap restores that seed after backend initialization.
+- The contextual warp has its own frozen learning-rate schedule; it is no
+  longer implicitly coupled to per-Gaussian temporal-parameter scheduling.
 - `scripts/run_matched_reconstruction.py` refuses dirty source trees, mutable
   reconstruction overrides, mismatched render sets, subset metrics, partial
   12-scene aggregates, and post-hoc PSNR filtering.

@@ -12,16 +12,19 @@ Reconstruction identities are frozen in
 [`configs/benchmarks/reconstruction_release_v1.json`](../configs/benchmarks/reconstruction_release_v1.json).
 The accepted-paper table and the later selected-8 candidate remain reported,
 non-executable identities because their exact camera-ready settings and raw
-inputs are unresolved. The fresh executable identity is
-`release_reconstruction_v1`; it is not relabeled as paper reproduction.
+inputs are unresolved. Two executable identities are retained: the August
+seed-6666 audit baseline (`release_reconstruction_v1`) and the historical
+effective-seed protocol (`release_reconstruction_v2_paper_compat`). Neither is
+relabeled as paper reproduction.
 
 Run the complete matched protocol from a clean checkout:
 
 ```bash
 source scripts/common.sh
-OUT="reports/RECONSTRUCTION_RELEASE_V1_$(date -u +%Y%m%dT%H%M%SZ)"
+PROTOCOL=release_reconstruction_v2_paper_compat
+OUT="reports/${PROTOCOL}_$(date -u +%Y%m%dT%H%M%SZ)"
 gs_python scripts/run_matched_reconstruction.py \
-  --protocol release_reconstruction_v1 \
+  --protocol "${PROTOCOL}" \
   --data-root "${GS_DATA_ROOT}" \
   --output-root "${OUT}" \
   --gpu 0
@@ -29,7 +32,7 @@ gs_python scripts/run_matched_reconstruction.py \
 
 The runner validates the source commit, external 4DGaussians commit, patch-file
 hashes, the exact resulting patched-tree diff and generated-file hashes,
-dataset/config identities, seed 6666, 14,000 fine iterations, and full
+dataset/config identities, the selected protocol's seed, 14,000 fine iterations, and full
 metric mode before launching work. It trains ReferGaussian and the matched 4D
 Gaussian Splatting baseline from the same source data and scene configuration.
 It verifies identical render filenames and dimensions and reports LPIPS-vgg as
@@ -38,6 +41,14 @@ Evaluation streams the complete test-camera split directly to disk. It skips
 train-camera renders and preview-video generation because neither contributes
 to reconstruction metrics; this changes memory use and runtime only, not the
 evaluated frame set or reductions.
+
+The v2 identity makes seed `0` explicit because the historical training path
+reset the RNG to zero after parsing a nominal seed. It also freezes the
+historical constant contextual-warp learning rate and tube sigma `0.32`.
+The corrected runner applies seed zero directly after backend initialization,
+so the effective seed is now visible in provenance rather than accidental.
+The v1 identity remains executable with seed `6666`, sigma `0.34`, and its
+shared exponential warp schedule; its prior behavior is not changed by v2.
 
 Keep these files for each method:
 

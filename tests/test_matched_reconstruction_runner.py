@@ -52,6 +52,28 @@ class ProtocolValidationTest(unittest.TestCase):
         self.assertEqual(protocol["scene_count"], 12)
         self.assertFalse(protocol["is_paper_reproduction"])
 
+    def test_paper_compat_protocol_resolves_without_claiming_paper_exact(self) -> None:
+        _, protocol = RUNNER.load_protocol(
+            REGISTRY_PATH, "release_reconstruction_v2_paper_compat"
+        )
+
+        self.assertEqual(protocol["shared"]["seed"], 0)
+        self.assertEqual(protocol["refergaussian"]["temporal_tube_sigma"], 0.32)
+        self.assertFalse(protocol["is_paper_reproduction"])
+        expected = RUNNER.expected_parameter_environment(protocol)
+        self.assertEqual(expected["TEMPORAL_WARP_LR_SCHEDULE"], "constant")
+        self.assertEqual(expected["TEMPORAL_WARP_LR_INIT"], "0.00016")
+
+    def test_v1_retains_preexisting_optimizer_behavior(self) -> None:
+        protocol = _registry()["identities"]["release_reconstruction_v1"]
+        expected = RUNNER.expected_parameter_environment(protocol)
+
+        self.assertEqual(expected["REFERGAUSSIAN_SEED"], "6666")
+        self.assertEqual(
+            expected["TEMPORAL_WARP_LR_SCHEDULE"], "shared_exponential"
+        )
+        self.assertEqual(expected["TEMPORAL_WARP_LR_INIT"], "0.00012")
+
     def test_reported_paper_identity_is_not_executable(self) -> None:
         protocol = _registry()["identities"]["paper_reported_12_scene_table"]
         self.assertEqual(
