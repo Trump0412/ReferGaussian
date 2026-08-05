@@ -131,6 +131,23 @@ class QueryRenderReleaseContractTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn('${QUERY_SKIP_DIAGNOSTIC_EXPORT:-0}" != "1"', pipeline)
 
+    def test_time_agnostic_profile_uses_exact_numeric_render_contract(self) -> None:
+        profiles = (Path(__file__).resolve().parents[1] / "scripts" / "query_eval_profiles.sh").read_text(
+            encoding="utf-8"
+        )
+        block = profiles.split("public_time_agnostic_v1)", 1)[1].split(";;", 1)[0]
+        self.assertIn("QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT=1", block)
+        self.assertIn("QUERY_FAST_VALIDATION_ONLY=1", block)
+        self.assertIn("QUERY_RENDER_ACTIVE_MASKS_ONLY=0", block)
+
+        pipeline = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "run_query_specific_worldtube_pipeline.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("QUERY_RENDER_IMAGE_IDS_JSON", pipeline)
+        self.assertIn('--image-ids-json "${QUERY_RENDER_IMAGE_IDS_JSON}"', pipeline)
+
     def test_probability_opacity_round_trips_to_logits(self) -> None:
         probabilities = np.asarray([0.1, 0.5, 0.9], dtype=np.float32)
         logits = _opacity_logits_from_probabilities(probabilities)

@@ -496,6 +496,11 @@ apply_query_eval_profile() {
       export REFERGAUSSIAN_QUERY_EVAL_PROFILE="public_time_agnostic_v1"
       export QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT=1
       export QUERY_ALLOW_BASELINE_4DGS_RUN=1
+      export QUERY_FAST_VALIDATION_ONLY=1
+      export QUERY_RENDER_ACTIVE_MASKS_ONLY=0
+      export QUERY_RENDER_MASK_PNG_COMPRESS_LEVEL=1
+      export QUERY_RENDER_TORCH_MORPHOLOGY=1
+      export QUERY_RENDER_TORCH_MORPHOLOGY_DEVICE=cuda
       ;;
     r4d_shape_v4_recall|r4d_time_shape_v4_recall)
       apply_query_eval_profile public_time_shape_v4_recall

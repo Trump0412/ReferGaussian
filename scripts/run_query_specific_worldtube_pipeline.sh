@@ -108,8 +108,8 @@ run_final_render_and_summary() {
   # Release GPU lock before final rendering to overlap with next query's GPU phase.
   release_gpu_lock
 
-  run_gs_python_with_timeout "${QUERY_RENDER_STAGE_TIMEOUT:-0}" \
-    "${GS_ROOT}/scripts/render_query_video.py" \
+  render_args=(
+    "${GS_ROOT}/scripts/render_query_video.py"
     --run-dir "${QUERY_RUN_DIR}" \
     --dataset-dir "${DATASET_DIR}" \
     --selection-path "${QWEN_SELECTION_PATH}" \
@@ -118,6 +118,15 @@ run_final_render_and_summary() {
     --background-mode source \
     --fps "${QUERY_RENDER_FPS:-6}" \
     --stride "${QUERY_RENDER_STRIDE:-1}"
+  )
+  if [[ -n "${QUERY_RENDER_IMAGE_IDS_JSON:-}" ]]; then
+    if [[ ! -f "${QUERY_RENDER_IMAGE_IDS_JSON}" ]]; then
+      echo "[error] QUERY_RENDER_IMAGE_IDS_JSON is not readable: ${QUERY_RENDER_IMAGE_IDS_JSON}" >&2
+      return 2
+    fi
+    render_args+=(--image-ids-json "${QUERY_RENDER_IMAGE_IDS_JSON}")
+  fi
+  run_gs_python_with_timeout "${QUERY_RENDER_STAGE_TIMEOUT:-0}" "${render_args[@]}"
 
   if [[ "${QUERY_SKIP_DIAGNOSTIC_EXPORT:-0}" != "1" \
       && -n "${QUERY_ANNOTATION_DIR:-}" \
