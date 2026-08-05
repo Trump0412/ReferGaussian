@@ -144,7 +144,7 @@
       "external_4dgaussians": {
         "repository": "https://github.com/hustvl/4DGaussians.git",
         "commit": "843d5ac636c37e4b611242287754f3d4ed150144",
-        "patched_diff_sha256": "c4cf8b2e635d890eff3735d644b761e823cd8db1ebb59fa1cab1d4918b281b65",
+        "patched_diff_sha256": "55288d685b84cece826a1cca9d618abd73f9a9abf4cf1746f85306347d1427db",
         "untracked_files": [
           {
             "path": "arguments/hypernerf/cut-lemon1.py",
