@@ -86,9 +86,10 @@ aggregated under the same protocol name.
 
 These are time-sensitive protocols only. The 4D LangSplat reference
 time-agnostic path evaluates every COCO category with a mask: 15 scene-local
-prompts on the three paper scenes and 20 on the four-scene extension. The
-protocol builder currently exposes only one static base-object row per scene,
-so those rows must not be reported as the complete time-agnostic benchmark.
+prompts on the three paper scenes and 20 on the four-scene extension. Use
+`scripts/build_4dlangsplat_time_agnostic_protocol.py` together with
+`build_public_query_manifest.py --query-set time_agnostic`; the older single
+`static_reference` base-object row per scene is not the complete benchmark.
 The compatibility evaluator also computes Acc on the full metadata timeline,
 whereas the inspected 4D LangSplat reference computes it on sparse annotated
 evaluation frames. Keep the accepted-paper table, compatibility results, and

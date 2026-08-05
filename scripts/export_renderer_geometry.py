@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -19,6 +20,23 @@ from refergaussian.semantics.renderer_geometry import (
 )
 
 
+def _frame_requests_from_image_ids(path: str | Path, dataset_dir: Path) -> list[dict]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    values = payload.get("image_ids", []) if isinstance(payload, dict) else payload
+    if not isinstance(values, list) or not values:
+        raise ValueError(f"No image_ids found in {path}")
+    requested = {str(value).strip() for value in values if str(value).strip()}
+    entries = _source_entries(dataset_dir)
+    available = {str(entry["image_id"]) for entry in entries}
+    missing = sorted(requested - available)
+    if missing:
+        raise FileNotFoundError(
+            "Requested renderer-geometry image ids are absent from the dataset: "
+            + ", ".join(missing[:8])
+        )
+    return [entry for entry in entries if str(entry["image_id"]) in requested]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -32,6 +50,10 @@ def main() -> None:
     frames = parser.add_mutually_exclusive_group(required=True)
     frames.add_argument("--tracks-path", help="Export active Stage-1 track frames.")
     frames.add_argument("--all-dataset-frames", action="store_true", help="Export every source-camera frame.")
+    frames.add_argument(
+        "--image-ids-json",
+        help="Export only the exact source-camera image ids declared by an evaluation protocol.",
+    )
     parser.add_argument(
         "--entitybank-dir",
         default=None,
@@ -43,6 +65,8 @@ def main() -> None:
     dataset_dir = Path(args.dataset_dir)
     if args.tracks_path:
         frame_requests = frame_requests_from_tracks(args.tracks_path)
+    elif args.image_ids_json:
+        frame_requests = _frame_requests_from_image_ids(args.image_ids_json, dataset_dir)
     else:
         frame_requests = _source_entries(dataset_dir)
     gaussian_ids = None if args.entitybank_dir is None else gaussian_ids_from_entitybank(args.entitybank_dir)

@@ -643,8 +643,9 @@ gs_python scripts/run_query_batch.py \
   --profile public_time_agnostic_v1 \
   --gpu 0 1 2 3 --force-rerun --strict-release --timeout 10800
 
-# Hold the selected Gaussian entities fixed and project them on every exact
-# COCO test camera. This consumes image ids only, never annotation masks.
+# Optional audit: hold the selected Gaussian entities fixed and repeat the
+# exact-camera projection without rerunning Stage-1, Qwen, or lifting. The
+# main time-agnostic profile already renders only these requested cameras.
 gs_python scripts/rerender_query_outputs.py \
   --manifest "${OUT}/manifest.jsonl" \
   --public-protocol "${OUT}/protocol.json" \
@@ -656,23 +657,26 @@ gs_python scripts/evaluate_public_time_agnostic.py \
   --protocol-json "${OUT}/protocol.json" \
   --manifest "${OUT}/manifest.jsonl" \
   --annotation-root "${ANN_ROOT}" \
-  --query-root "${OUT}/exact_query_root" \
+  --query-root "${OUT}/query_root" \
   --require-complete \
   --output-json "${OUT}/official_eval.json" \
   --output-md "${OUT}/official_eval.md"
 ```
 
-`mAcc` is the macro category mean of per-frame binary pixel accuracy
-`(TP+TN)/(H*W)`, and `mIoU` is the macro category mean of per-frame mask IoU on
-category-present test frames, matching the released 4D LangSplat evaluation
-loop. The evaluator separately reports pooled mask IoU, foreground recall, and
-binary pixel accuracy across every declared test frame as audit values. Exact
-source image ids are required; nearest-time camera substitution is rejected.
+`mIoU` is the macro category mean of per-frame mask IoU on category-present
+test frames, matching the released 4D LangSplat evaluation loop. `mAcc` is the
+macro category mean of per-frame binary pixel accuracy `(TP+TN)/(H*W)` on the
+same frames. The paper reports mAcc, but the pinned public `eval/eval.py` does
+not emit its implementation; this repository therefore freezes the formula
+explicitly and also reports foreground recall, pooled mask IoU, and full-test-
+frame binary accuracy as audit fields. Exact source image ids are required;
+nearest-time camera substitution is rejected.
 
-The commands above use portable GPU 0. On a verified multi-GPU host, replace
-the builder's `--gpus 0` and both consumers' `--gpu 0` with the same list, for
-example `--gpus 0 1 2` and `--gpu 0 1 2`. Preflight keeps
-`--require-visible-gpu` so a nonexistent assignment fails before execution.
+The example above uses four GPUs for the full query pipeline; the optional
+re-render utility is intentionally single-GPU. On a one-GPU host, use
+`--gpus 0` in the builder and `--gpu 0` in preflight and the batch runner.
+Preflight keeps `--require-visible-gpu` so a nonexistent assignment fails
+before execution.
 
 For a canary subset, omit the formal protocol id and pass `--allow-incomplete`
 to the builder. Such rows are marked `protocol_complete: false` and are

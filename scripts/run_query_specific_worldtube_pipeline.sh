@@ -261,12 +261,16 @@ run_export_renderer_geometry_final() {
   if [[ "${QUERY_USE_RENDERER_GEOMETRY:-0}" != "1" ]]; then
     return 0
   fi
+  local frame_args=(--all-dataset-frames)
+  if [[ -n "${QUERY_RENDER_IMAGE_IDS_JSON:-}" && -f "${QUERY_RENDER_IMAGE_IDS_JSON}" ]]; then
+    frame_args=(--image-ids-json "${QUERY_RENDER_IMAGE_IDS_JSON}")
+  fi
   _stage_wrapper renderer_geometry_final \
     run_gs_python_with_timeout "${QUERY_RENDERER_GEOMETRY_FINAL_TIMEOUT:-1800}" \
       "${GS_ROOT}/scripts/export_renderer_geometry.py" \
       --run-dir "${RUN_DIR}" \
       --dataset-dir "${DATASET_DIR}" \
-      --all-dataset-frames \
+      "${frame_args[@]}" \
       --entitybank-dir "${QUERY_ENTITYBANK_DIR}" \
       --output-dir "${RENDERER_GEOMETRY_FINAL_DIR}"
   rm -f "${QUERY_ENTITYBANK_DIR}/renderer_geometry"
