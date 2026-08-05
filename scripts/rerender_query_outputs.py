@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Re-render existing query entities without rerunning Stage-1 or Qwen.
 
-This utility is intended for renderer ablations and release verification.  It
+This utility is intended for exact-camera projection and release verification. It
 keeps the previously produced query-worldtube, Qwen selection, and Stage-1
 tracks fixed, then writes evaluator-compatible masks under a separate output
 root.  It never synthesizes a selection or falls back to a full-scene entity.

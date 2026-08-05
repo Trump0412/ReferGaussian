@@ -28,7 +28,7 @@ class StorageRootContractTest(unittest.TestCase):
 
     def test_train_and_eval_wrappers_use_configurable_run_root(self) -> None:
         expected = "${GS_RUN_ROOT}/${RUN_NAMESPACE}/${DATASET}/${SCENE##*/}"
-        for name in ("train.sh", "train_baseline.sh", "eval.sh", "eval_baseline.sh", "eval_baseline_subset.sh"):
+        for name in ("train.sh", "train_baseline.sh", "eval.sh", "eval_baseline.sh"):
             text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
             self.assertIn(expected, text, name)
 

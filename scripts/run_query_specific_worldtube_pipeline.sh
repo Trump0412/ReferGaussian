@@ -151,8 +151,8 @@ QUERY_PROPOSAL_BUILDER="${QUERY_PROPOSAL_BUILDER:-mask_supported_lifting}"
 RENDERER_GEOMETRY_SUPPORT_DIR="${OUTPUT_ROOT}/renderer_geometry_support"
 RENDERER_GEOMETRY_FINAL_DIR="${OUTPUT_ROOT}/renderer_geometry_final"
 
-if [[ "${QUERY_PROPOSAL_BUILDER}" == "surface_mask_field" ]]; then
-  echo "[error] surface_mask_field is not part of the public training-free release; use mask_supported_lifting." >&2
+if [[ "${QUERY_PROPOSAL_BUILDER}" != "mask_supported_lifting" ]]; then
+  echo "[error] the public release supports only QUERY_PROPOSAL_BUILDER=mask_supported_lifting." >&2
   exit 2
 fi
 
@@ -278,73 +278,19 @@ run_export_renderer_geometry_final() {
 }
 
 run_build_query_proposal() {
-  local builder="${QUERY_PROPOSAL_BUILDER}"
-  local legacy_cluster_mode="${QUERY_CLUSTER_MODE:-support_only}"
-  local legacy_opacity_power="${QUERY_OPACITY_POWER:-0.0}"
-  if [[ "${builder}" == "worldtube_consistency" && -z "${QUERY_CLUSTER_MODE:-}" ]]; then
-    legacy_cluster_mode="worldtube_consistency"
-  fi
-  if [[ "${builder}" == "worldtube_consistency" && -z "${QUERY_OPACITY_POWER:-}" ]]; then
-    legacy_opacity_power="1.0"
-  fi
-  case "${builder}" in
-    mask_supported_lifting)
-      run_gs_python_with_timeout "${QUERY_PROPOSAL_STAGE_TIMEOUT:-0}" \
-        "${GS_ROOT}/scripts/build_joint_query_proposal_dir.py" \
-        --run-dir "${RUN_DIR}" \
-        --dataset-dir "${DATASET_DIR}" \
-        --tracks-path "${TRACKS_PATH}" \
-        --output-dir "${PROPOSAL_DIR}" \
-        --proposal-builder mask_supported_lifting \
-        --max-track-frames "${QUERY_MAX_TRACK_FRAMES:-24}" \
-        --min-gaussians "${QUERY_LIFT_MIN_GAUSSIANS:-192}" \
-        --max-gaussians "${QUERY_LIFT_MAX_GAUSSIANS:-1280}" \
-        --max-gaussians-per-frame "${QUERY_LIFT_MAX_GAUSSIANS_PER_FRAME:-18000}" \
-        --gate-threshold "${QUERY_LIFT_GATE_THRESHOLD:-0.01}" \
-        --graph-knn "${QUERY_LIFT_GRAPH_KNN:-24}" \
-        --graph-radius-scale "${QUERY_LIFT_GRAPH_RADIUS_SCALE:-1.35}"
-      ;;
-    seeded_local_graph|joint|joint_embedding|joint_worldtube_embedding|mask_supervised_joint)
-      run_gs_python_with_timeout "${QUERY_PROPOSAL_STAGE_TIMEOUT:-0}" \
-        "${GS_ROOT}/scripts/build_joint_query_proposal_dir.py" \
-        --run-dir "${RUN_DIR}" \
-        --dataset-dir "${DATASET_DIR}" \
-        --tracks-path "${TRACKS_PATH}" \
-        --output-dir "${PROPOSAL_DIR}" \
-        --max-track-frames "${QUERY_MAX_TRACK_FRAMES:-16}" \
-        --proposal-keep-ratio "${QUERY_JOINT_KEEP_RATIO:-0.03}" \
-        --min-gaussians "${QUERY_JOINT_MIN_GAUSSIANS:-384}" \
-        --max-gaussians "${QUERY_JOINT_MAX_GAUSSIANS:-1024}" \
-        --chunk-size "${QUERY_JOINT_CHUNK_SIZE:-4096}" \
-        --embed-dim "${QUERY_JOINT_EMBED_DIM:-16}" \
-        --num-steps "${QUERY_JOINT_NUM_STEPS:-400}" \
-        --lr "${QUERY_JOINT_LR:-0.01}" \
-        --identity-cluster-mode "${QUERY_IDENTITY_CLUSTER_MODE:-seeded_local_graph}" \
-        --graph-knn "${QUERY_GRAPH_KNN:-24}" \
-        --graph-radius-scale "${QUERY_GRAPH_RADIUS_SCALE:-1.25}" \
-        --graph-min-component-size "${QUERY_GRAPH_MIN_COMPONENT_SIZE:-24}"
-      ;;
-    support_only|worldtube_consistency|legacy_support)
-      run_gs_python_with_timeout "${QUERY_PROPOSAL_STAGE_TIMEOUT:-0}" \
-        "${GS_ROOT}/scripts/build_query_proposal_dir.py" \
-        --run-dir "${RUN_DIR}" \
-        --dataset-dir "${DATASET_DIR}" \
-        --tracks-path "${TRACKS_PATH}" \
-        --output-dir "${PROPOSAL_DIR}" \
-        --max-track-frames "${QUERY_MAX_TRACK_FRAMES:-16}" \
-        --proposal-keep-ratio "${QUERY_PROPOSAL_KEEP_RATIO:-0.03}" \
-        --min-gaussians "${QUERY_MIN_GAUSSIANS:-256}" \
-        --max-gaussians "${QUERY_MAX_GAUSSIANS:-4096}" \
-        --opacity-power "${legacy_opacity_power}" \
-        --cluster-mode "${legacy_cluster_mode}" \
-        --seed-ratio "${QUERY_SEED_RATIO:-0.05}" \
-        --expansion-factor "${QUERY_EXPANSION_FACTOR:-4.0}"
-      ;;
-    *)
-      echo "[error] unknown QUERY_PROPOSAL_BUILDER=${builder}" >&2
-      return 2
-      ;;
-  esac
+  run_gs_python_with_timeout "${QUERY_PROPOSAL_STAGE_TIMEOUT:-0}" \
+    "${GS_ROOT}/scripts/build_mask_supported_proposal_dir.py" \
+    --run-dir "${RUN_DIR}" \
+    --dataset-dir "${DATASET_DIR}" \
+    --tracks-path "${TRACKS_PATH}" \
+    --output-dir "${PROPOSAL_DIR}" \
+    --max-track-frames "${QUERY_MAX_TRACK_FRAMES:-24}" \
+    --min-gaussians "${QUERY_LIFT_MIN_GAUSSIANS:-192}" \
+    --max-gaussians "${QUERY_LIFT_MAX_GAUSSIANS:-1280}" \
+    --max-gaussians-per-frame "${QUERY_LIFT_MAX_GAUSSIANS_PER_FRAME:-18000}" \
+    --gate-threshold "${QUERY_LIFT_GATE_THRESHOLD:-0.01}" \
+    --graph-knn "${QUERY_LIFT_GRAPH_KNN:-24}" \
+    --graph-radius-scale "${QUERY_LIFT_GRAPH_RADIUS_SCALE:-1.35}"
 }
 
 run_build_query_proposal_with_relaxed_retry() {

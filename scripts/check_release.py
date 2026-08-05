@@ -43,7 +43,7 @@ REQUIRED_RUNTIME_FILES = (
     "refergaussian/semantics/mask_supported_lifting.py",
     "refergaussian/semantics/select_qwen_query_entities.py",
     "refergaussian/semantics/grounded_sam2_backend.py",
-    "scripts/build_joint_query_proposal_dir.py",
+    "scripts/build_mask_supported_proposal_dir.py",
     "scripts/export_entitybank.py",
     "scripts/render_query_video.py",
     "scripts/rerender_query_outputs.py",
@@ -65,7 +65,7 @@ REQUIRED_RUNTIME_FILES = (
     "patches/4dgaussians_metrics_cache.patch",
 )
 REQUIRED_RUNTIME_TOKENS = {
-    "scripts/build_joint_query_proposal_dir.py": "mask_supported_lifting",
+    "scripts/build_mask_supported_proposal_dir.py": "build_mask_supported_lifting_proposal_dir",
     "scripts/export_entitybank.py": "--proposal-supervision-mode",
     "scripts/render_query_video.py": "--eval-profile",
     "scripts/rerender_query_outputs.py": "--require-complete",
@@ -105,6 +105,13 @@ OBJECT_SPECIFIC_ALIAS_TERMS = (
     "computer mouse",
     "wireless mouse",
 )
+FORBIDDEN_RELEASE_PATHS = (
+    "refergaussian/semantics/joint_embedding_cluster.py",
+    "scripts/build_joint_query_proposal_dir.py",
+    "scripts/build_query_proposal_dir.py",
+    "scripts/run_gsam_ablation.py",
+    "scripts/run_query_batch_two_gpu.py",
+)
 
 
 def tracked_files() -> list[Path]:
@@ -121,6 +128,14 @@ def tracked_files() -> list[Path]:
             if path.is_file() and not any(part in excluded_parts for part in path.relative_to(ROOT).parts)
         ]
     return [ROOT / line for line in output.splitlines() if line.strip()]
+
+
+def check_forbidden_release_paths() -> list[str]:
+    return [
+        f"Non-mainline release path must not be shipped: {relative_path}"
+        for relative_path in FORBIDDEN_RELEASE_PATHS
+        if (ROOT / relative_path).exists()
+    ]
 
 
 def check_forbidden_text(paths: list[Path]) -> list[str]:
@@ -181,6 +196,8 @@ def check_protocol_registry() -> list[str]:
         "legacy_r4d_filtered58": (8, 58),
         "paper_public3": (3, 7),
         "release_public4_extension": (4, 9),
+        "paper_public3_time_agnostic": (3, 15),
+        "release_public4_time_agnostic": (4, 20),
     }
     errors: list[str] = []
     for protocol_id, (scene_count, query_count) in expected.items():
@@ -460,6 +477,7 @@ def check_runtime_release_guards() -> list[str]:
 
 def main() -> int:
     errors = check_forbidden_text(tracked_files())
+    errors.extend(check_forbidden_release_paths())
     errors.extend(check_readme_scripts())
     errors.extend(check_release_queries())
     errors.extend(check_protocol_registry())

@@ -14,11 +14,9 @@ The release contract is defined by
 - Historical R4D subset: 8 scenes / 58 queries, archival and noncanonical.
 - Paper Public: 3 scenes / 7 annotation-derived time-sensitive queries.
 - Public extension: 4 scenes / 9 annotation-derived time-sensitive queries.
-- Public time-agnostic: not freshly reproduced. The reference split has 15
-  annotated scene-local static prompts on the paper scenes and 20 on the
-  four-scene extension. The dedicated protocol builder and evaluator cover all
-  of those categories; a fresh strict aggregate is still required before a
-  number can be reported here.
+- Public time-agnostic: freshly reproduced for all 20 annotated scene-local
+  categories on the four-scene extension, using explicitly identified vanilla
+  4DGS checkpoints. The paper three-scene subset contains 15 categories.
 - Matched reconstruction release: two separate executable 12-scene identities
   preserve the seed-6666 audit baseline and historical effective-seed behavior;
   their fresh full results are pending and neither is the accepted-paper table.
@@ -91,6 +89,18 @@ map keyed by `torchchocolate_q1`; the evaluator still used the benchmark's
 official annotation record. Neither run used a direct Stage-1 mask as its
 final prediction.
 
+The later renderer-consistent R4D profile was checked on one English query from
+each released category before its protocol was frozen:
+
+| Category | Query | Acc | vIoU | tIoU |
+| --- | --- | ---: | ---: | ---: |
+| temporal | `torchchocolate_q1` | 99.59 | 62.45 | 99.28 |
+| multi-target | `torchchocolate_q2` | 99.59 | 83.10 | 99.28 |
+| zero-target | `torchchocolate_q4` | 100.00 | 100.00 | 100.00 |
+
+These are category canaries, not a replacement for the complete 12-scene,
+89-query dense aggregate.
+
 ## Strict Public Scene Smoke (2026-07-26)
 
 A fresh `split-cookie` ReferGaussian reconstruction was trained for the
@@ -109,6 +119,48 @@ The evaluator reported zero warnings, no missing render masks, no unmapped
 annotation masks, and no direct Stage-1 mask output. This is a complete
 scene-level smoke for its two released time-sensitive queries, not a
 replacement for the nine-query, four-scene public aggregate.
+
+## Complete Public Time-Sensitive Release Run (2026-08-05)
+
+A clean-source run at commit `d4dc5dd5775ffddd0b16ceb341a489a63916cd23`
+completed the four-scene extension with the strict numeric v5 profile. The
+numeric profile omits qualitative exports only; its inference and masks are
+identical to the full v5 profile.
+
+| Scope | Queries | Acc | vIoU | tIoU | Spatial coverage |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Public-4 time-sensitive | 9 / 9 | 93.65 | 62.51 | 87.60 | 240 / 240 |
+
+The evaluator emitted no warning, every query was resolved, and no query was
+below 10% vIoU. This is the four-scene release extension, not the accepted
+paper's three-scene/seven-query identity.
+
+## Complete Public Time-Agnostic Release Run (2026-08-05)
+
+Commit `c4d2f43` completed all 20 COCO categories with
+`release_public4_time_agnostic`, `public_time_agnostic_v1`, and separately
+trained vanilla 4DGS checkpoints. All 20 query processes exited successfully,
+the strict evaluator found no missing prediction frame, and the four-GPU batch
+wall time was 2,480.1 seconds.
+
+| Scope | Categories | mAcc | mIoU | Pooled all-frame IoU | Coverage |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Public-4 time-agnostic | 20 / 20 | 94.35 | 42.67 | 42.25 | complete |
+
+Here `mIoU` is the macro category mean of per-frame IoU on category-present
+test frames. `mAcc` is the explicitly frozen macro category mean of per-frame
+binary pixel accuracy on the same frames. The evaluator also records all-test-
+frame mean IoU, foreground recall, pooled IoU, and binary accuracy so the
+paper/reference-code frame-domain ambiguity remains visible.
+
+## Current Reconstruction Verification Boundary (2026-08-05)
+
+The accepted-paper reconstruction table remains paper-reported. A fresh
+same-seed, same-budget 14k americano canary produced `30.2499 / 0.9015 /
+0.1715` for 4DGS and `29.2738 / 0.8866 / 0.2017` for ReferGaussian
+(PSNR / SSIM / LPIPS). The executable canary therefore does not verify the
+paper-level reconstruction advantage and is not promoted to the headline
+table. A complete matched multi-scene rerun is still required.
 
 ## Reporting Boundary
 
