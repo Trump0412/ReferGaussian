@@ -520,6 +520,7 @@ def _apply_render_profile_env_defaults(eval_profile: str) -> None:
         }
         if normalized == "public_time_agnostic_v1":
             formal_overrides["QUERY_RENDER_REQUESTED_CAMERAS_ONLY"] = "1"
+            formal_overrides["QUERY_REQUIRE_RENDERER_GEOMETRY"] = "1"
         os.environ.update(formal_overrides)
 
 

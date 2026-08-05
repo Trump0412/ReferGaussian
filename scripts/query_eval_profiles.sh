@@ -510,6 +510,16 @@ apply_query_eval_profile() {
       export GSAM2_INSTANCE_MAX_CANDIDATES=3
       export GSAM2_INSTANCE_RESOLUTION_POLICY=multi_hypothesis
       export GSAM2_INSTANCE_FULL_SEQUENCE_TRACKS=1
+      # Lift and render against the exact fine-stage 4DGS deformation state.
+      # Missing geometry is an error; the release path never falls back to an
+      # approximate analytic trajectory.
+      export QUERY_USE_RENDERER_GEOMETRY=1
+      export QUERY_REQUIRE_RENDERER_GEOMETRY=1
+      export QUERY_RENDERER_GEOMETRY_SUPPORT_TIMEOUT="${QUERY_RENDERER_GEOMETRY_SUPPORT_TIMEOUT:-1200}"
+      export QUERY_RENDERER_GEOMETRY_FINAL_TIMEOUT="${QUERY_RENDERER_GEOMETRY_FINAL_TIMEOUT:-1800}"
+      export QUERY_LIFT_MASK_AWARE_PREFILTER=1
+      export QUERY_LIFT_MASK_AWARE_PREFILTER_MARGIN="${QUERY_LIFT_MASK_AWARE_PREFILTER_MARGIN:-48}"
+      export QUERY_LIFT_ENTITY_ROLE_SCOPE="${QUERY_LIFT_ENTITY_ROLE_SCOPE:-primary_subject}"
       ;;
     r4d_shape_v4_recall|r4d_time_shape_v4_recall)
       apply_query_eval_profile public_time_shape_v4_recall

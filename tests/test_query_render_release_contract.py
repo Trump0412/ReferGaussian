@@ -144,6 +144,9 @@ class QueryRenderReleaseContractTest(unittest.TestCase):
         self.assertIn("GSAM2_ENABLE_INSTANCE_CANDIDATES=1", block)
         self.assertIn("GSAM2_INSTANCE_MAX_CANDIDATES=3", block)
         self.assertNotIn("QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS=1", block)
+        self.assertIn("QUERY_USE_RENDERER_GEOMETRY=1", block)
+        self.assertIn("QUERY_REQUIRE_RENDERER_GEOMETRY=1", block)
+        self.assertIn("QUERY_LIFT_MASK_AWARE_PREFILTER=1", block)
 
         pipeline = (
             Path(__file__).resolve().parents[1]
@@ -157,6 +160,7 @@ class QueryRenderReleaseContractTest(unittest.TestCase):
             _apply_render_profile_env_defaults("public_time_agnostic_v1")
             self.assertEqual(os.environ["QUERY_RENDER_REQUESTED_CAMERAS_ONLY"], "1")
             self.assertEqual(os.environ["GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY"], "1")
+            self.assertEqual(os.environ["QUERY_REQUIRE_RENDERER_GEOMETRY"], "1")
 
     def test_explicit_camera_grid_can_be_restricted_to_requested_ids(self) -> None:
         reference_ids = ["000001", "000003", "000005"]
