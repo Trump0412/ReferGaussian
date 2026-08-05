@@ -652,6 +652,7 @@ def run_grounded_sam2_query(
     # intended cardinality.  The original phrase remains the semantic label.
     candidate_head_by_phrase: dict[str, str] = {}
     candidate_policy_by_phrase: dict[str, str] = {}
+    candidate_semantic_phrase_by_phrase: dict[str, str] = {}
     relation_disambiguation = bool(
         enable_instance_candidates
         and len(subject_phrases) == 1
@@ -669,8 +670,16 @@ def run_grounded_sam2_query(
             candidate_head != _normalize_query_text(subject_phrase).rstrip(".")
             or relation_disambiguation
         ):
-            candidate_head_by_phrase[subject_phrase] = candidate_head
-            candidate_policy_by_phrase[subject_phrase] = (
+            # Count-neutral prompt expansion may replace ``both hands`` with
+            # the detector key ``hand``. Bind the candidate policy to the key
+            # that the detector loop will actually visit while retaining the
+            # original referent as the semantic track label.
+            candidate_detector_phrase = subject_phrase
+            if subject_phrase not in detector_phrases and candidate_head in detector_phrases:
+                candidate_detector_phrase = candidate_head
+            candidate_head_by_phrase[candidate_detector_phrase] = candidate_head
+            candidate_semantic_phrase_by_phrase[candidate_detector_phrase] = subject_phrase
+            candidate_policy_by_phrase[candidate_detector_phrase] = (
                 "relation_disambiguation" if relation_disambiguation else instance_policy
             )
 
@@ -789,6 +798,7 @@ def run_grounded_sam2_query(
     resolved_counted_candidate_heads: set[str] = set()
     for phrase in detector_phrases:
         semantic_detections = detections_by_phrase.get(phrase, [])
+        semantic_phrase = candidate_semantic_phrase_by_phrase.get(phrase, phrase)
         candidate_head = candidate_head_by_phrase.get(phrase)
         candidate_anchors = _select_instance_anchor_detections(
             detections_by_phrase.get(candidate_head, []) if candidate_head else [],
@@ -803,7 +813,7 @@ def run_grounded_sam2_query(
                 object_ids.append(object_id)
                 track_specs.append(
                     {
-                        "phrase": phrase,
+                        "phrase": semantic_phrase,
                         "detector_phrase": candidate_head,
                         "detections": detections_by_phrase.get(candidate_head, []),
                         "selected_anchors": [anchor],
@@ -818,7 +828,7 @@ def run_grounded_sam2_query(
             instance_candidate_groups.append(
                 {
                     "group_id": f"instance_group_{group_index:03d}",
-                    "semantic_phrase": phrase,
+                    "semantic_phrase": semantic_phrase,
                     "candidate_detector_phrase": candidate_head,
                     "object_ids": object_ids,
                     "selection_policy": group_policy,

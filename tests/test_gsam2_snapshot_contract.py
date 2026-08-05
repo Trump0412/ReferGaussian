@@ -111,6 +111,14 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
         self.assertIn("suppressed_instance_variant_phrases", text)
         self.assertIn("and phrase_head in resolved_counted_candidate_heads", text)
 
+    def test_counted_semantic_phrase_is_bound_to_the_normalized_detector_key(self) -> None:
+        text = (ROOT / "refergaussian/semantics/grounded_sam2_backend.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("candidate_semantic_phrase_by_phrase", text)
+        self.assertIn("candidate_head in detector_phrases", text)
+        self.assertIn('"semantic_phrase": semantic_phrase', text)
+
 
 if __name__ == "__main__":
     unittest.main()
