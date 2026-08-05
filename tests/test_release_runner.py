@@ -73,6 +73,16 @@ class ReleaseRunnerTest(unittest.TestCase):
             "public_time_boundary_gated_v5",
         )
 
+    def test_strict_runner_accepts_renderer_consistent_r4d_profile(self) -> None:
+        self.assertEqual(
+            RUNNER.resolve_profile("r4d_renderer_consistent", strict_release=True),
+            "r4d_renderer_consistent",
+        )
+        self.assertEqual(
+            RUNNER.PROTOCOL_PROFILES["release_r4d_dense89_renderer_consistent"],
+            frozenset({"r4d_renderer_consistent"}),
+        )
+
     def test_strict_runner_rejects_non_release_profile(self) -> None:
         with self.assertRaisesRegex(ValueError, "is not allowed"):
             RUNNER.resolve_profile("public_time_shape_v4_recall", strict_release=True)

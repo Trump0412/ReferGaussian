@@ -177,6 +177,7 @@ def check_protocol_registry() -> list[str]:
     expected = {
         "paper_r4d_reported": (12, 266),
         "release_r4d_dense89": (12, 89),
+        "release_r4d_dense89_renderer_consistent": (12, 89),
         "legacy_r4d_filtered58": (8, 58),
         "paper_public3": (3, 7),
         "release_public4_extension": (4, 9),
@@ -191,14 +192,18 @@ def check_protocol_registry() -> list[str]:
             errors.append(f"Protocol {protocol_id} scene_count must be {scene_count}")
         if int(row.get("query_count", -1)) != query_count:
             errors.append(f"Protocol {protocol_id} query_count must be {query_count}")
-    dense_row = protocols.get("release_r4d_dense89", {})
     query_map_path = ROOT / "configs" / "benchmarks" / "r4d_query_text_en.json"
     actual_query_map_hash = hashlib.sha256(query_map_path.read_bytes()).hexdigest()
-    if dense_row.get("english_query_map_sha256") != actual_query_map_hash:
-        errors.append(
-            "Protocol registry English query-map hash does not match "
-            "configs/benchmarks/r4d_query_text_en.json"
-        )
+    for protocol_id in (
+        "release_r4d_dense89",
+        "release_r4d_dense89_renderer_consistent",
+    ):
+        dense_row = protocols.get(protocol_id, {})
+        if dense_row.get("english_query_map_sha256") != actual_query_map_hash:
+            errors.append(
+                f"Protocol {protocol_id} English query-map hash does not match "
+                "configs/benchmarks/r4d_query_text_en.json"
+            )
     return errors
 
 

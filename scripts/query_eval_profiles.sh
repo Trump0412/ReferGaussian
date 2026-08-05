@@ -631,8 +631,15 @@ apply_query_eval_profile() {
       export GS_QUERY_ALPHA_REQUIRE_SUCCESS=1
       export GS_QUERY_ALPHA_REQUIRE_OPACITY=1
       ;;
+    r4d_renderer_consistent)
+      # Public release name for the renderer-consistent R4D method. The v7
+      # alias is retained only so historical canary manifests remain runnable.
+      apply_query_eval_profile r4d_renderer_geometry_v7
+      export QUERY_EVAL_PROFILE="r4d_renderer_consistent"
+      export REFERGAUSSIAN_QUERY_EVAL_PROFILE="r4d_renderer_consistent"
+      ;;
     *)
-      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, public_time_boundary_gated_v5, r4d_shape_v4_recall, r4d_boundary_gated_v5, r4d_multi_instance_boundary_v6, r4d_renderer_geometry_v7)" >&2
+      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, public_time_boundary_gated_v5, r4d_shape_v4_recall, r4d_boundary_gated_v5, r4d_multi_instance_boundary_v6, r4d_renderer_geometry_v7, r4d_renderer_consistent)" >&2
       return 2
       ;;
   esac

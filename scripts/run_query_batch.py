@@ -44,10 +44,14 @@ STRICT_RELEASE_PROFILES = frozenset(
         "public_time_boundary_gated_v5",
         "public_time_boundary_gated_v5_numeric",
         "r4d_boundary_gated_v5",
+        "r4d_renderer_consistent",
     }
 )
+R4D_RELEASE_PROTOCOLS = frozenset(
+    {"release_r4d_dense89", "release_r4d_dense89_renderer_consistent"}
+)
 EXECUTABLE_RELEASE_PROTOCOLS = frozenset(
-    {"paper_public3", "release_public4_extension", "release_r4d_dense89"}
+    {"paper_public3", "release_public4_extension", *R4D_RELEASE_PROTOCOLS}
 )
 PROTOCOL_PROFILES = {
     "paper_public3": frozenset(
@@ -57,6 +61,9 @@ PROTOCOL_PROFILES = {
         {"public_time_boundary_gated_v5", "public_time_boundary_gated_v5_numeric"}
     ),
     "release_r4d_dense89": frozenset({"r4d_boundary_gated_v5"}),
+    "release_r4d_dense89_renderer_consistent": frozenset(
+        {"r4d_renderer_consistent"}
+    ),
 }
 PUBLIC_PROTOCOL_QUERY_IDS = {
     "paper_public3": frozenset(
@@ -142,7 +149,7 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Release protocol declared by the manifest. Required with "
             "--strict-release (paper_public3, release_public4_extension, or "
-            "release_r4d_dense89)."
+            "release_r4d_dense89, or release_r4d_dense89_renderer_consistent)."
         ),
     )
     return parser.parse_args()
@@ -260,9 +267,9 @@ def _normalise_scene(scene: object) -> str:
     return str(scene or "").strip().lower().replace("-", "_")
 
 
-def _expected_r4d_query_ids(registry: dict) -> set[str]:
+def _expected_r4d_query_ids(registry: dict, protocol_id: str) -> set[str]:
     expected_hash = str(
-        registry["protocols"]["release_r4d_dense89"].get("english_query_map_sha256", "")
+        registry["protocols"][protocol_id].get("english_query_map_sha256", "")
     )
     actual_hash = _sha256_hex(R4D_ENGLISH_QUERY_MAP_PATH)
     if actual_hash != expected_hash:
@@ -328,7 +335,7 @@ def _source_identity_errors(
                     errors.append(f"{query_id}: source file missing: {source_path}")
                 elif not expected_hash or _sha256_hex(source_path) != expected_hash:
                     errors.append(f"{query_id}: source file hash mismatch: {source_path}")
-    elif protocol_id == "release_r4d_dense89":
+    elif protocol_id in R4D_RELEASE_PROTOCOLS:
         protocol = registry["protocols"][protocol_id]
         expected_hashes = {
             "benchmark_sha256": str(protocol.get("dense_gt_sha256", "")),
@@ -435,12 +442,12 @@ def validate_release_manifest(
                 f"missing={sorted(expected_ids - set(query_ids))}, "
                 f"unexpected={sorted(set(query_ids) - expected_ids)}"
             )
-    elif protocol_id == "release_r4d_dense89":
+    elif protocol_id in R4D_RELEASE_PROTOCOLS:
         expected_scenes = {
             _normalise_scene(scene) for scene in protocol.get("scenes", [])
         }
         try:
-            expected_ids = _expected_r4d_query_ids(registry)
+            expected_ids = _expected_r4d_query_ids(registry, protocol_id)
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             errors.append(str(exc))
             expected_ids = set()

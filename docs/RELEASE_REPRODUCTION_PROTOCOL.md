@@ -105,8 +105,8 @@ R4D_ROOT="${GS_DATA_ROOT}/benchmarks/r4d_bench_qa"
 gs_python scripts/build_r4d_query_manifest.py \
   --benchmark "${R4D_ROOT}/benchmark_all_queries.json" \
   --query-metadata "${R4D_ROOT}/evaluation/R4D-Bench_queries.json" \
-  --protocol-id release_r4d_dense89 \
-  --profile r4d_boundary_gated_v5 \
+  --protocol-id release_r4d_dense89_renderer_consistent \
+  --profile r4d_renderer_consistent \
   --output "${OUT}/manifest.jsonl" \
   --output-root "${OUT}/query_root" \
   --gpus 0
@@ -149,12 +149,22 @@ and deliberately fails when it is missing rather than substituting a proxy
 sequence.
 
 Use `public_time_boundary_gated_v5` for the public protocol and
-`r4d_boundary_gated_v5` for R4D-Bench-QA. The score-only
+`r4d_renderer_consistent` for R4D-Bench-QA. The score-only
 `public_time_boundary_gated_v5_numeric` variant is also formal. These are the
-only profiles accepted by strict release mode. They render the selected
-Gaussian entity first, then apply only a synchronized dilated Stage-1 boundary
-gate. A stale nearest-frame boundary or a direct 2D-mask output makes the query
-run fail after saving its diagnostics; it cannot enter a release aggregate.
+current mainline profiles accepted by strict release mode. They render the
+selected Gaussian entity first, then apply only a synchronized dilated Stage-1
+boundary gate. The R4D profile additionally requires the same fine-stage
+deformed Gaussian geometry during lifting and final projection. A stale
+nearest-frame boundary, missing renderer geometry, or a direct 2D-mask output
+makes the query run fail after saving its diagnostics; it cannot enter a
+release aggregate. The older `release_r4d_dense89` identity remains registered
+only for exact reproduction of analytic-geometry diagnostics.
+
+Protocol promotion was gated by three English `torchchocolate` canaries, one
+per released category. On the source-camera evaluator, q1 temporal scored
+`99.59/62.45/99.28`, q2 multi-target scored `99.59/83.10/99.28`, and q4
+zero-target scored `100/100/100` (Acc/vIoU/tIoU). This `3/89` gate is not a
+dense benchmark aggregate; the formal result requires all 89 ids.
 
 The numeric profile preserves all inference and scored masks while omitting
 videos, overlay frames, and annotation diagnostic montages. Missing qualitative

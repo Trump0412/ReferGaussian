@@ -103,6 +103,19 @@ class GroundedSamSnapshotContractTest(unittest.TestCase):
         self.assertIn("--entitybank-path", text)
         self.assertIn("QUERY_SKIP_QWEN_SELECTION=1", text)
 
+    def test_public_r4d_profile_requires_renderer_consistent_geometry(self) -> None:
+        profiles = ROOT / "scripts" / "query_eval_profiles.sh"
+        command = (
+            f"source {profiles}; "
+            "apply_query_eval_profile r4d_renderer_consistent; "
+            "printf '%s,%s,%s' "
+            '"${QUERY_USE_RENDERER_GEOMETRY:-}" '
+            '"${QUERY_REQUIRE_RENDERER_GEOMETRY:-}" '
+            '"${GS_QUERY_ALPHA_REQUIRE_SUCCESS:-}"'
+        )
+        enabled = subprocess.check_output(["bash", "-lc", command], text=True)
+        self.assertEqual(enabled, "1,1,1")
+
     def test_counted_instance_variants_are_suppressed_only_after_a_group_exists(self) -> None:
         text = (ROOT / "refergaussian/semantics/grounded_sam2_backend.py").read_text(
             encoding="utf-8"

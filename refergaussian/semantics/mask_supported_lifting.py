@@ -232,6 +232,7 @@ def _lifting_mode() -> str:
                 "r4d_boundary_gated_v5",
                 "r4d_multi_instance_boundary_v6",
                 "r4d_renderer_geometry_v7",
+                "r4d_renderer_consistent",
             }:
                 return "mask_bootstrap_refine"
             return normalized

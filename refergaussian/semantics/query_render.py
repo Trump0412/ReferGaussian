@@ -79,6 +79,7 @@ _FORMAL_BOUNDARY_GATED_PROFILES = frozenset(
         "r4d_boundary_gated_v5",
         "r4d_multi_instance_boundary_v6",
         "r4d_renderer_geometry_v7",
+        "r4d_renderer_consistent",
     }
 )
 _COVERAGE_RENDER_PROFILES = frozenset(

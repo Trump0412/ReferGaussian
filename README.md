@@ -615,21 +615,21 @@ reruns or changes the original selection and never uses a full-scene fallback.
 ```bash
 # 1) Build a manifest with official query ids.
 source scripts/common.sh
-RUN_ROOT="reports/RELEASE_R4D_DENSE89_V5_$(date -u +%Y%m%dT%H%M%SZ)"
+RUN_ROOT="reports/RELEASE_R4D_DENSE89_RENDERER_CONSISTENT_$(date -u +%Y%m%dT%H%M%SZ)"
 R4D_ROOT="${GS_DATA_ROOT}/benchmarks/r4d_bench_qa"
 gs_python scripts/build_r4d_query_manifest.py \
   --benchmark "${R4D_ROOT}/benchmark_all_queries.json" \
   --query-metadata "${R4D_ROOT}/evaluation/R4D-Bench_queries.json" \
-  --protocol-id release_r4d_dense89 \
-  --profile r4d_boundary_gated_v5 \
+  --protocol-id release_r4d_dense89_renderer_consistent \
+  --profile r4d_renderer_consistent \
   --output "${RUN_ROOT}/manifest.jsonl" \
   --output-root "${RUN_ROOT}/query_root" \
   --gpus 0
 
 gs_python scripts/preflight_query_batch.py \
   --manifest "${RUN_ROOT}/manifest.jsonl" \
-  --protocol-id release_r4d_dense89 \
-  --profile r4d_boundary_gated_v5 \
+  --protocol-id release_r4d_dense89_renderer_consistent \
+  --profile r4d_renderer_consistent \
   --strict-release \
   --gpu 0 \
   --require-visible-gpu \
@@ -638,8 +638,8 @@ gs_python scripts/preflight_query_batch.py \
 # 2) Run the query pipeline.
 gs_python scripts/run_query_batch.py \
   --manifest "${RUN_ROOT}/manifest.jsonl" \
-  --protocol-id release_r4d_dense89 \
-  --profile r4d_boundary_gated_v5 \
+  --protocol-id release_r4d_dense89_renderer_consistent \
+  --profile r4d_renderer_consistent \
   --gpu 0 \
   --force-rerun \
   --strict-release \
@@ -653,7 +653,7 @@ gs_python scripts/rerender_query_outputs.py \
   --manifest "${RUN_ROOT}/manifest.jsonl" \
   --benchmark "${R4D_ROOT}/benchmark_all_queries.json" \
   --output-root "${CAMERA_ROOT}" \
-  --profile r4d_boundary_gated_v5 \
+  --profile r4d_renderer_consistent \
   --gpu 0 \
   --require-complete
 
@@ -681,9 +681,22 @@ still requires its synchronized Stage-1 boundary gate. The benchmark utility
 extracts only `ground_truth.frames[].frame_id` to identify the published camera
 views; it does not inspect or pass any `segmentation` payload into inference.
 
-The released mainline profile is `r4d_boundary_gated_v5`. Qwen planning,
-semantic assignment, and final entity selection remain enabled for every
-query, including multi-target and zero-target cases.
+The released mainline profile is `r4d_renderer_consistent`. It uses the same
+fine-stage deformed Gaussian state for multi-frame lifting and final alpha-splat
+projection, and fails if that renderer geometry is unavailable. Qwen planning,
+semantic assignment, and final entity selection remain enabled for every query,
+including multi-target and zero-target cases. The earlier
+`release_r4d_dense89` / `r4d_boundary_gated_v5` identity remains in the registry
+only to reproduce pre-fix runs that used an analytic trajectory approximation.
+
+The renderer-consistency release gate was checked on one English query from
+each R4D category before freezing this protocol. These are canary results, not a
+dense-set aggregate: temporal `torchchocolate_q1` reached Acc/vIoU/tIoU
+`99.59/62.45/99.28`, multi-target `torchchocolate_q2` reached
+`99.59/83.10/99.28`, and zero-target `torchchocolate_q4` reached
+`100/100/100`. The first two use all 71 official source-camera masks with no
+warning. A final release result still requires all 89 query ids and
+`--require-complete`.
 
 The preflight and query pipeline require `phase: refergaussian`,
 `temporal_warp_type: refergaussian`, and `warp_enabled: true` in each run's

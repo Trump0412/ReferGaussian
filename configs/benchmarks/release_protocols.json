@@ -1,5 +1,5 @@
 {
-  "registry_version": "2026-08-05.1",
+  "registry_version": "2026-08-05.2",
   "status": "paper_and_release_protocols_kept_separate",
   "protocols": {
     "paper_r4d_reported": {
@@ -33,6 +33,37 @@
       "query_metadata_sha256": "cb15182f32a9383f2c2060627e6dc29c3c10b3ae12b61e705deb52da8687fbf2",
       "english_query_map_sha256": "34e771b6b704e83f8f4912bd055d529f55d7e5f269ceb32d31ed24514cae8a9d",
       "dense_gt_sha256": "f917d21f74fd6a2e84318ca0e9d64cb9487fcf7399597237c6661d9a15c6a255",
+      "profile": "r4d_boundary_gated_v5",
+      "status": "superseded_after_renderer_geometry_mismatch_canary"
+    },
+    "release_r4d_dense89_renderer_consistent": {
+      "scene_count": 12,
+      "query_count": 89,
+      "scenes": [
+        "americano",
+        "coffee_martini",
+        "cook_spinach",
+        "cut_lemon",
+        "cut_roasted_beef",
+        "espresso",
+        "flame_salmon",
+        "flame_steak",
+        "keyboard",
+        "sear_steak",
+        "split_cookie",
+        "torchchocolate"
+      ],
+      "category_counts": {
+        "temporal_single_target": 36,
+        "multi_target_reasoning": 29,
+        "zero_target_distractor": 24
+      },
+      "query_metadata_sha256": "cb15182f32a9383f2c2060627e6dc29c3c10b3ae12b61e705deb52da8687fbf2",
+      "english_query_map_sha256": "34e771b6b704e83f8f4912bd055d529f55d7e5f269ceb32d31ed24514cae8a9d",
+      "dense_gt_sha256": "f917d21f74fd6a2e84318ca0e9d64cb9487fcf7399597237c6661d9a15c6a255",
+      "profile": "r4d_renderer_consistent",
+      "geometry_contract": "fine_stage_renderer_consistent_gaussian_state",
+      "supersedes": "release_r4d_dense89",
       "status": "fresh_full_run_pending"
     },
     "legacy_r4d_filtered58": {

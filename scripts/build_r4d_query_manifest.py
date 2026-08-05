@@ -38,7 +38,8 @@ from query_text_utils import benchmark_record_with_english_query, choose_english
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL_REGISTRY_PATH = REPO_ROOT / "configs" / "benchmarks" / "release_protocols.json"
 R4D_ENGLISH_QUERY_MAP_PATH = REPO_ROOT / "configs" / "benchmarks" / "r4d_query_text_en.json"
-FORMAL_R4D_PROTOCOL = "release_r4d_dense89"
+FORMAL_R4D_PROTOCOL = "release_r4d_dense89_renderer_consistent"
+FORMAL_R4D_PROFILE = "r4d_renderer_consistent"
 QUERY_TYPE_TO_CATEGORY = {
     "A": "temporal_single_target",
     "B": "multi_target_reasoning",
@@ -396,7 +397,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--profile",
-        default="r4d_boundary_gated_v5",
+        default=FORMAL_R4D_PROFILE,
         help="Query evaluation profile recorded in every manifest row.",
     )
     parser.add_argument(
@@ -444,7 +445,9 @@ def main() -> int:
     if args.protocol_id and args.allow_incomplete:
         parser.error("--protocol-id and --allow-incomplete are mutually exclusive")
     if not args.protocol_id and not args.allow_incomplete:
-        parser.error("choose --protocol-id release_r4d_dense89 or explicitly pass --allow-incomplete")
+        parser.error(
+            f"choose --protocol-id {FORMAL_R4D_PROTOCOL} or explicitly pass --allow-incomplete"
+        )
     if not args.gpus or len(set(args.gpus)) != len(args.gpus):
         parser.error("--gpus must contain one or more unique GPU ids")
     try:
@@ -452,8 +455,8 @@ def main() -> int:
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         parser.error(str(exc))
     if args.protocol_id:
-        if args.profile != "r4d_boundary_gated_v5":
-            parser.error(f"{FORMAL_R4D_PROTOCOL} requires r4d_boundary_gated_v5")
+        if args.profile != FORMAL_R4D_PROFILE:
+            parser.error(f"{FORMAL_R4D_PROTOCOL} requires {FORMAL_R4D_PROFILE}")
         protocol = registry["protocols"][FORMAL_R4D_PROTOCOL]
         formal_scenes = [str(scene) for scene in protocol.get("scenes", [])]
         if set(formal_scenes) != set(SCENE_CONFIG):
