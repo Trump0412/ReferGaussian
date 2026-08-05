@@ -84,6 +84,16 @@ text only from the pinned annotation snapshot's `temporal_state_reference`
 rows and verify the registered video/COCO source hashes; they must not be
 aggregated under the same protocol name.
 
+These are time-sensitive protocols only. The 4D LangSplat reference
+time-agnostic path evaluates every COCO category with a mask: 15 scene-local
+prompts on the three paper scenes and 20 on the four-scene extension. The
+protocol builder currently exposes only one static base-object row per scene,
+so those rows must not be reported as the complete time-agnostic benchmark.
+The compatibility evaluator also computes Acc on the full metadata timeline,
+whereas the inspected 4D LangSplat reference computes it on sparse annotated
+evaluation frames. Keep the accepted-paper table, compatibility results, and
+any future reference-exact rerun under separate metric identities.
+
 Run the per-scene evaluator with `--require-complete`, then combine reports
 with `scripts/aggregate_public_query_evaluations.py`. Use
 `--expected-queries 7` for paper Public-3 or `--expected-queries 9` for the

@@ -69,6 +69,11 @@ as a fresh matched reproduction.
 | 4D LangSplat | 88.86 | 66.14 |
 | ReferGaussian (Ours) | **91.62** | **66.48** |
 
+This accepted-paper table is the seven-query **time-sensitive** result. It is
+not a time-agnostic aggregate. The executable compatibility evaluator records
+its metric identity explicitly; its full-timeline Acc is not silently
+relabeled as the sparse-frame Acc in the 4D LangSplat reference script.
+
 ### Paper results — module ablation on R4D-Bench-QA
 
 | Variant | Acc ↑ | vIoU ↑ |
@@ -434,7 +439,7 @@ gs_python scripts/build_4dlangsplat_query_protocol.py \
   --scene "${SCENE}" \
   --output-json "${PROTOCOL_JSON}"
 
-# Required for a paper-comparable public run.
+# Required for the released time-sensitive compatibility protocol.
 export QUERY_EVAL_PROFILE=public_time_boundary_gated_v5
 
 bash scripts/run_public_query_protocol.sh \
@@ -454,10 +459,16 @@ gs_python scripts/evaluate_public_query_protocol.py \
 ```
 
 `run_public_query_protocol.sh` defaults to the
-`temporal_state_reference` category, so it does not spend compute on the
-unscored static-reference rows in the annotation file. The sequential helper
-inherits `QUERY_EVAL_PROFILE`; set the formal v5 profile explicitly as above.
-The manifest batch flow below is required for a paper-comparable aggregate.
+`temporal_state_reference` category, so it does not execute time-agnostic
+static-category prompts. The sequential helper inherits `QUERY_EVAL_PROFILE`;
+set the formal v5 profile explicitly as above. The manifest batch flow below
+is required for a complete released compatibility aggregate.
+
+The four-scene annotation snapshot contains 9 time-sensitive state queries.
+Its COCO masks also contain 20 scene-local static category prompts with actual
+annotations (15 on the three paper scenes). The current builder's four
+`static_reference` base-object rows are not the complete time-agnostic split,
+and no full time-agnostic result is claimed by this release.
 
 Reproducible profile switch:
 

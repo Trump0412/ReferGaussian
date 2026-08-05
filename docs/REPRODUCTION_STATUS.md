@@ -14,6 +14,9 @@ The release contract is defined by
 - Historical R4D subset: 8 scenes / 58 queries, archival and noncanonical.
 - Paper Public: 3 scenes / 7 annotation-derived time-sensitive queries.
 - Public extension: 4 scenes / 9 annotation-derived time-sensitive queries.
+- Public time-agnostic: not freshly reproduced. The reference split has 15
+  annotated scene-local static prompts on the paper scenes and 20 on the
+  four-scene extension; the current four base-object rows are not that full set.
 - Matched reconstruction release: two separate executable 12-scene identities
   preserve the seed-6666 audit baseline and historical effective-seed behavior;
   their fresh full results are pending and neither is the accepted-paper table.
@@ -28,6 +31,9 @@ The release contract is defined by
 - Evaluator outputs identify compatibility metrics explicitly; see
   [METRICS.md](METRICS.md). Paper exact-set Acc and exhaustive full-volume vIoU
   are not inferred when the required identity/mask supervision is unavailable.
+- Public compatibility Acc is evaluated on the full metadata timeline. It is
+  not presented as bit-identical to the sparse annotated-frame Acc in the
+  inspected 4D LangSplat reference evaluator.
 
 ## What Is Verified by the Public Source
 
