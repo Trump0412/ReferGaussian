@@ -8,7 +8,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -82,12 +81,16 @@ class QuickStartContractTest(unittest.TestCase):
         self.assertTrue(commands[1][1].endswith("external/4DGaussians/render.py"))
 
     def test_readme_and_page_embed_the_method_figure(self) -> None:
-        ET.parse(ROOT / "docs" / "assets" / "method_overview.svg")
+        method_figure = ROOT / "docs" / "assets" / "framework.png"
+        self.assertTrue(method_figure.is_file())
+        self.assertEqual(method_figure.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         page = (ROOT / "docs" / "index.html").read_text(encoding="utf-8")
 
-        self.assertIn("docs/assets/method_overview.svg", readme)
-        self.assertIn("assets/method_overview.svg", page)
+        self.assertIn("docs/assets/framework.png", readme)
+        self.assertIn("assets/framework.png", page)
+        self.assertNotIn("method_overview.svg", readme + page)
+        self.assertNotIn("Accepted at", page)
         self.assertNotRegex(readme.lower(), r"time[-_ ]agnostic")
 
 

@@ -71,7 +71,7 @@ REQUIRED_RUNTIME_FILES = (
     "configs/benchmarks/release_protocols.json",
     "configs/benchmarks/r4d_query_text_en.json",
     "docs/METRICS.md",
-    "docs/assets/method_overview.svg",
+    "docs/assets/framework.png",
     "refergaussian/run_identity.py",
     "refergaussian/semantics/semantic_renderer.py",
     "refergaussian/semantics/surface_mask_field.py",
@@ -215,10 +215,46 @@ def check_public_metadata() -> list[str]:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     page = (ROOT / "docs/index.html").read_text(encoding="utf-8")
     citation = (ROOT / "CITATION.cff").read_text(encoding="utf-8")
+    if "Accepted at" in page:
+        errors.append("Project page must not display an 'Accepted at' label")
+    for stale in ("266 sentence", "3-scene / 7-query", "91.62", "66.48", "method_overview.svg"):
+        if stale in readme or stale in page:
+            errors.append(f"Public README/page contains stale camera-ready content: {stale}")
+    for required in ("76.5", "34.4", "93.01", "62.95", "99.43", "68.13"):
+        if required not in readme + page:
+            errors.append(f"Paper-reported metric is missing from README/page: {required}")
     for label, text in (("README", readme), ("project page", page), ("CITATION", citation)):
         for forbidden in ("R4D-Bench reconstruction", "PSNR", "SSIM", "LPIPS", "Dynamic Scene Reconstruction"):
             if forbidden in text:
                 errors.append(f"{label} still presents reconstruction content: {forbidden}")
+    return errors
+
+
+def check_paper_page_assets() -> list[str]:
+    expected = {
+        "teaser2.png": "c3320760387377f993aa201e5411195518c39e358213025ba21bea2982eb1f8c",
+        "Fig4.png": "7ad1bc37b53cf6f0ca3a408f7f9597fcec7f0121e9cb2c2bdcccb9b90e511c96",
+        "framework.png": "5233022f304436211899646b1ca59f36becad59308bfb1244fcc34ae28bce7ed",
+        "dataset.png": "26b0cf192c03d884ee899c775261f4baeacfc1516d1230b78114d7fd814f81f7",
+        "vl_model_radar_6axis.png": "131528ae7b45d929190cbb5b88c0ae2f9f888a88336694e5a2fda99d35a0e3d6",
+        "runtime.png": "3b58f94b4302dadaaf06b2611b5259b46f4014fc20c1a43bb38e729c5604128c",
+        "Fig5.png": "b519203708824fd8e0822977968ba2a82136e1829a3f36a04b59148260c3c62c",
+    }
+    errors: list[str] = []
+    for name, expected_hash in expected.items():
+        path = ROOT / "docs" / "assets" / name
+        if not path.is_file():
+            errors.append(f"Paper figure is missing from project page assets: {name}")
+            continue
+        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            errors.append(f"Project page asset differs from the camera-ready figure: {name}")
+
+    page = (ROOT / "docs/index.html").read_text(encoding="utf-8")
+    local_images = set(re.findall(r'<img[^>]+src="assets/([^"?#]+)', page))
+    unexpected = sorted(name for name in local_images if name.lower().endswith(".png") and name not in expected)
+    if unexpected:
+        errors.append("Project page includes figures absent from the camera-ready paper: " + ", ".join(unexpected))
     return errors
 
 
@@ -363,6 +399,7 @@ def main() -> int:
     errors.extend(check_forbidden_paths(paths))
     errors.extend(check_no_experiment_artifacts(paths))
     errors.extend(check_public_metadata())
+    errors.extend(check_paper_page_assets())
     errors.extend(check_readme_scripts())
     errors.extend(check_release_queries())
     errors.extend(check_protocol_registry())

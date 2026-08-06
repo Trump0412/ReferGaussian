@@ -124,7 +124,7 @@
     .method-card p { font-size: 0.92rem; color: #526178; line-height: 1.65; }
 
     .table-container {
-      margin-top: 1rem; overflow: hidden;
+      margin-top: 1rem; overflow-x: auto;
       border: 1px solid rgba(148,163,184,0.14);
       border-radius: 16px;
       box-shadow: 0 16px 32px rgba(15,23,42,0.06);
@@ -197,7 +197,6 @@
     <div class="container is-max-desktop">
       <div class="columns is-centered">
         <div class="column has-text-centered">
-          <p class="hero-kicker">Accepted at ACM MM 2026</p>
           <h1 class="title is-1 publication-title">R4DGS: Referring Segmentation in 4D Gaussian Splatting</h1>
 
           <div class="is-size-5 publication-authors" style="margin-top:0.5rem;">
@@ -267,10 +266,10 @@
 <section class="section" style="padding-top:1.5rem;padding-bottom:3rem;">
   <div class="container is-max-desktop">
     <div class="image-frame">
-      <img src="assets/Fig1.png" alt="ReferGaussian teaser">
+      <img src="assets/teaser2.png" alt="ReferGaussian qualitative results">
     </div>
     <p class="figure-caption has-text-centered" style="margin-top:1rem;">
-      <b>Figure 1.</b> ReferGaussian performs training-free referring inference over frozen 4D Gaussian scenes for temporally varying, multi-target, reasoning-intensive, and zero-target queries.
+      <b>Qualitative results.</b> ReferGaussian results for temporal-state, multi-target, and state-conditioned referring in dynamic 4D scenes.
     </p>
   </div>
 </section>
@@ -280,7 +279,7 @@
     <div class="section-intro has-text-centered">
       <p class="section-kicker">Benchmark</p>
       <h2 class="title is-3 section-title">R4D-Bench-QA</h2>
-      <p class="section-copy">The paper reports 12 dynamic scenes and 266 sentence queries. The currently released frame-aligned dense tier contains 12 scenes and 89 English queries; paper-reported and executable release protocols are tracked separately.</p>
+      <p class="section-copy">R4D-Bench-QA contains 12 dynamic scenes and 89 densely annotated sentence-level queries with pixel-level spatiotemporal supervision.</p>
     </div>
     <div class="paper-card">
       <div class="image-frame">
@@ -298,33 +297,33 @@
     <div class="section-intro has-text-centered">
       <p class="section-kicker">Method</p>
       <h2 class="title is-3 section-title">ReferGaussian Framework</h2>
-      <p class="section-copy">A frozen 4DGS scene, mask-supported Gaussian entities, and a Qwen-based Refer-Planner form three explicit referring stages.</p>
+      <p class="section-copy">The MLLM-based Refer-Planner performs three semantic stages over a precomputed 4D Gaussian scene.</p>
     </div>
 
     <div class="image-frame" style="margin-bottom:2rem;">
-      <img src="assets/method_overview.svg" alt="ReferGaussian method overview">
+      <img src="assets/framework.png" alt="ReferGaussian framework">
     </div>
 
     <div class="columns">
       <div class="column is-4">
         <div class="method-card">
           <span class="tag-label tag-stage1">Stage 1</span>
-          <h4>Static Segmentation</h4>
-          <p>Grounded-SAM2 tracks candidate entities across time and provides mask evidence for Gaussian-to-entity association.</p>
+          <h4>Query-Guided Entity Discovery</h4>
+          <p>Grounded-SAM2 produces phrase-conditioned mask tracks, which are iteratively lifted into Gaussian-supported candidate entities.</p>
         </div>
       </div>
       <div class="column is-4">
         <div class="method-card">
           <span class="tag-label tag-stage2">Stage 2</span>
-          <h4>Semantic Assignment</h4>
-          <p>A shared scene-level Gaussian trajectory bank supports query-conditioned entity construction and semantic assignment.</p>
+          <h4>EntityBank Construction</h4>
+          <p>Candidate entities are summarized with representative observations, temporal support, appearance, state, motion, and relations.</p>
         </div>
       </div>
       <div class="column is-4">
         <div class="method-card">
           <span class="tag-label tag-stage3">Stage 3</span>
-          <h4>Spatio-Temporal Reasoning</h4>
-          <p>The Refer-Planner decomposes language constraints and selects final referents from EntityBank without scene-specific retraining.</p>
+          <h4>Constraint-Aware Selection</h4>
+          <p>The Refer-Planner resolves identity, temporal, relational, cardinality, exclusion, and zero-target constraints over EntityBank.</p>
         </div>
       </div>
     </div>
@@ -336,7 +335,7 @@
     <div class="section-intro has-text-centered">
       <p class="section-kicker">Results</p>
       <h2 class="title is-3 section-title">Quantitative Comparison</h2>
-      <p class="section-copy">Reported accepted-paper referring segmentation results on R4D-Bench-QA and the public HyperNeRF split.</p>
+      <p class="section-copy">Referring segmentation results reported in the paper on R4D-Bench-QA and the public HyperNeRF split.</p>
     </div>
 
     <div class="paper-card" style="margin-bottom:2rem;">
@@ -360,18 +359,23 @@
     </div>
 
     <div class="paper-card" style="margin-bottom:2rem;">
-      <p class="section-copy" style="margin-bottom:0.75rem;"><b>Table 2.</b> Generalization on the 3-scene / 7-query 4D LangSplat HyperNeRF split.</p>
+      <p class="section-copy" style="margin-bottom:0.75rem;"><b>Table 2.</b> Per-scene comparison on the four-scene 4D LangSplat HyperNeRF split.</p>
       <div class="table-container">
         <table class="table is-fullwidth is-hoverable">
           <thead>
-            <tr><th>Method</th><th>Acc ↑</th><th>vIoU ↑</th></tr>
+            <tr>
+              <th>Method</th>
+              <th>americano<br>Acc / vIoU</th>
+              <th>chickchicken<br>Acc / vIoU</th>
+              <th>split-cookie<br>Acc / vIoU</th>
+              <th>espresso<br>Acc / vIoU</th>
+              <th>Average<br>Acc / vIoU</th>
+            </tr>
           </thead>
           <tbody>
-            <tr><td>LangSplat</td><td>54.27</td><td>24.13</td></tr>
-            <tr><td>Deformable CLIP</td><td>65.01</td><td>45.37</td></tr>
-            <tr><td>Non-Status Field</td><td>84.58</td><td>62.00</td></tr>
-            <tr><td>4D LangSplat</td><td>88.86</td><td>66.14</td></tr>
-            <tr class="is-selected-row"><td>ReferGaussian (Ours)</td><td><b>91.62</b></td><td><b>66.48</b></td></tr>
+            <tr><td>LangSplat</td><td>45.19 / 23.16</td><td>53.26 / 18.20</td><td>73.58 / 33.08</td><td>44.03 / 16.15</td><td>54.01 / 22.65</td></tr>
+            <tr><td>4D LangSplat</td><td>89.42 / 66.07</td><td><b>96.73 / 90.62</b></td><td><b>95.28 / 83.14</b></td><td>81.89 / 49.20</td><td>90.83 / <b>72.26</b></td></tr>
+            <tr class="is-selected-row"><td>ReferGaussian (Ours)</td><td><b>99.43 / 68.13</b></td><td>82.89 / 60.87</td><td>90.91 / 55.79</td><td><b>98.80 / 67.01</b></td><td><b>93.01</b> / 62.95</td></tr>
           </tbody>
         </table>
       </div>
@@ -432,21 +436,13 @@
 
     <div class="paper-card" style="margin-bottom:1.5rem;">
       <div class="image-frame">
-        <img src="assets/Fig5_n.png" alt="Qualitative results on R4D-Bench-QA">
+        <img src="assets/Fig5.png" alt="Qualitative results on R4D-Bench-QA">
       </div>
       <p class="figure-caption has-text-centered" style="margin-top:1rem;">
         <b>Qualitative comparison.</b> Query-conditioned grounding on challenging R4D-Bench-QA cases.
       </p>
     </div>
 
-    <div class="paper-card">
-      <div class="image-frame">
-        <img src="assets/appen_fig1.png" alt="Additional qualitative results">
-      </div>
-      <p class="figure-caption has-text-centered" style="margin-top:1rem;">
-        <b>Additional examples.</b> Qualitative results across multi-target, reasoning-intensive, and zero-target settings.
-      </p>
-    </div>
   </div>
 </section>
 

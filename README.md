@@ -10,34 +10,33 @@
 
 **Bangpu Chen, Yaxuan Li, Shirui Peng, Xiangtian Si, Liuxin Chu, Xitong Cao, Hongbo Jin, Jiayu Ding**
 
-Accepted at **ACM Multimedia 2026**.
-
 </div>
 
 ReferGaussian performs natural-language referring segmentation in dynamic 4D Gaussian scenes. It uses a Qwen-based Refer-Planner, Grounded-SAM2 masks, and training-free multi-frame Gaussian entity lifting over a frozen standard 4DGS scene. The final masks are rendered from the selected Gaussian entity.
 
 <p align="center">
-  <img src="docs/assets/Fig1.png" width="92%" alt="R4DGS task overview"/>
+  <img src="docs/assets/teaser2.png" width="92%" alt="ReferGaussian qualitative results"/>
 </p>
 
 ## Method
 
 <p align="center">
-  <img src="docs/assets/method_overview.svg" width="96%" alt="ReferGaussian method overview"/>
+  <img src="docs/assets/framework.png" width="96%" alt="ReferGaussian framework"/>
 </p>
 
 ReferGaussian first grounds language into tracked multi-frame masks, lifts their consistent spatial evidence into Gaussian entities, stores them in EntityBank, and reasons over entity identity and temporal state. Stage-1 masks supervise entity assignment and boundary gating; they never replace the final Gaussian-rendered prediction.
 
 ## Results
 
-Accepted-paper results are shown below. See [metrics](docs/METRICS.md) for the frozen executable definitions and [reproduction status](docs/REPRODUCTION_STATUS.md) for the distinction between paper-reported and released dense protocols.
+Paper results are shown below. See [metrics](docs/METRICS.md) for the frozen executable definitions and [reproduction status](docs/REPRODUCTION_STATUS.md) for the distinction between paper-reported and released dense protocols.
 
 | Benchmark | Method | Acc | vIoU |
 |---|---|---:|---:|
+| R4D-Bench-QA | Segment then Splat | 55.6 | 28.4 |
 | R4D-Bench-QA | 4D LangSplat | 58.4 | 32.1 |
 | R4D-Bench-QA | **ReferGaussian** | **76.5** | **34.4** |
-| 4D LangSplat HyperNeRF, 3 scenes / 7 queries | 4D LangSplat | 88.86 | 66.14 |
-| 4D LangSplat HyperNeRF, 3 scenes / 7 queries | **ReferGaussian** | **91.62** | **66.48** |
+| 4D LangSplat HyperNeRF, 4 scenes | 4D LangSplat | 90.83 | **72.26** |
+| 4D LangSplat HyperNeRF, 4 scenes | **ReferGaussian** | **93.01** | 62.95 |
 
 ## Quick Start
 
