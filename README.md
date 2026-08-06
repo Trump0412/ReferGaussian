@@ -15,13 +15,13 @@
 ReferGaussian performs natural-language referring segmentation in dynamic 4D Gaussian scenes. It uses a Qwen-based Refer-Planner, Grounded-SAM2 masks, and training-free multi-frame Gaussian entity lifting over a frozen standard 4DGS scene. The final masks are rendered from the selected Gaussian entity.
 
 <p align="center">
-  <img src="docs/assets/teaser2.png" width="92%" alt="ReferGaussian qualitative results"/>
+  <img src="docs/assets/teaser2.webp" width="92%" alt="ReferGaussian qualitative results"/>
 </p>
 
 ## Method
 
 <p align="center">
-  <img src="docs/assets/framework.png" width="96%" alt="ReferGaussian framework"/>
+  <img src="docs/assets/framework.webp" width="96%" alt="ReferGaussian framework"/>
 </p>
 
 ReferGaussian first grounds language into tracked multi-frame masks, lifts their consistent spatial evidence into Gaussian entities, stores them in EntityBank, and reasons over entity identity and temporal state. Stage-1 masks supervise entity assignment and boundary gating; they never replace the final Gaussian-rendered prediction.

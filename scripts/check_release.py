@@ -71,7 +71,7 @@ REQUIRED_RUNTIME_FILES = (
     "configs/benchmarks/release_protocols.json",
     "configs/benchmarks/r4d_query_text_en.json",
     "docs/METRICS.md",
-    "docs/assets/framework.png",
+    "docs/assets/framework.webp",
     "refergaussian/run_identity.py",
     "refergaussian/semantics/semantic_renderer.py",
     "refergaussian/semantics/surface_mask_field.py",
@@ -231,14 +231,17 @@ def check_public_metadata() -> list[str]:
 
 
 def check_paper_page_assets() -> list[str]:
+    # Lossless WebP transcodes of the camera-ready PNGs. Their decoded RGBA
+    # pixels were verified byte-for-byte before committing; the smaller files
+    # keep static Pages deployments bounded without changing figure content.
     expected = {
-        "teaser2.png": "c3320760387377f993aa201e5411195518c39e358213025ba21bea2982eb1f8c",
-        "Fig4.png": "7ad1bc37b53cf6f0ca3a408f7f9597fcec7f0121e9cb2c2bdcccb9b90e511c96",
-        "framework.png": "5233022f304436211899646b1ca59f36becad59308bfb1244fcc34ae28bce7ed",
-        "dataset.png": "26b0cf192c03d884ee899c775261f4baeacfc1516d1230b78114d7fd814f81f7",
-        "vl_model_radar_6axis.png": "131528ae7b45d929190cbb5b88c0ae2f9f888a88336694e5a2fda99d35a0e3d6",
-        "runtime.png": "3b58f94b4302dadaaf06b2611b5259b46f4014fc20c1a43bb38e729c5604128c",
-        "Fig5.png": "b519203708824fd8e0822977968ba2a82136e1829a3f36a04b59148260c3c62c",
+        "teaser2.webp": "2bd807bdac6515f907b78400826216f5070ad324c04337ef0926e2909fb11f2d",
+        "Fig4.webp": "8363e6cc9cc39f14f9dd2e39a7d49c656c6071b4879fc49fb53600865cf52c52",
+        "framework.webp": "dc49b6d42c55495ff6dada918ebae26172a8e87f277df29715a5d2f249081d07",
+        "dataset.webp": "0bc5d3f5bc32d4a795d3900c86534939bee7ca08ef2c51a753a6cc3eff45e580",
+        "vl_model_radar_6axis.webp": "b773e4c0c097f945f9dd1cb972130dd235ce7c50ad90e940c53ee609412cc4de",
+        "runtime.webp": "b25d433d28ea6c6584cfafdce33039d3faa58b5915411f856469310f0b2fb7ed",
+        "Fig5.webp": "dec1c931efc542b25eda4a72d642f24a9571d089c8dc4c45112b52bffcf4f8f4",
     }
     errors: list[str] = []
     for name, expected_hash in expected.items():
@@ -252,7 +255,11 @@ def check_paper_page_assets() -> list[str]:
 
     page = (ROOT / "docs/index.html").read_text(encoding="utf-8")
     local_images = set(re.findall(r'<img[^>]+src="assets/([^"?#]+)', page))
-    unexpected = sorted(name for name in local_images if name.lower().endswith(".png") and name not in expected)
+    unexpected = sorted(
+        name
+        for name in local_images
+        if Path(name).suffix.lower() in {".png", ".webp"} and name not in expected
+    )
     if unexpected:
         errors.append("Project page includes figures absent from the camera-ready paper: " + ", ".join(unexpected))
     return errors
