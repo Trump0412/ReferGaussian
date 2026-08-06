@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Build JSONL manifests for public ReferGaussian queries.
-
-The time-sensitive benchmark manifest is derived from the protocol generated
-from ``video_annotations.json``. This keeps query text and query identifiers
-aligned with the public evaluator instead of maintaining a second hand-written
-copy of the temporal annotations. Time-agnostic manifests are derived from all
-COCO categories that have at least one mask, matching 4D LangSplat evaluation.
-"""
+"""Build the public 4D LangSplat dynamic-query manifest."""
 
 from __future__ import annotations
 
@@ -28,15 +21,12 @@ SCENE_PATHS: dict[str, tuple[str, str]] = {
     "chickchicken": ("baseline_4dgs/hypernerf/chickchicken", "hypernerf/interp/chickchicken"),
 }
 
-QUERY_SETS = ("time_sensitive", "time_agnostic")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL_REGISTRY_PATH = REPO_ROOT / "configs" / "benchmarks" / "release_protocols.json"
 FORMAL_PUBLIC_PROTOCOLS = frozenset(
     {
         "paper_public3",
         "release_public4_extension",
-        "paper_public3_time_agnostic",
-        "release_public4_time_agnostic",
     }
 )
 PUBLIC_PROTOCOL_QUERY_IDS = {
@@ -62,49 +52,6 @@ PUBLIC_PROTOCOL_QUERY_IDS = {
             "espresso__the_glass_cup_with_liquid_above_the_midpoint_of_the_cup",
             "split-cookie__the_cookie_broken_into_smaller_pieces",
             "split-cookie__the_complete_cookie",
-        }
-    ),
-    "paper_public3_time_agnostic": frozenset(
-        {
-            "americano__time_agnostic__coasters_braided_from_straw_and_black_thread",
-            "americano__time_agnostic__glass_cup",
-            "americano__time_agnostic__hands",
-            "americano__time_agnostic__metal_cup",
-            "americano__time_agnostic__tray",
-            "espresso__time_agnostic__electronic_scales_with_cup",
-            "espresso__time_agnostic__glass_cup",
-            "espresso__time_agnostic__metal_cup",
-            "espresso__time_agnostic__round_wooden_coasters",
-            "espresso__time_agnostic__table",
-            "espresso__time_agnostic__white_bottle",
-            "split-cookie__time_agnostic__bare_hands",
-            "split-cookie__time_agnostic__checkered_tablecloth",
-            "split-cookie__time_agnostic__cookie",
-            "split-cookie__time_agnostic__square_wooden_board",
-        }
-    ),
-    "release_public4_time_agnostic": frozenset(
-        {
-            "americano__time_agnostic__coasters_braided_from_straw_and_black_thread",
-            "americano__time_agnostic__glass_cup",
-            "americano__time_agnostic__hands",
-            "americano__time_agnostic__metal_cup",
-            "americano__time_agnostic__tray",
-            "chickchicken__time_agnostic__board",
-            "chickchicken__time_agnostic__chicken_container",
-            "chickchicken__time_agnostic__hands",
-            "chickchicken__time_agnostic__white_chicken",
-            "chickchicken__time_agnostic__yellow_chicken",
-            "espresso__time_agnostic__electronic_scales_with_cup",
-            "espresso__time_agnostic__glass_cup",
-            "espresso__time_agnostic__metal_cup",
-            "espresso__time_agnostic__round_wooden_coasters",
-            "espresso__time_agnostic__table",
-            "espresso__time_agnostic__white_bottle",
-            "split-cookie__time_agnostic__bare_hands",
-            "split-cookie__time_agnostic__checkered_tablecloth",
-            "split-cookie__time_agnostic__cookie",
-            "split-cookie__time_agnostic__square_wooden_board",
         }
     ),
 }
@@ -329,12 +276,6 @@ def main() -> int:
         help="Query evaluation profile recorded in the manifest summary.",
     )
     parser.add_argument(
-        "--query-set",
-        choices=QUERY_SETS,
-        default="time_sensitive",
-        help="Query set to emit (default: time_sensitive).",
-    )
-    parser.add_argument(
         "--protocol-json",
         required=True,
         help="Output of build_4dlangsplat_query_protocol.py.",
@@ -398,16 +339,10 @@ def main() -> int:
         parser.error("choose a formal --protocol-id or explicitly pass --allow-incomplete")
     if not args.gpus or len(set(args.gpus)) != len(args.gpus):
         parser.error("--gpus must contain one or more unique GPU ids")
-    time_agnostic_protocol = bool(
-        args.protocol_id and args.protocol_id.endswith("_time_agnostic")
-    )
-    if args.protocol_id and time_agnostic_protocol != (args.query_set == "time_agnostic"):
-        parser.error(f"{args.protocol_id} is incompatible with --query-set {args.query_set}")
-    allowed_profiles = (
-        {"public_time_agnostic_v1"}
-        if args.query_set == "time_agnostic"
-        else {"public_time_boundary_gated_v5", "public_time_boundary_gated_v5_numeric"}
-    )
+    allowed_profiles = {
+        "public_time_boundary_gated_v5",
+        "public_time_boundary_gated_v5_numeric",
+    }
     if args.protocol_id and args.profile not in allowed_profiles:
         parser.error(
             f"{args.protocol_id} requires one of: {', '.join(sorted(allowed_profiles))}"
@@ -436,11 +371,7 @@ def main() -> int:
             requested_scenes = expected_scenes
         else:
             requested_scenes = args.scenes
-        protocol_category = (
-            "time_agnostic_reference"
-            if args.query_set == "time_agnostic"
-            else "temporal_state_reference"
-        )
+        protocol_category = "temporal_state_reference"
         source_rows = _filter_protocol_scenes(
             _protocol_rows(protocol_path, category=protocol_category),
             requested_scenes,
@@ -513,7 +444,6 @@ def main() -> int:
     print("  " + "  |  ".join(f"GPU {gpu}: {count}" for gpu, count in gpu_counts.items()))
     print(f"  Profile: {args.profile}")
     print(f"  Protocol: {protocol_id} (complete={protocol_complete})")
-    print(f"  Query set: {args.query_set}")
     print(f"  Output root: {output_root}")
     print(f"  Run root: {run_root}")
     print(f"  Run namespace: {run_namespace}")

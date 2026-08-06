@@ -487,38 +487,6 @@ apply_query_eval_profile() {
       export QUERY_SAVE_KEY_FRAMES=0
       export GS_QUERY_EXPORT_ENTITY_LIFECYCLE=0
       ;;
-    public_time_agnostic_v1)
-      # Spatial query protocol for all masked COCO categories. It preserves the
-      # released Gaussian-only boundary gate while evaluating the selected
-      # entity over its complete observed lifecycle instead of a state window.
-      apply_query_eval_profile public_time_boundary_gated_v5_numeric
-      export QUERY_EVAL_PROFILE="public_time_agnostic_v1"
-      export REFERGAUSSIAN_QUERY_EVAL_PROFILE="public_time_agnostic_v1"
-      export QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT=1
-      export QUERY_FAST_VALIDATION_ONLY=1
-      export QUERY_RENDER_ACTIVE_MASKS_ONLY=0
-      export QUERY_RENDER_MASK_PNG_COMPRESS_LEVEL=1
-      export QUERY_RENDER_TORCH_MORPHOLOGY=1
-      export QUERY_RENDER_TORCH_MORPHOLOGY_DEVICE=cuda
-      export QUERY_RENDER_REQUESTED_CAMERAS_ONLY=1
-      # Attribute-bearing static prompts can ground to a nearby container on
-      # the first detector anchor. Enumerate generic head-noun hypotheses and
-      # keep Qwen visual selection responsible for the final entity identity.
-      export GSAM2_ENABLE_INSTANCE_CANDIDATES=1
-      export GSAM2_INSTANCE_MAX_CANDIDATES=3
-      export GSAM2_INSTANCE_RESOLUTION_POLICY=multi_hypothesis
-      export GSAM2_INSTANCE_FULL_SEQUENCE_TRACKS=1
-      # Lift and render against the exact fine-stage 4DGS deformation state.
-      # Missing geometry is an error; the release path never falls back to an
-      # approximate analytic trajectory.
-      export QUERY_USE_RENDERER_GEOMETRY=1
-      export QUERY_REQUIRE_RENDERER_GEOMETRY=1
-      export QUERY_RENDERER_GEOMETRY_SUPPORT_TIMEOUT="${QUERY_RENDERER_GEOMETRY_SUPPORT_TIMEOUT:-1200}"
-      export QUERY_RENDERER_GEOMETRY_FINAL_TIMEOUT="${QUERY_RENDERER_GEOMETRY_FINAL_TIMEOUT:-1800}"
-      export QUERY_LIFT_MASK_AWARE_PREFILTER=1
-      export QUERY_LIFT_MASK_AWARE_PREFILTER_MARGIN="${QUERY_LIFT_MASK_AWARE_PREFILTER_MARGIN:-48}"
-      export QUERY_LIFT_ENTITY_ROLE_SCOPE="${QUERY_LIFT_ENTITY_ROLE_SCOPE:-primary_subject}"
-      ;;
     r4d_shape_v4_recall|r4d_time_shape_v4_recall)
       apply_query_eval_profile public_time_shape_v4_recall
       export QUERY_EVAL_PROFILE="r4d_shape_v4_recall"
@@ -672,7 +640,7 @@ apply_query_eval_profile() {
       export REFERGAUSSIAN_QUERY_EVAL_PROFILE="r4d_renderer_consistent"
       ;;
     *)
-      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, public_time_boundary_gated_v5, public_time_agnostic_v1, r4d_shape_v4_recall, r4d_boundary_gated_v5, r4d_multi_instance_boundary_v6, r4d_renderer_geometry_v7, r4d_renderer_consistent)" >&2
+      echo "[error] unknown QUERY_EVAL_PROFILE='${profile}' (expected: default, viou_boost_v1, boundary_refine_v1, boundary_shape_v2, public_time_shape_v3, public_time_shape_v4_recall, public_time_boundary_gated_v5, r4d_shape_v4_recall, r4d_boundary_gated_v5, r4d_multi_instance_boundary_v6, r4d_renderer_geometry_v7, r4d_renderer_consistent)" >&2
       return 2
       ;;
   esac

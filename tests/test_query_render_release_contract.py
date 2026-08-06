@@ -132,36 +132,6 @@ class QueryRenderReleaseContractTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn('${QUERY_SKIP_DIAGNOSTIC_EXPORT:-0}" != "1"', pipeline)
 
-    def test_time_agnostic_profile_uses_exact_numeric_render_contract(self) -> None:
-        profiles = (Path(__file__).resolve().parents[1] / "scripts" / "query_eval_profiles.sh").read_text(
-            encoding="utf-8"
-        )
-        block = profiles.split("public_time_agnostic_v1)", 1)[1].split(";;", 1)[0]
-        self.assertIn("QUERY_ENTITY_LIFECYCLE_TEMPORAL_OUTPUT=1", block)
-        self.assertIn("QUERY_FAST_VALIDATION_ONLY=1", block)
-        self.assertIn("QUERY_RENDER_ACTIVE_MASKS_ONLY=0", block)
-        self.assertIn("QUERY_RENDER_REQUESTED_CAMERAS_ONLY=1", block)
-        self.assertIn("GSAM2_ENABLE_INSTANCE_CANDIDATES=1", block)
-        self.assertIn("GSAM2_INSTANCE_MAX_CANDIDATES=3", block)
-        self.assertNotIn("QUERY_AUTO_SKIP_QWEN_FOR_DECLARED_MULTIHYPOTHESIS=1", block)
-        self.assertIn("QUERY_USE_RENDERER_GEOMETRY=1", block)
-        self.assertIn("QUERY_REQUIRE_RENDERER_GEOMETRY=1", block)
-        self.assertIn("QUERY_LIFT_MASK_AWARE_PREFILTER=1", block)
-
-        pipeline = (
-            Path(__file__).resolve().parents[1]
-            / "scripts"
-            / "run_query_specific_worldtube_pipeline.sh"
-        ).read_text(encoding="utf-8")
-        self.assertIn("QUERY_RENDER_IMAGE_IDS_JSON", pipeline)
-        self.assertIn('--image-ids-json "${QUERY_RENDER_IMAGE_IDS_JSON}"', pipeline)
-
-        with patch.dict(os.environ, {}, clear=True):
-            _apply_render_profile_env_defaults("public_time_agnostic_v1")
-            self.assertEqual(os.environ["QUERY_RENDER_REQUESTED_CAMERAS_ONLY"], "1")
-            self.assertEqual(os.environ["GS_QUERY_REQUIRE_SYNCHRONIZED_STAGE1_BOUNDARY"], "1")
-            self.assertEqual(os.environ["QUERY_REQUIRE_RENDERER_GEOMETRY"], "1")
-
     def test_explicit_camera_grid_can_be_restricted_to_requested_ids(self) -> None:
         reference_ids = ["000001", "000003", "000005"]
         requested_ids = ["000002", "000003", "000002"]

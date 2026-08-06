@@ -131,7 +131,7 @@ install_cuda121_profile() {
 
   pip_run "${env_prefix}" install --upgrade pip "setuptools<81" wheel ninja "numpy<2"
   pip_run "${env_prefix}" install torch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 --index-url https://download.pytorch.org/whl/cu121
-  pip_run "${env_prefix}" install "numpy<2" matplotlib pandas pyyaml requests tqdm scipy "opencv-python<4.10" plyfile "imageio[ffmpeg]" "open3d==0.18.0"
+  pip_run "${env_prefix}" install "numpy<2" matplotlib pandas pyyaml requests tqdm scipy "opencv-python<4.10" plyfile "imageio[ffmpeg]" "kornia==0.7.3" "open3d==0.18.0" "mmcv==1.6.0" "yapf==0.40.1" "lpips==0.1.4" "pytorch-msssim==1.0.0"
   install_local_package "${env_prefix}" "${ROOT_DIR}/external/4DGaussians/submodules/simple-knn"
   install_local_package "${env_prefix}" "${ROOT_DIR}/external/4DGaussians/submodules/depth-diff-gaussian-rasterization"
   echo "Environment '${env_prefix}' is ready with the CUDA 12.1 profile."

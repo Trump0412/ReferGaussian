@@ -29,6 +29,12 @@ def main():
         "torchaudio",
         "plyfile",
         "open3d",
+        "mmcv",
+        "kornia",
+        "imageio",
+        "lpips",
+        "pytorch_msssim",
+        "cv2",
         "arguments",
         "gaussian_renderer",
         "scene",
@@ -50,12 +56,6 @@ def main():
         results["cuda_home"] = os.environ.get("CUDA_HOME")
 
         results["upstream_4dgs_revision"] = "843d5ac636c37e4b611242287754f3d4ed150144"
-
-    try:
-        _, version = import_version("mmcv")
-        results["mmcv"] = version
-    except Exception as exc:  # noqa: BLE001
-        results["mmcv"] = f"optional: {exc}"
 
     print(json.dumps(results, indent=2))
     if failures:

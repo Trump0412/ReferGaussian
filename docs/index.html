@@ -171,7 +171,7 @@
 <nav class="navbar" role="navigation" aria-label="main navigation">
   <div class="container is-max-desktop">
     <div class="navbar-brand">
-      <a class="navbar-item nav-home" href="https://github.com/Trump0412/ReferGaussian" target="_blank" rel="noreferrer">
+      <a class="navbar-item nav-home" href="https://github.com/Trump0412/R4DGS" target="_blank" rel="noreferrer">
         <span class="icon"><i class="fab fa-github"></i></span>
       </a>
       <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarMenu">
@@ -180,7 +180,7 @@
     </div>
     <div id="navbarMenu" class="navbar-menu">
       <div class="navbar-start">
-        <a class="navbar-item nav-anchor" href="https://github.com/Trump0412/ReferGaussian" target="_blank" rel="noreferrer">Code</a>
+        <a class="navbar-item nav-anchor" href="https://github.com/Trump0412/R4DGS" target="_blank" rel="noreferrer">Code</a>
         <a class="navbar-item nav-anchor" href="https://huggingface.co/datasets/LiYacheng/r4d-bench-qa" target="_blank" rel="noreferrer">HuggingFace</a>
         <a class="navbar-item nav-anchor" href="#benchmark">Benchmark</a>
         <a class="navbar-item nav-anchor" href="#results">Results</a>
@@ -228,7 +228,7 @@
               </a>
             </span>
             <span class="link-block">
-              <a href="https://github.com/Trump0412/ReferGaussian" class="external-link button is-normal is-rounded is-light" target="_blank" rel="noreferrer">
+              <a href="https://github.com/Trump0412/R4DGS" class="external-link button is-normal is-rounded is-light" target="_blank" rel="noreferrer">
                 <span class="icon"><i class="fab fa-github"></i></span><span>Code</span>
               </a>
             </span>
@@ -299,6 +299,10 @@
       <p class="section-kicker">Method</p>
       <h2 class="title is-3 section-title">ReferGaussian Framework</h2>
       <p class="section-copy">A frozen 4DGS scene, mask-supported Gaussian entities, and a Qwen-based Refer-Planner form three explicit referring stages.</p>
+    </div>
+
+    <div class="image-frame" style="margin-bottom:2rem;">
+      <img src="assets/method_overview.svg" alt="ReferGaussian method overview">
     </div>
 
     <div class="columns">
@@ -373,23 +377,6 @@
       </div>
     </div>
 
-    <div class="paper-card">
-      <p class="section-copy" style="margin-bottom:0.75rem;"><b>Table 3.</b> Module ablation on R4D-Bench-QA.</p>
-      <div class="table-container">
-        <table class="table is-fullwidth is-hoverable">
-          <thead>
-            <tr><th>Variant</th><th>Acc ↑</th><th>vIoU ↑</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Gaussian backbone only</td><td>62.9</td><td>31.5</td></tr>
-            <tr><td>w/o Stage 1 static segmentation</td><td>48.6</td><td>17.2</td></tr>
-            <tr><td>w/o Stage 2 semantic assignment</td><td>62.9</td><td>29.8</td></tr>
-            <tr><td>w/o Stage 3 spatio-temporal reasoning</td><td>36.0</td><td>26.1</td></tr>
-            <tr class="is-selected-row"><td>ReferGaussian (full)</td><td><b>76.5</b></td><td><b>34.4</b></td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
   </div>
 </section>
 
@@ -484,7 +471,7 @@
   <div class="container is-max-desktop has-text-centered">
     <p style="color:#64748b;font-size:0.9rem;">
       R4DGS / ReferGaussian &middot; ACM MM 2026 &middot;
-      <a href="https://github.com/Trump0412/ReferGaussian" style="color:#2563eb;">GitHub</a>
+      <a href="https://github.com/Trump0412/R4DGS" style="color:#2563eb;">GitHub</a>
       &middot;
       <a href="https://huggingface.co/datasets/LiYacheng/r4d-bench-qa" style="color:#2563eb;">Dataset</a>
     </p>

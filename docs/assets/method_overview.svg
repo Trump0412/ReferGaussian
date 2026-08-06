@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="760" viewBox="0 0 1800 760" role="img" aria-labelledby="title desc">
+  <title id="title">ReferGaussian method overview</title>
+  <desc id="desc">A frozen 4D Gaussian scene and a language query are processed by a Refer-Planner, Grounded-SAM2, training-free multi-frame Gaussian entity lifting, an EntityBank, and spatio-temporal reasoning to produce Gaussian-rendered masks and Acc and vIoU metrics.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#334155"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#0f172a" flood-opacity="0.09"/>
+    </filter>
+    <style>
+      .title { font: 700 34px Arial, sans-serif; fill: #0f172a; }
+      .stage { font: 700 19px Arial, sans-serif; fill: #475569; }
+      .heading { font: 700 25px Arial, sans-serif; fill: #0f172a; }
+      .body { font: 400 18px Arial, sans-serif; fill: #475569; }
+      .small { font: 600 15px Arial, sans-serif; fill: #475569; }
+      .metric { font: 700 22px Arial, sans-serif; fill: #ffffff; }
+      .panel { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; rx: 8; filter: url(#shadow); }
+      .arrow { fill: none; stroke: #334155; stroke-width: 4; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1800" height="760" fill="#f8fafc"/>
+  <text x="70" y="66" class="title">ReferGaussian: Training-Free Referring Segmentation in 4D Gaussian Scenes</text>
+  <line x1="70" y1="90" x2="1730" y2="90" stroke="#cbd5e1" stroke-width="2"/>
+
+  <!-- Inputs -->
+  <text x="70" y="132" class="stage">INPUTS</text>
+  <rect x="70" y="155" width="250" height="250" class="panel"/>
+  <text x="195" y="195" text-anchor="middle" class="heading">Frozen 4DGS</text>
+  <text x="195" y="225" text-anchor="middle" class="body">scene representation</text>
+  <g opacity="0.95">
+    <circle cx="126" cy="285" r="15" fill="#2563eb"/>
+    <circle cx="159" cy="265" r="12" fill="#0f766e"/>
+    <circle cx="193" cy="292" r="18" fill="#f97316"/>
+    <circle cx="230" cy="268" r="14" fill="#7c3aed"/>
+    <circle cx="261" cy="301" r="17" fill="#0ea5e9"/>
+    <circle cx="147" cy="327" r="17" fill="#14b8a6"/>
+    <circle cx="186" cy="341" r="12" fill="#f59e0b"/>
+    <circle cx="222" cy="329" r="19" fill="#2563eb"/>
+    <circle cx="266" cy="348" r="13" fill="#ef4444"/>
+  </g>
+  <text x="195" y="382" text-anchor="middle" class="small">geometry + appearance + motion</text>
+
+  <rect x="70" y="445" width="250" height="135" class="panel"/>
+  <text x="195" y="486" text-anchor="middle" class="heading">Language Query</text>
+  <text x="195" y="525" text-anchor="middle" class="body">"the cup while</text>
+  <text x="195" y="551" text-anchor="middle" class="body">it is being filled"</text>
+
+  <!-- Stage 1 -->
+  <text x="385" y="132" class="stage">STAGE 1</text>
+  <rect x="385" y="155" width="290" height="425" class="panel"/>
+  <text x="530" y="198" text-anchor="middle" class="heading">Refer-Planner</text>
+  <rect x="420" y="225" width="220" height="68" rx="8" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+  <text x="530" y="255" text-anchor="middle" class="small">object phrase</text>
+  <text x="530" y="278" text-anchor="middle" class="small">state + temporal constraints</text>
+  <path d="M530 295 L530 325" class="arrow"/>
+  <rect x="420" y="335" width="220" height="72" rx="8" fill="#ecfeff" stroke="#5eead4" stroke-width="2"/>
+  <text x="530" y="366" text-anchor="middle" class="heading">Grounded-SAM2</text>
+  <text x="530" y="393" text-anchor="middle" class="small">multi-frame masks</text>
+  <g>
+    <rect x="418" y="448" width="62" height="78" rx="6" fill="#1e293b"/>
+    <ellipse cx="449" cy="487" rx="17" ry="24" fill="#f8fafc"/>
+    <rect x="499" y="438" width="62" height="88" rx="6" fill="#1e293b"/>
+    <ellipse cx="530" cy="482" rx="19" ry="27" fill="#f8fafc"/>
+    <rect x="580" y="448" width="62" height="78" rx="6" fill="#1e293b"/>
+    <ellipse cx="611" cy="487" rx="21" ry="24" fill="#f8fafc"/>
+  </g>
+  <text x="530" y="558" text-anchor="middle" class="small">spatial evidence across time</text>
+
+  <!-- Stage 2 -->
+  <text x="740" y="132" class="stage">STAGE 2</text>
+  <rect x="740" y="155" width="380" height="425" class="panel"/>
+  <text x="930" y="198" text-anchor="middle" class="heading">Gaussian Entity Lifting</text>
+  <text x="930" y="227" text-anchor="middle" class="body">training-free multi-frame assignment</text>
+  <rect x="780" y="262" width="300" height="90" rx="8" fill="#f0fdfa" stroke="#5eead4" stroke-width="2"/>
+  <text x="930" y="296" text-anchor="middle" class="small">inside-mask support increases membership</text>
+  <text x="930" y="326" text-anchor="middle" class="small">outside leakage suppresses membership</text>
+  <path d="M930 356 L930 386" class="arrow"/>
+  <g>
+    <circle cx="849" cy="449" r="11" fill="#cbd5e1"/>
+    <circle cx="883" cy="425" r="12" fill="#14b8a6"/>
+    <circle cx="915" cy="451" r="15" fill="#0f766e"/>
+    <circle cx="951" cy="420" r="12" fill="#14b8a6"/>
+    <circle cx="982" cy="450" r="15" fill="#0f766e"/>
+    <circle cx="1016" cy="428" r="10" fill="#cbd5e1"/>
+    <circle cx="868" cy="486" r="10" fill="#cbd5e1"/>
+    <circle cx="903" cy="492" r="14" fill="#0f766e"/>
+    <circle cx="943" cy="478" r="16" fill="#14b8a6"/>
+    <circle cx="981" cy="490" r="13" fill="#0f766e"/>
+    <circle cx="1025" cy="482" r="11" fill="#cbd5e1"/>
+  </g>
+  <path d="M865 405 C905 375, 980 375, 1020 409 C1048 434, 1045 494, 1016 518 C973 550, 895 545, 858 514 C831 491, 833 432, 865 405 Z" fill="none" stroke="#0f766e" stroke-width="4" stroke-dasharray="10 7"/>
+  <text x="930" y="558" text-anchor="middle" class="small">persistent Gaussian entity</text>
+
+  <!-- EntityBank -->
+  <text x="1185" y="132" class="stage">SHARED MEMORY</text>
+  <rect x="1185" y="155" width="245" height="425" class="panel"/>
+  <text x="1307" y="198" text-anchor="middle" class="heading">EntityBank</text>
+  <g>
+    <rect x="1223" y="235" width="168" height="72" rx="8" fill="#fff7ed" stroke="#fdba74" stroke-width="2"/>
+    <circle cx="1255" cy="271" r="15" fill="#f97316"/>
+    <text x="1284" y="278" class="small">cup entity</text>
+    <rect x="1223" y="326" width="168" height="72" rx="8" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+    <circle cx="1255" cy="362" r="15" fill="#2563eb"/>
+    <text x="1284" y="369" class="small">hand entity</text>
+    <rect x="1223" y="417" width="168" height="72" rx="8" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="2"/>
+    <circle cx="1255" cy="453" r="15" fill="#7c3aed"/>
+    <text x="1284" y="460" class="small">tool entity</text>
+  </g>
+  <text x="1307" y="536" text-anchor="middle" class="small">identity + temporal support</text>
+
+  <!-- Stage 3 -->
+  <text x="1490" y="132" class="stage">STAGE 3</text>
+  <rect x="1490" y="155" width="240" height="260" class="panel"/>
+  <text x="1610" y="198" text-anchor="middle" class="heading">Reasoning</text>
+  <text x="1610" y="238" text-anchor="middle" class="body">resolve identity,</text>
+  <text x="1610" y="266" text-anchor="middle" class="body">state, relations,</text>
+  <text x="1610" y="294" text-anchor="middle" class="body">and time window</text>
+  <rect x="1530" y="330" width="160" height="52" rx="8" fill="#ede9fe" stroke="#a78bfa" stroke-width="2"/>
+  <text x="1610" y="363" text-anchor="middle" class="small">selected entity</text>
+
+  <rect x="1490" y="445" width="240" height="135" class="panel"/>
+  <text x="1610" y="484" text-anchor="middle" class="heading">Gaussian Render</text>
+  <g>
+    <rect x="1523" y="511" width="50" height="45" rx="5" fill="#1e293b"/>
+    <ellipse cx="1548" cy="533" rx="13" ry="16" fill="#f8fafc"/>
+    <rect x="1585" y="511" width="50" height="45" rx="5" fill="#1e293b"/>
+    <ellipse cx="1610" cy="533" rx="15" ry="17" fill="#f8fafc"/>
+    <rect x="1647" y="511" width="50" height="45" rx="5" fill="#1e293b"/>
+    <ellipse cx="1672" cy="533" rx="17" ry="16" fill="#f8fafc"/>
+  </g>
+
+  <!-- Connections -->
+  <path d="M320 280 L377 280" class="arrow"/>
+  <path d="M320 510 C350 510, 350 220, 377 220" class="arrow"/>
+  <path d="M675 365 L732 365" class="arrow"/>
+  <path d="M1120 365 L1177 365" class="arrow"/>
+  <path d="M1430 300 L1482 300" class="arrow"/>
+  <path d="M1610 415 L1610 437" class="arrow"/>
+
+  <!-- Output -->
+  <rect x="70" y="635" width="1660" height="70" rx="8" fill="#0f172a"/>
+  <text x="105" y="679" class="metric">Output: query-conditioned masks rendered from the selected Gaussian entity</text>
+  <rect x="1450" y="649" width="112" height="42" rx="8" fill="#0f766e"/>
+  <text x="1506" y="677" text-anchor="middle" class="metric">Acc</text>
+  <rect x="1580" y="649" width="120" height="42" rx="8" fill="#2563eb"/>
+  <text x="1640" y="677" text-anchor="middle" class="metric">vIoU</text>
+</svg>

@@ -85,28 +85,6 @@ def _benchmark_image_ids(frame_ids: list[int], dataset_dir: Path) -> list[str]:
     return [f"{int(frame_id):04d}" for frame_id in frame_ids]
 
 
-def _public_image_ids_by_query(path: Path) -> dict[str, list[str]]:
-    """Read the time-agnostic test-camera ids without loading segmentation masks."""
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    records = payload.get("queries", []) if isinstance(payload, dict) else []
-    if not isinstance(records, list):
-        raise ValueError(f"Public protocol must contain a query list: {path}")
-    mapping: dict[str, list[str]] = {}
-    for record in records:
-        if not isinstance(record, dict):
-            continue
-        query_id = str(record.get("query_slug", "")).strip()
-        image_ids = record.get("evaluation_image_ids")
-        if not query_id or not isinstance(image_ids, list):
-            continue
-        normalized = [str(value).strip() for value in image_ids if str(value).strip()]
-        if normalized:
-            mapping[query_id] = list(dict.fromkeys(normalized))
-    if not mapping:
-        raise ValueError(f"Public protocol has no evaluation_image_ids: {path}")
-    return mapping
-
-
 def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -183,14 +161,6 @@ def parse_args() -> argparse.Namespace:
             "published frame-id cameras; segmentation payloads are not read."
         ),
     )
-    parser.add_argument(
-        "--public-protocol",
-        default=None,
-        help=(
-            "Optional time-agnostic public protocol. Render each fixed entity on every "
-            "declared test camera; category masks are not loaded by this utility."
-        ),
-    )
     parser.add_argument("--query-id", action="append", dest="query_ids", help="Only re-render this official query id; repeat as needed.")
     parser.add_argument("--gpu", type=int, default=None, help="Optional visible GPU index for alpha-splat rendering.")
     parser.add_argument("--fps", type=int, default=6)
@@ -212,19 +182,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    if args.benchmark and args.public_protocol:
-        raise ValueError("--benchmark and --public-protocol are mutually exclusive")
     manifest_path = Path(args.manifest).resolve()
     source_output_root = None if args.source_output_root is None else Path(args.source_output_root).resolve()
     target_output_root = Path(args.output_root).resolve()
     benchmark_path = None if args.benchmark is None else Path(args.benchmark).resolve()
     benchmark_frame_ids = {} if benchmark_path is None else _benchmark_frame_ids_by_query(benchmark_path)
-    public_protocol_path = (
-        None if args.public_protocol is None else Path(args.public_protocol).resolve()
-    )
-    public_image_ids = (
-        {} if public_protocol_path is None else _public_image_ids_by_query(public_protocol_path)
-    )
     requested_ids = None if not args.query_ids else {str(value) for value in args.query_ids}
     rows = _read_manifest(manifest_path)
     if requested_ids is not None:
@@ -255,9 +217,6 @@ def main() -> int:
                 "dataset_dir": str(row["dataset_dir"]),
                 "profile": args.profile,
                 "benchmark": None if benchmark_path is None else str(benchmark_path),
-                "public_protocol": (
-                    None if public_protocol_path is None else str(public_protocol_path)
-                ),
                 "started_at_utc": _utc_now(),
             }
             start = time.monotonic()
@@ -274,11 +233,6 @@ def main() -> int:
                         raise ValueError(f"Benchmark has no record for query_id={query_id}")
                     image_ids = _benchmark_image_ids(benchmark_frame_ids[query_id], Path(str(row["dataset_dir"])))
                     record["benchmark_frame_ids"] = benchmark_frame_ids[query_id]
-                    record["evaluation_image_ids"] = image_ids
-                elif public_protocol_path is not None:
-                    if query_id not in public_image_ids:
-                        raise ValueError(f"Public protocol has no record for query_id={query_id}")
-                    image_ids = public_image_ids[query_id]
                     record["evaluation_image_ids"] = image_ids
                 if target_render_dir.exists():
                     if not args.force:
@@ -325,11 +279,7 @@ def main() -> int:
         "manifest": str(manifest_path),
         "source_output_root_override": None if source_output_root is None else str(source_output_root),
         "benchmark": None if benchmark_path is None else str(benchmark_path),
-        "public_protocol": (
-            None if public_protocol_path is None else str(public_protocol_path)
-        ),
         "benchmark_segmentation_used": False,
-        "public_segmentation_used": False,
         "profile": args.profile,
         "validation_only": not bool(args.export_visuals),
         "results": results,

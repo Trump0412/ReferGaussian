@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Download all HyperNeRF scenes used in the ReferGaussian paper.
+# Download all HyperNeRF scenes used by the released ReferGaussian protocols.
 # Each scene requires COLMAP to generate the initial point cloud.
 # Usage:
-#   bash scripts/prepare_hypernerf.sh              # download all paper scenes
+#   bash scripts/prepare_hypernerf.sh              # download all released scenes
 #   bash scripts/prepare_hypernerf.sh misc keyboard # download one scene
 set -euo pipefail
 
@@ -12,12 +12,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_ROOT="${GS_DATA_ROOT}/hypernerf"
 DOWNLOAD_ROOT="${GS_DATA_ROOT}/downloads"
 
-# All HyperNeRF scenes used in the paper (group/scene : asset_zip)
+# All HyperNeRF scenes used by the released protocols (group/scene : asset_zip)
 declare -A PAPER_SCENES=(
   ["misc/keyboard"]="misc_keyboard.zip"
   ["misc/espresso"]="misc_espresso.zip"
   ["misc/americano"]="misc_americano.zip"
   ["misc/split-cookie"]="misc_split-cookie.zip"
+  ["interp/chickchicken"]="interp_chickchicken.zip"
   ["interp/cut-lemon1"]="interp_cut-lemon.zip"
   ["interp/torchocolate"]="interp_torchocolate.zip"
 )
@@ -106,8 +107,8 @@ if [[ $# -ge 2 ]]; then
   exit 0
 fi
 
-# Full download: all paper scenes
-echo "Downloading all HyperNeRF scenes used in the paper..."
+# Full download: all released scenes
+echo "Downloading all HyperNeRF scenes used by the released protocols..."
 for group_scene in "${!PAPER_SCENES[@]}"; do
   prepare_scene "${group_scene}" "${PAPER_SCENES[${group_scene}]}"
 done

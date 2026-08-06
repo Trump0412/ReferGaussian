@@ -12,15 +12,7 @@ export HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
 
 mkdir -p "${OUTPUT_DIR}"
 
-run_python() {
-  if [[ -n "${PYTHON_BIN:-}" ]]; then
-    "${PYTHON_BIN}" "$@"
-    return
-  fi
-  gs_python "$@"
-}
-
-run_python - <<'PY' "${REPO_ID}" "${OUTPUT_DIR}" "${REVISION}"
+gsam2_python - <<'PY' "${REPO_ID}" "${OUTPUT_DIR}" "${REVISION}"
 from __future__ import annotations
 
 import json
@@ -36,9 +28,7 @@ requested_revision = sys.argv[3]
 try:
     from huggingface_hub import HfApi, snapshot_download
 except ModuleNotFoundError as exc:
-    raise SystemExit(
-        "Missing dependency 'huggingface_hub'. Install it first, e.g. pip install huggingface_hub"
-    ) from exc
+    raise SystemExit("Missing huggingface_hub in the query environment; run scripts/setup.sh") from exc
 
 token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
 resolved_revision = str(HfApi().dataset_info(repo_id, revision=requested_revision, token=token).sha)

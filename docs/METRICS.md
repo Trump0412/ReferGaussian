@@ -30,20 +30,6 @@ Historical outputs use the following compatibility aliases:
   R4D first applies nearest-sample hold from its sparse upstream 4DGS test
   grid; Public uses its dense timeline directly.
 
-### Public time-agnostic compatibility metrics
-
-- `mIoU`: macro category mean of per-frame mask IoU on frames where that
-  category has a ground-truth mask. This matches the aggregation exposed by
-  the pinned 4D LangSplat `eval/eval.py` loop.
-- `mAcc`: macro category mean of binary pixel accuracy
-  `(TP + TN) / (H * W)` on the same category-present frames. The 4D LangSplat
-  paper reports mAcc, but the pinned public evaluator does not emit its
-  implementation, so this formula is frozen explicitly rather than described
-  as bit-identical reference code.
-- The evaluator also emits all-declared-frame foreground recall, pooled IoU,
-  mean IoU, and binary pixel accuracy as separately named audit fields. They
-  are not substituted for `mAcc` or `mIoU`.
-
 New JSON output keeps `Acc`, `vIoU`, and `tIoU`/`temporal_tIoU` for backward
 compatibility and adds explicit aliases:
 

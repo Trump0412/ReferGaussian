@@ -76,7 +76,6 @@ _FORMAL_BOUNDARY_GATED_PROFILES = frozenset(
         "boundary_gated_gaussian_v5",
         "public_time_boundary_gated_v5_numeric",
         "boundary_gated_gaussian_v5_numeric",
-        "public_time_agnostic_v1",
         "r4d_boundary_gated_v5",
         "r4d_multi_instance_boundary_v6",
         "r4d_renderer_geometry_v7",
@@ -518,9 +517,6 @@ def _apply_render_profile_env_defaults(eval_profile: str) -> None:
             "GS_QUERY_ALLOW_DIRECT_2D_MASKS": "0",
             "GS_QUERY_STRICT_GAUSSIAN_PROJECTION": "1",
         }
-        if normalized == "public_time_agnostic_v1":
-            formal_overrides["QUERY_RENDER_REQUESTED_CAMERAS_ONLY"] = "1"
-            formal_overrides["QUERY_REQUIRE_RENDERER_GEOMETRY"] = "1"
         os.environ.update(formal_overrides)
 
 
@@ -2226,7 +2222,7 @@ def render_hypernerf_query_video(
         entries = resolve_dataset_image_entries(dataset_dir)
         entry_by_id = {str(entry["image_id"]): entry for entry in entries}
         # Time-sensitive exports retain the 4DGS grid for temporal
-        # metrics. Time-agnostic evaluation uses only its declared test cameras.
+        # metrics. Explicit benchmark evaluation may request a fixed camera set.
         requested_cameras_only = _env_flag("QUERY_RENDER_REQUESTED_CAMERAS_ONLY", False)
         camera_image_ids = _explicit_camera_image_ids(
             reference_ids,

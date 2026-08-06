@@ -19,8 +19,8 @@ authors:
     given-names: "Hongbo"
   - family-names: "Ding"
     given-names: "Jiayu"
-repository-code: "https://github.com/Trump0412/ReferGaussian"
-url: "https://trump0412.github.io/ReferGaussian/"
+repository-code: "https://github.com/Trump0412/R4DGS"
+url: "https://trump0412.github.io/R4DGS/"
 license: "MIT"
 abstract: >-
   ReferGaussian performs training-free referring inference over frozen 4D

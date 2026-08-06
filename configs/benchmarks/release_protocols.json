@@ -1,5 +1,5 @@
 {
-  "registry_version": "2026-08-05.3",
+  "registry_version": "2026-08-06.1",
   "status": "paper_and_release_protocols_kept_separate",
   "protocols": {
     "paper_r4d_reported": {
@@ -97,20 +97,6 @@
       "query_count": 9,
       "scenes": ["americano", "split-cookie", "espresso", "chickchicken"],
       "status": "fresh_full_run_pending"
-    },
-    "paper_public3_time_agnostic": {
-      "scene_count": 3,
-      "query_count": 15,
-      "scenes": ["americano", "split-cookie", "espresso"],
-      "profile": "public_time_agnostic_v1",
-      "status": "fresh_full_run_pending"
-    },
-    "release_public4_time_agnostic": {
-      "scene_count": 4,
-      "query_count": 20,
-      "scenes": ["americano", "split-cookie", "espresso", "chickchicken"],
-      "profile": "public_time_agnostic_v1",
-      "status": "fresh_full_run_pending"
     }
   },
   "public_annotation_sha256": {
@@ -146,17 +132,6 @@
       "acc": "temporal frame accuracy on the public timeline",
       "viou": "mean IoU over annotation-mask frames in the temporal union",
       "tiou": "timeline IoU"
-    },
-    "4dlangsplat_time_agnostic_v1": {
-      "macc": "macro category mean of per-frame binary pixel accuracy (TP+TN)/(H*W) on category-present test frames",
-      "miou": "macro category mean of per-frame mask IoU on category-present test frames",
-      "reference_code_iou": "the released 4D LangSplat eval loop exposes the same present-frame IoU aggregation used by miou; its public code does not emit macc",
-      "all_frame_audit_fields": [
-        "foreground_recall_all_test_frames",
-        "pooled_mask_iou_all_test_frames",
-        "all_test_frame_mean_iou",
-        "binary_pixel_accuracy_all_test_frames"
-      ]
     }
   }
 }

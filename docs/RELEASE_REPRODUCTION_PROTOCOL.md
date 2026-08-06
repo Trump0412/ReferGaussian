@@ -1,8 +1,8 @@
 # R4DGS Release Reproduction Protocol
 
 This repository releases the ReferGaussian referring-inference and evaluation
-pipeline. It treats a pretrained 4D Gaussian scene as a frozen input; scene
-training is outside the release scope.
+pipeline. It treats a standard 4D Gaussian scene as a frozen input and includes
+a thin wrapper around the pinned upstream trainer for end-to-end reproduction.
 
 ## Scope
 
@@ -14,9 +14,9 @@ The supported path contains:
 4. EntityBank selection and Gaussian-only mask rendering;
 5. strict Public and R4D-Bench-QA evaluators.
 
-The repository intentionally excludes scene-training wrappers, scene-quality
-metrics, scene checkpoints, model weights, rendered benchmark
-outputs, experiment logs, and ablation runners.
+The repository intentionally excludes custom reconstruction code, scene-quality
+metrics, scene checkpoints, model weights, rendered benchmark outputs,
+experiment logs, and ablation runners.
 
 ## Frozen 4DGS Input
 
@@ -25,6 +25,7 @@ Use the pinned, unmodified upstream 4DGaussians checkout prepared by:
 ```bash
 bash scripts/bootstrap_external.sh
 bash scripts/setup_4dgs_env.sh cuda121
+gs_python scripts/train_4dgs.py --dataset hypernerf --scene misc/americano
 ```
 
 Each query-ready scene run must provide:
@@ -52,10 +53,8 @@ artifact is not part of this repository.
 
 Public identities are:
 
-- `paper_public3`: 3 scenes, 7 time-sensitive queries;
-- `release_public4_extension`: 4 scenes, 9 time-sensitive queries;
-- `paper_public3_time_agnostic`: 3 scenes, 15 categories;
-- `release_public4_time_agnostic`: 4 scenes, 20 categories.
+- `paper_public3`: 3 scenes, 7 dynamic queries;
+- `release_public4_extension`: 4 scenes, 9 dynamic queries.
 
 All counts, source hashes, category counts, and scene lists are frozen in
 `configs/benchmarks/release_protocols.json`.

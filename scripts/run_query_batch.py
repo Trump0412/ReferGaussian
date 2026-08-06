@@ -43,7 +43,6 @@ STRICT_RELEASE_PROFILES = frozenset(
     {
         "public_time_boundary_gated_v5",
         "public_time_boundary_gated_v5_numeric",
-        "public_time_agnostic_v1",
         "r4d_boundary_gated_v5",
         "r4d_renderer_consistent",
     }
@@ -55,8 +54,6 @@ EXECUTABLE_RELEASE_PROTOCOLS = frozenset(
     {
         "paper_public3",
         "release_public4_extension",
-        "paper_public3_time_agnostic",
-        "release_public4_time_agnostic",
         *R4D_RELEASE_PROTOCOLS,
     }
 )
@@ -67,8 +64,6 @@ PROTOCOL_PROFILES = {
     "release_public4_extension": frozenset(
         {"public_time_boundary_gated_v5", "public_time_boundary_gated_v5_numeric"}
     ),
-    "paper_public3_time_agnostic": frozenset({"public_time_agnostic_v1"}),
-    "release_public4_time_agnostic": frozenset({"public_time_agnostic_v1"}),
     "release_r4d_dense89": frozenset({"r4d_boundary_gated_v5"}),
     "release_r4d_dense89_renderer_consistent": frozenset(
         {"r4d_renderer_consistent"}
@@ -97,49 +92,6 @@ PUBLIC_PROTOCOL_QUERY_IDS = {
             "espresso__the_glass_cup_with_liquid_above_the_midpoint_of_the_cup",
             "split-cookie__the_cookie_broken_into_smaller_pieces",
             "split-cookie__the_complete_cookie",
-        }
-    ),
-    "paper_public3_time_agnostic": frozenset(
-        {
-            "americano__time_agnostic__coasters_braided_from_straw_and_black_thread",
-            "americano__time_agnostic__glass_cup",
-            "americano__time_agnostic__hands",
-            "americano__time_agnostic__metal_cup",
-            "americano__time_agnostic__tray",
-            "espresso__time_agnostic__electronic_scales_with_cup",
-            "espresso__time_agnostic__glass_cup",
-            "espresso__time_agnostic__metal_cup",
-            "espresso__time_agnostic__round_wooden_coasters",
-            "espresso__time_agnostic__table",
-            "espresso__time_agnostic__white_bottle",
-            "split-cookie__time_agnostic__bare_hands",
-            "split-cookie__time_agnostic__checkered_tablecloth",
-            "split-cookie__time_agnostic__cookie",
-            "split-cookie__time_agnostic__square_wooden_board",
-        }
-    ),
-    "release_public4_time_agnostic": frozenset(
-        {
-            "americano__time_agnostic__coasters_braided_from_straw_and_black_thread",
-            "americano__time_agnostic__glass_cup",
-            "americano__time_agnostic__hands",
-            "americano__time_agnostic__metal_cup",
-            "americano__time_agnostic__tray",
-            "chickchicken__time_agnostic__board",
-            "chickchicken__time_agnostic__chicken_container",
-            "chickchicken__time_agnostic__hands",
-            "chickchicken__time_agnostic__white_chicken",
-            "chickchicken__time_agnostic__yellow_chicken",
-            "espresso__time_agnostic__electronic_scales_with_cup",
-            "espresso__time_agnostic__glass_cup",
-            "espresso__time_agnostic__metal_cup",
-            "espresso__time_agnostic__round_wooden_coasters",
-            "espresso__time_agnostic__table",
-            "espresso__time_agnostic__white_bottle",
-            "split-cookie__time_agnostic__bare_hands",
-            "split-cookie__time_agnostic__checkered_tablecloth",
-            "split-cookie__time_agnostic__cookie",
-            "split-cookie__time_agnostic__square_wooden_board",
         }
     ),
 }
@@ -573,67 +525,6 @@ def _write_json_atomic(path: str, payload: object) -> None:
     os.replace(tmp, path)
 
 
-def _prepare_public_time_agnostic_render_ids(
-    item: dict,
-    *,
-    query_output_root: str,
-    strict_release: bool,
-) -> str | None:
-    """Materialize the protocol's exact test-camera ids for final rendering."""
-    profile = str(item.get("profile", "")).strip()
-    if profile != "public_time_agnostic_v1":
-        return None
-
-    query_id = str(item.get("query_id", "")).strip()
-    source_paths = item.get("source_paths")
-    protocol_value = source_paths.get("protocol_json") if isinstance(source_paths, dict) else None
-    protocol_path = Path(str(protocol_value or ""))
-    if not protocol_path.is_file():
-        if strict_release:
-            raise ValueError(
-                f"{query_id}: time-agnostic release row has no readable protocol_json"
-            )
-        return None
-
-    try:
-        payload = json.loads(protocol_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"{query_id}: cannot read time-agnostic protocol: {exc}") from exc
-    rows = payload.get("queries") if isinstance(payload, dict) else None
-    if not isinstance(rows, list):
-        raise ValueError(f"{query_id}: time-agnostic protocol has no query list")
-    matches = [
-        row
-        for row in rows
-        if isinstance(row, dict)
-        and str(row.get("query_slug", "")) == query_id
-        and str(row.get("category", "")) == "time_agnostic_reference"
-    ]
-    if len(matches) != 1:
-        raise ValueError(
-            f"{query_id}: expected one time-agnostic protocol row, found {len(matches)}"
-        )
-    values = matches[0].get("evaluation_image_ids")
-    if not isinstance(values, list):
-        raise ValueError(f"{query_id}: protocol row has no evaluation_image_ids")
-    image_ids = [str(value).strip() for value in values if str(value).strip()]
-    if not image_ids or len(image_ids) != len(values) or len(set(image_ids)) != len(image_ids):
-        raise ValueError(f"{query_id}: evaluation_image_ids must be non-empty and unique")
-
-    output_path = os.path.join(query_output_root, "evaluation_image_ids.json")
-    _write_json_atomic(
-        output_path,
-        {
-            "schema_version": "1.0",
-            "query_id": query_id,
-            "protocol_json": str(protocol_path.resolve()),
-            "protocol_json_sha256": hashlib.sha256(protocol_path.read_bytes()).hexdigest(),
-            "image_ids": image_ids,
-        },
-    )
-    return output_path
-
-
 def _append_jsonl(path: str, record: dict) -> None:
     """Append a single JSON record as a line to a JSONL file."""
     _ensure_dir(os.path.dirname(path))
@@ -873,13 +764,6 @@ def run_one_query(
     env["MLLM_TRACE_PATH"] = mllm_trace_path
     if annotation_dir:
         env["QUERY_ANNOTATION_DIR"] = annotation_dir
-    render_image_ids_path = _prepare_public_time_agnostic_render_ids(
-        item,
-        query_output_root=query_output_root,
-        strict_release=strict_release,
-    )
-    if render_image_ids_path is not None:
-        env["QUERY_RENDER_IMAGE_IDS_JSON"] = render_image_ids_path
     for key, value in item_env.items():
         if key:
             env[str(key)] = str(value)

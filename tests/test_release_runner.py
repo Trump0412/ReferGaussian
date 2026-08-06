@@ -57,54 +57,6 @@ def _formal_public_rows(
 
 
 class ReleaseRunnerTest(unittest.TestCase):
-    def test_time_agnostic_runner_materializes_exact_test_camera_ids(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            protocol_path = root / "protocol.json"
-            protocol_path.write_text(
-                json.dumps(
-                    {
-                        "queries": [
-                            {
-                                "query_slug": "scene__time_agnostic__target",
-                                "category": "time_agnostic_reference",
-                                "evaluation_image_ids": ["000010", "000020"],
-                            }
-                        ]
-                    }
-                ),
-                encoding="utf-8",
-            )
-            item = _manifest_row(
-                query_id="scene__time_agnostic__target",
-                profile="public_time_agnostic_v1",
-                source_paths={"protocol_json": str(protocol_path)},
-            )
-
-            output_path = RUNNER._prepare_public_time_agnostic_render_ids(
-                item,
-                query_output_root=str(root),
-                strict_release=True,
-            )
-
-            self.assertIsNotNone(output_path)
-            payload = json.loads(Path(str(output_path)).read_text(encoding="utf-8"))
-            self.assertEqual(payload["image_ids"], ["000010", "000020"])
-            self.assertEqual(payload["query_id"], item["query_id"])
-
-    def test_time_agnostic_strict_runner_fails_without_protocol_ids(self) -> None:
-        item = _manifest_row(
-            query_id="scene__time_agnostic__target",
-            profile="public_time_agnostic_v1",
-        )
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with self.assertRaisesRegex(ValueError, "no readable protocol_json"):
-                RUNNER._prepare_public_time_agnostic_render_ids(
-                    item,
-                    query_output_root=temp_dir,
-                    strict_release=True,
-                )
-
     def test_non_strict_runner_keeps_its_exploratory_default(self) -> None:
         self.assertEqual(
             RUNNER.resolve_profile(None, strict_release=False),

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the inference-only public repository before creating a release."""
+"""Validate the public repository before creating a release."""
 
 from __future__ import annotations
 
@@ -71,6 +71,7 @@ REQUIRED_RUNTIME_FILES = (
     "configs/benchmarks/release_protocols.json",
     "configs/benchmarks/r4d_query_text_en.json",
     "docs/METRICS.md",
+    "docs/assets/method_overview.svg",
     "refergaussian/run_identity.py",
     "refergaussian/semantics/semantic_renderer.py",
     "refergaussian/semantics/surface_mask_field.py",
@@ -78,7 +79,14 @@ REQUIRED_RUNTIME_FILES = (
     "refergaussian/semantics/select_qwen_query_entities.py",
     "refergaussian/semantics/grounded_sam2_backend.py",
     "scripts/bootstrap_external.sh",
+    "scripts/setup.sh",
     "scripts/setup_4dgs_env.sh",
+    "scripts/download_models.sh",
+    "scripts/download_4dlangsplat_annotations.sh",
+    "scripts/download_r4d_bench_qa.sh",
+    "scripts/prepare_hypernerf.sh",
+    "scripts/train_4dgs.py",
+    "scripts/run_benchmark.py",
     "scripts/build_mask_supported_proposal_dir.py",
     "scripts/export_entitybank.py",
     "scripts/render_query_video.py",
@@ -96,7 +104,14 @@ REQUIRED_RUNTIME_FILES = (
 )
 REQUIRED_RUNTIME_TOKENS = {
     "scripts/bootstrap_external.sh": "Pinned, unmodified external dependencies",
-    "scripts/setup_4dgs_env.sh": "open3d==0.18.0",
+    "scripts/setup.sh": "scripts/setup_grounded_sam2.sh",
+    "scripts/setup_4dgs_env.sh": "kornia==0.7.3",
+    "scripts/download_models.sh": "Qwen/Qwen3-VL-8B-Instruct",
+    "scripts/download_4dlangsplat_annotations.sh": "d127a280446206fc97887a304de790a1fe6af5ff",
+    "scripts/download_r4d_bench_qa.sh": "gsam2_python",
+    "scripts/prepare_hypernerf.sh": "interp_chickchicken.zip",
+    "scripts/train_4dgs.py": "validate_query_ready_4dgs_run",
+    "scripts/run_benchmark.py": "release_r4d_dense89_renderer_consistent",
     "scripts/build_mask_supported_proposal_dir.py": "build_mask_supported_lifting_proposal_dir",
     "scripts/export_entitybank.py": "--proposal-supervision-mode",
     "scripts/render_query_video.py": "--eval-profile",
@@ -182,14 +197,21 @@ def check_public_metadata() -> list[str]:
     errors: list[str] = []
     expected_title = "R4DGS: Referring Segmentation in 4D Gaussian Splatting"
     expected_doi = "10.1145/3767308.3836021"
+    expected_repository = "https://github.com/Trump0412/R4DGS"
+    expected_page = "https://trump0412.github.io/R4DGS/"
     for relative in ("README.md", "CITATION.cff", "docs/index.html"):
         text = (ROOT / relative).read_text(encoding="utf-8")
         if expected_title not in text:
             errors.append(f"Camera-ready title is missing from {relative}")
         if expected_doi not in text:
             errors.append(f"Camera-ready DOI is missing from {relative}")
+        if expected_repository not in text:
+            errors.append(f"Renamed repository URL is missing from {relative}")
         if "Chu Liuxin" in text:
             errors.append(f"Camera-ready author order must be 'Liuxin Chu' in {relative}")
+    for relative in ("README.md", "CITATION.cff"):
+        if expected_page not in (ROOT / relative).read_text(encoding="utf-8"):
+            errors.append(f"Renamed GitHub Pages URL is missing from {relative}")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     page = (ROOT / "docs/index.html").read_text(encoding="utf-8")
     citation = (ROOT / "CITATION.cff").read_text(encoding="utf-8")
@@ -237,8 +259,6 @@ def check_protocol_registry() -> list[str]:
         "legacy_r4d_filtered58": (8, 58),
         "paper_public3": (3, 7),
         "release_public4_extension": (4, 9),
-        "paper_public3_time_agnostic": (3, 15),
-        "release_public4_time_agnostic": (4, 20),
     }
     errors: list[str] = []
     for protocol_id, (scene_count, query_count) in expected.items():
@@ -324,14 +344,16 @@ def check_runtime_release_guards() -> list[str]:
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     for token in (
-        "gsam2_python scripts/download_hf_snapshot.py",
-        "--require-pinned-manifest",
-        "GSAM2_INSTALL_EDITABLE=1",
-        "--require-complete",
-        "--strict-release",
+        "bash scripts/setup.sh",
+        "bash scripts/download_models.sh",
+        "scripts/train_4dgs.py",
+        "scripts/run_benchmark.py 4dlangsplat",
+        "scripts/run_benchmark.py r4d-bench",
     ):
         if token not in readme:
             errors.append(f"README is missing release contract: {token}")
+    if re.search(r"time[-_ ]agnostic", readme, re.IGNORECASE):
+        errors.append("README must expose only the two released dynamic-query benchmarks")
     return errors
 
 
@@ -350,7 +372,7 @@ def main() -> int:
         for error in errors:
             print(f"[error] {error}")
         return 1
-    print("[ok] inference-only public release preflight passed")
+    print("[ok] public release preflight passed")
     return 0
 
 
