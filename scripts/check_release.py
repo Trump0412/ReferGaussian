@@ -217,7 +217,7 @@ def check_public_metadata() -> list[str]:
     citation = (ROOT / "CITATION.cff").read_text(encoding="utf-8")
     if "Accepted at" in page:
         errors.append("Project page must not display an 'Accepted at' label")
-    for stale in ("266 sentence", "3-scene / 7-query", "91.62", "66.48", "method_overview.svg"):
+    for stale in ("91.62", "66.48", "method_overview.svg"):
         if stale in readme or stale in page:
             errors.append(f"Public README/page contains stale camera-ready content: {stale}")
     for required in ("76.5", "34.4", "93.01", "62.95", "99.43", "68.13"):
@@ -296,14 +296,15 @@ def check_protocol_registry() -> list[str]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     protocols = payload.get("protocols", {})
     expected = {
-        "paper_r4d_reported": (12, 266),
-        "release_r4d_dense89": (12, 89),
         "release_r4d_dense89_renderer_consistent": (12, 89),
-        "legacy_r4d_filtered58": (8, 58),
-        "paper_public3": (3, 7),
         "release_public4_extension": (4, 9),
     }
     errors: list[str] = []
+    if set(protocols) != set(expected):
+        errors.append(
+            "Release registry must expose only the two camera-ready protocols; got "
+            + ", ".join(sorted(protocols))
+        )
     for protocol_id, (scene_count, query_count) in expected.items():
         row = protocols.get(protocol_id)
         if not isinstance(row, dict):
@@ -313,9 +314,15 @@ def check_protocol_registry() -> list[str]:
             errors.append(f"Protocol {protocol_id} must be {scene_count} scenes/{query_count} queries")
     query_map = ROOT / "configs" / "benchmarks" / "r4d_query_text_en.json"
     actual_hash = hashlib.sha256(query_map.read_bytes()).hexdigest()
-    for protocol_id in ("release_r4d_dense89", "release_r4d_dense89_renderer_consistent"):
+    for protocol_id in ("release_r4d_dense89_renderer_consistent",):
         if protocols.get(protocol_id, {}).get("english_query_map_sha256") != actual_hash:
             errors.append(f"Protocol {protocol_id} English query-map hash does not match")
+    metric_protocols = payload.get("metric_protocols", {})
+    expected_metric = metric_protocols.get("time_sensitive_v1")
+    if set(metric_protocols) != {"time_sensitive_v1"} or not isinstance(expected_metric, dict):
+        errors.append("Release registry must expose only the time_sensitive_v1 metric protocol")
+    elif "frame-wise" not in str(expected_metric.get("acc", "")) or "active-frame union" not in str(expected_metric.get("viou", "")):
+        errors.append("time_sensitive_v1 metric definitions are incomplete")
     return errors
 
 

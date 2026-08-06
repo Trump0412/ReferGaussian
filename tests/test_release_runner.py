@@ -35,7 +35,7 @@ def _formal_public_rows(
 ) -> list[dict]:
     registry = RUNNER._load_protocol_registry()
     rows: list[dict] = []
-    for query_id in sorted(RUNNER.PUBLIC_PROTOCOL_QUERY_IDS["paper_public3"]):
+    for query_id in sorted(RUNNER.PUBLIC_PROTOCOL_QUERY_IDS["release_public4_extension"]):
         scene = query_id.split("__", 1)[0]
         hashes = registry["public_annotation_sha256"][scene]
         rows.append(
@@ -43,7 +43,7 @@ def _formal_public_rows(
                 query_id=query_id,
                 scene=scene,
                 profile=profile,
-                protocol_id="paper_public3",
+                protocol_id="release_public4_extension",
                 protocol_complete=True,
                 protocol_registry_version=registry["registry_version"],
                 source_hashes={
@@ -91,7 +91,7 @@ class ReleaseRunnerTest(unittest.TestCase):
         errors = RUNNER.validate_release_manifest(
             _formal_public_rows(),
             profile="public_time_boundary_gated_v5",
-            protocol_id="paper_public3",
+            protocol_id="release_public4_extension",
         )
         self.assertEqual(errors, [])
 
@@ -101,7 +101,7 @@ class ReleaseRunnerTest(unittest.TestCase):
         errors = RUNNER.validate_release_manifest(
             rows,
             profile="public_time_boundary_gated_v5",
-            protocol_id="paper_public3",
+            protocol_id="release_public4_extension",
         )
         self.assertTrue(any("env override" in error for error in errors))
 
@@ -111,7 +111,7 @@ class ReleaseRunnerTest(unittest.TestCase):
         errors = RUNNER.validate_release_manifest(
             rows,
             profile="public_time_boundary_gated_v5",
-            protocol_id="paper_public3",
+            protocol_id="release_public4_extension",
         )
         self.assertTrue(any("differs from --profile" in error for error in errors))
 
@@ -121,10 +121,10 @@ class ReleaseRunnerTest(unittest.TestCase):
         errors = RUNNER.validate_release_manifest(
             rows,
             profile="public_time_boundary_gated_v5",
-            protocol_id="paper_public3",
+            protocol_id="release_public4_extension",
         )
         self.assertTrue(any("not marked complete" in error for error in errors))
-        self.assertTrue(any("requires 7 rows" in error for error in errors))
+        self.assertTrue(any("requires 9 rows" in error for error in errors))
 
     def test_strict_loader_rejects_malformed_missing_and_duplicate_rows(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

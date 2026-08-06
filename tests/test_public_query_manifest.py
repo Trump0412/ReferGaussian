@@ -25,7 +25,7 @@ class PublicQueryManifestTest(unittest.TestCase):
     def test_release_exposes_only_dynamic_public_protocols(self) -> None:
         self.assertEqual(
             MANIFEST.FORMAL_PUBLIC_PROTOCOLS,
-            frozenset({"paper_public3", "release_public4_extension"}),
+            frozenset({"release_public4_extension"}),
         )
 
     def test_time_sensitive_rows_preserve_protocol_id_and_text(self) -> None:
@@ -58,7 +58,7 @@ class PublicQueryManifestTest(unittest.TestCase):
             "clean_reproduction/hypernerf/espresso",
         )
 
-    def test_scene_filter_separates_paper_three_from_four_scene_extension(self) -> None:
+    def test_scene_filter_can_select_an_explicit_incomplete_subset(self) -> None:
         rows = [
             ("americano", "a_q1", "query a"),
             ("espresso", "e_q1", "query e"),
@@ -78,17 +78,17 @@ class PublicQueryManifestTest(unittest.TestCase):
         registry = MANIFEST._load_protocol_registry()
         rows = [
             (query_id.split("__", 1)[0], query_id, "query")
-            for query_id in MANIFEST.PUBLIC_PROTOCOL_QUERY_IDS["paper_public3"]
+            for query_id in MANIFEST.PUBLIC_PROTOCOL_QUERY_IDS["release_public4_extension"]
         ]
         MANIFEST._validate_formal_identity(
             rows,
-            protocol_id="paper_public3",
+            protocol_id="release_public4_extension",
             registry=registry,
         )
-        with self.assertRaisesRegex(ValueError, "requires 7 queries"):
+        with self.assertRaisesRegex(ValueError, "requires 9 queries"):
             MANIFEST._validate_formal_identity(
                 rows[:1],
-                protocol_id="paper_public3",
+                protocol_id="release_public4_extension",
                 registry=registry,
             )
 

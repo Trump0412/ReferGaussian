@@ -1,41 +1,7 @@
 {
-  "registry_version": "2026-08-06.1",
-  "status": "paper_and_release_protocols_kept_separate",
+  "registry_version": "2026-08-07.0",
+  "status": "camera_ready_time_sensitive_protocols",
   "protocols": {
-    "paper_r4d_reported": {
-      "scene_count": 12,
-      "query_count": 266,
-      "dense_artifact_available_in_release": false,
-      "status": "reported_not_freshly_reproduced"
-    },
-    "release_r4d_dense89": {
-      "scene_count": 12,
-      "query_count": 89,
-      "scenes": [
-        "americano",
-        "coffee_martini",
-        "cook_spinach",
-        "cut_lemon",
-        "cut_roasted_beef",
-        "espresso",
-        "flame_salmon",
-        "flame_steak",
-        "keyboard",
-        "sear_steak",
-        "split_cookie",
-        "torchchocolate"
-      ],
-      "category_counts": {
-        "temporal_single_target": 36,
-        "multi_target_reasoning": 29,
-        "zero_target_distractor": 24
-      },
-      "query_metadata_sha256": "cb15182f32a9383f2c2060627e6dc29c3c10b3ae12b61e705deb52da8687fbf2",
-      "english_query_map_sha256": "34e771b6b704e83f8f4912bd055d529f55d7e5f269ceb32d31ed24514cae8a9d",
-      "dense_gt_sha256": "f917d21f74fd6a2e84318ca0e9d64cb9487fcf7399597237c6661d9a15c6a255",
-      "profile": "r4d_boundary_gated_v5",
-      "status": "superseded_after_renderer_geometry_mismatch_canary"
-    },
     "release_r4d_dense89_renderer_consistent": {
       "scene_count": 12,
       "query_count": 89,
@@ -63,40 +29,13 @@
       "dense_gt_sha256": "f917d21f74fd6a2e84318ca0e9d64cb9487fcf7399597237c6661d9a15c6a255",
       "profile": "r4d_renderer_consistent",
       "geometry_contract": "fine_stage_renderer_consistent_gaussian_state",
-      "supersedes": "release_r4d_dense89",
-      "status": "fresh_full_run_pending"
-    },
-    "legacy_r4d_filtered58": {
-      "scene_count": 8,
-      "query_count": 58,
-      "scenes": [
-        "coffee_martini",
-        "sear_steak",
-        "cut_roasted_beef",
-        "cut_lemon",
-        "espresso",
-        "keyboard",
-        "split_cookie",
-        "torchchocolate"
-      ],
-      "category_counts": {
-        "temporal_single_target": 22,
-        "multi_target_reasoning": 20,
-        "zero_target_distractor": 16
-      },
-      "status": "archival_noncanonical_subset"
-    },
-    "paper_public3": {
-      "scene_count": 3,
-      "query_count": 7,
-      "scenes": ["americano", "split-cookie", "espresso"],
-      "status": "reported_fresh_full_run_pending"
+      "status": "camera_ready_protocol"
     },
     "release_public4_extension": {
       "scene_count": 4,
       "query_count": 9,
       "scenes": ["americano", "split-cookie", "espresso", "chickchicken"],
-      "status": "fresh_full_run_pending"
+      "status": "camera_ready_protocol"
     }
   },
   "public_annotation_sha256": {
@@ -118,20 +57,10 @@
     }
   },
   "metric_protocols": {
-    "paper_declared": {
-      "acc": "exact predicted referent-set match averaged over queries",
-      "viou": "global spatiotemporal volume IoU averaged over queries",
-      "executable_from_current_release_annotations": false
-    },
-    "legacy_r4d_evaluator_v1_with_audit_fields": {
-      "acc": "temporal frame accuracy on rendered samples",
-      "viou": "mean IoU over annotated active-mask frames",
-      "tiou": "timeline IoU after nearest-sample hold"
-    },
-    "legacy_public_evaluator_v1_with_audit_fields": {
-      "acc": "temporal frame accuracy on the public timeline",
-      "viou": "mean IoU over annotation-mask frames in the temporal union",
-      "tiou": "timeline IoU"
+    "time_sensitive_v1": {
+      "acc": "frame-wise temporal activation accuracy over all evaluated frames",
+      "viou": "mean per-frame mask IoU over the predicted/ground-truth active-frame union; only their intersection contributes mask IoU",
+      "tiou": "temporal active-frame IoU retained as a diagnostic"
     }
   }
 }

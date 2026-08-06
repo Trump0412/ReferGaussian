@@ -1,6 +1,6 @@
 # R4DGS Reproduction Status
 
-Updated: 2026-08-06
+Updated: 2026-08-07
 
 ## Release Boundary
 
@@ -48,9 +48,9 @@ No checkpoint or model weight is embedded in the repository. Dataset and model
 download scripts write manifests beside external assets rather than adding the
 assets to Git.
 
-## Known Protocol Distinction
+## Frozen Evaluation Identity
 
-The accepted paper describes 12 scenes and 266 sentence-level annotations.
-The frame-aligned dense artifact currently released for execution contains 89
-official English query ids over the same 12 scenes. These identities must not
-be merged or relabeled until the complete 266-query mapping is published.
+The camera-ready R4D-Bench-QA protocol is the released set of 89 English
+sentence-level queries over 12 scenes. The Public protocol is the released set
+of 9 English time-sensitive queries over 4 scenes. Both use frame-wise Acc and
+time-sensitive vIoU as defined in `METRICS.md`.

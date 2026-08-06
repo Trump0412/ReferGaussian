@@ -122,10 +122,8 @@ class PublicProtocolEvaluatorTest(unittest.TestCase):
         self.assertEqual(result["vIoU"], 1.0)
         self.assertEqual(result["temporal_tIoU"], 1.0)
         self.assertEqual(result["temporal_frame_accuracy"], result["Acc"])
-        self.assertEqual(result["mean_annotated_frame_iou"], result["vIoU"])
+        self.assertEqual(result["intersection_frame_mean_iou"], result["vIoU"])
         self.assertEqual(result["annotated_volume_iou"], 1.0)
-        self.assertIsNone(result["paper_exact_set_accuracy"])
-        self.assertIsNone(result["paper_full_volume_iou"])
 
     def test_empty_query_false_positive_scores_zero_spatiotemporally(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -184,6 +182,26 @@ class PublicProtocolEvaluatorTest(unittest.TestCase):
         self.assertEqual(result["vIoU"], 1.0)
         self.assertEqual(result["temporal_tIoU"], 1.0)
 
+    def test_viou_penalizes_predicted_frames_outside_the_gt_window(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mask_dir = Path(temp_dir) / "binary_masks"
+            mask_dir.mkdir()
+            target_mask = np.zeros((5, 6), dtype=np.uint8)
+            target_mask[1:4, 2:5] = 255
+            Image.fromarray(target_mask, mode="L").save(mask_dir / "00000.png")
+            Image.fromarray(target_mask, mode="L").save(mask_dir / "00001.png")
+            result = EVALUATOR.evaluate_query(
+                query_item=_query([[0, 0]]),
+                validation_payload=_validation(mask_dir, [True, True]),
+                metadata_payload={"0000": {"time_id": 0}, "0001": {"time_id": 1}},
+                gt_masks_by_object={"target": {"0000": target_mask > 0}},
+                top_level_objects=["target"],
+            )
+
+        self.assertEqual(result["Acc"], 0.5)
+        self.assertEqual(result["vIoU"], 0.5)
+        self.assertEqual(result["intersection_frame_mean_iou"], 1.0)
+
     def test_missing_spatial_prediction_is_zero_and_marks_coverage_incomplete(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             mask_dir = Path(temp_dir) / "binary_masks"
@@ -205,7 +223,7 @@ class PublicProtocolEvaluatorTest(unittest.TestCase):
         self.assertEqual(result["spatial_matched_render_frames"], 1)
         self.assertEqual(result["spatial_missing_render_frames"], 1)
         self.assertFalse(result["spatial_coverage_complete"])
-        self.assertEqual(result["vIoU"], 0.5)
+        self.assertAlmostEqual(result["vIoU"], 1.0 / 11.0)
         coverage = EVALUATOR.coverage_summary(["target_q1"], [result])
         self.assertFalse(coverage["complete"])
         self.assertEqual(coverage["spatial_incomplete_query_ids"], ["target_q1"])

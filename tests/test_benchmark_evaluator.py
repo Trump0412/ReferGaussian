@@ -143,10 +143,8 @@ class BenchmarkEvaluatorTest(unittest.TestCase):
         self.assertEqual(result["tIoU"], 1.0)
         self.assertEqual(result["vIoU"], 1.0)
         self.assertEqual(result["temporal_frame_accuracy"], result["Acc"])
-        self.assertEqual(result["mean_annotated_frame_iou"], result["vIoU"])
+        self.assertEqual(result["intersection_frame_mean_iou"], result["vIoU"])
         self.assertEqual(result["annotated_volume_iou"], 1.0)
-        self.assertIsNone(result["paper_exact_set_accuracy"])
-        self.assertIsNone(result["paper_full_volume_iou"])
         self.assertEqual(result["vIoU_count"], 0)
 
     def test_empty_query_false_positive_is_not_awarded(self) -> None:
@@ -238,6 +236,39 @@ class BenchmarkEvaluatorTest(unittest.TestCase):
         self.assertEqual(result["tIoU"], 1.0)
         self.assertEqual(result["vIoU"], 1.0)
 
+    def test_viou_penalizes_predicted_frames_outside_the_gt_window(self) -> None:
+        polygon = [[2, 1, 5, 1, 5, 4, 2, 4]]
+        query_item = {
+            "query_id": "extra_active_q1",
+            "ground_truth": {
+                "existence_frames": [0],
+                "frames": [{"frame_id": 0, "masks": [{"segmentation": polygon}]}],
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            query_root = Path(temp_dir) / "extra_active_q1"
+            render_root = _write_validation(
+                query_root,
+                [
+                    {"image_id": "0000", "frame_index": 0, "query_active": True},
+                    {"image_id": "0001", "frame_index": 1, "query_active": True},
+                ],
+            )
+            mask_dir = render_root / "binary_masks"
+            mask_dir.mkdir()
+            image = Image.fromarray(np.zeros((6, 8), dtype=np.uint8), mode="L")
+            ImageDraw.Draw(image).polygon(
+                [(polygon[0][idx], polygon[0][idx + 1]) for idx in range(0, len(polygon[0]), 2)],
+                fill=255,
+            )
+            image.save(mask_dir / "00000.png")
+            image.save(mask_dir / "00001.png")
+            result = EVALUATOR.evaluate_query(query_item, query_root)
+
+        self.assertEqual(result["Acc"], 0.5)
+        self.assertEqual(result["vIoU"], 0.5)
+        self.assertEqual(result["intersection_frame_mean_iou"], 1.0)
+
     def test_source_image_canvas_precedes_camera_intrinsics(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             dataset_dir = Path(temp_dir) / "dataset"
@@ -325,7 +356,7 @@ class BenchmarkEvaluatorTest(unittest.TestCase):
         self.assertEqual(result["spatial_matched_render_frames"], 1)
         self.assertEqual(result["mask_missing"], 1)
         self.assertFalse(result["spatial_coverage_complete"])
-        self.assertEqual(result["vIoU"], 0.5)
+        self.assertAlmostEqual(result["vIoU"], 1.0 / 11.0)
         coverage = EVALUATOR.coverage_summary(["missing_frame_q1"], [result])
         self.assertFalse(coverage["complete"])
         self.assertEqual(coverage["spatial_incomplete_query_ids"], ["missing_frame_q1"])

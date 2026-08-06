@@ -47,40 +47,22 @@ STRICT_RELEASE_PROFILES = frozenset(
         "r4d_renderer_consistent",
     }
 )
-R4D_RELEASE_PROTOCOLS = frozenset(
-    {"release_r4d_dense89", "release_r4d_dense89_renderer_consistent"}
-)
+R4D_RELEASE_PROTOCOLS = frozenset({"release_r4d_dense89_renderer_consistent"})
 EXECUTABLE_RELEASE_PROTOCOLS = frozenset(
     {
-        "paper_public3",
         "release_public4_extension",
         *R4D_RELEASE_PROTOCOLS,
     }
 )
 PROTOCOL_PROFILES = {
-    "paper_public3": frozenset(
-        {"public_time_boundary_gated_v5", "public_time_boundary_gated_v5_numeric"}
-    ),
     "release_public4_extension": frozenset(
         {"public_time_boundary_gated_v5", "public_time_boundary_gated_v5_numeric"}
     ),
-    "release_r4d_dense89": frozenset({"r4d_boundary_gated_v5"}),
     "release_r4d_dense89_renderer_consistent": frozenset(
         {"r4d_renderer_consistent"}
     ),
 }
 PUBLIC_PROTOCOL_QUERY_IDS = {
-    "paper_public3": frozenset(
-        {
-            "americano__the_glass_cup_that_is_glasses_contain_light_colored_liquid",
-            "americano__the_glass_cup_that_is_liquid_become_darker_in_glasses",
-            "espresso__the_empty_glass_cup",
-            "espresso__the_full_glass_cup",
-            "espresso__the_glass_cup_with_liquid_above_the_midpoint_of_the_cup",
-            "split-cookie__the_cookie_broken_into_smaller_pieces",
-            "split-cookie__the_complete_cookie",
-        }
-    ),
     "release_public4_extension": frozenset(
         {
             "americano__the_glass_cup_that_is_glasses_contain_light_colored_liquid",
@@ -152,8 +134,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Release protocol declared by the manifest. Required with "
-            "--strict-release (paper_public3, release_public4_extension, or "
-            "release_r4d_dense89, or release_r4d_dense89_renderer_consistent)."
+            "--strict-release (release_public4_extension or "
+            "release_r4d_dense89_renderer_consistent)."
         ),
     )
     return parser.parse_args()

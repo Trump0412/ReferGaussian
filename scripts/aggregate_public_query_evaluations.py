@@ -16,7 +16,7 @@ METRICS = (
     "vIoU",
     "temporal_tIoU",
     "temporal_frame_accuracy",
-    "mean_annotated_frame_iou",
+    "intersection_frame_mean_iou",
     "annotated_volume_iou",
     "temporal_precision",
     "temporal_recall",
@@ -108,7 +108,7 @@ def main() -> None:
         lines = [
             "# Aggregated Public Query Evaluation",
             "",
-            f"- Metric protocol: `{(output.get('metric_protocol') or {}).get('id', 'legacy_input_without_id')}`",
+            f"- Metric protocol: `{(output.get('metric_protocol') or {}).get('id', 'missing_metric_protocol')}`",
             f"- Complete coverage: `{summary['complete']}` ({summary['valid_queries']} / {summary['expected_queries']})",
             f"- Acc / vIoU / tIoU: `{pct(summary['Acc'])}` / `{pct(summary['vIoU'])}` / `{pct(summary['temporal_tIoU'])}`",
             f"- Annotated volume IoU: `{pct(summary['annotated_volume_iou'])}`",

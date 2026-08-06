@@ -1,71 +1,41 @@
-# Metric Definitions and Compatibility
+# Time-Sensitive Evaluation Metrics
 
-ReferGaussian keeps the accepted-paper definitions and the executable legacy
-evaluators distinguishable. They are not silently treated as the same metric.
+The released evaluators implement the time-sensitive protocol used in the
+camera-ready paper for both released benchmarks:
 
-## Paper-declared metrics
+- Public HyperNeRF: 4 scenes and 9 English queries.
+- R4D-Bench-QA: 12 scenes and 89 English queries.
 
-The paper defines:
+For query `q`, let `F_q` be its evaluated timeline, `T_q` the predicted active
+frames, and `T*_q` the ground-truth active frames. `M_t` and `M*_t` are the
+predicted and ground-truth binary masks at frame `t`.
 
-- **Acc**: exact equality between the predicted referent set and the ground
-  truth referent set, averaged over queries.
-- **vIoU**: intersection over union of the full predicted and ground-truth
-  spatiotemporal mask volumes, averaged over queries.
+## Acc
 
-The currently released dense annotations do not expose a complete auditable
-mapping from every predicted entity identity to every ground-truth instance
-set, and the R4D dense tier does not provide exhaustive masks for every video
-frame. The release therefore does not manufacture these two values from
-different quantities. Evaluator JSON records their paper fields as `null`.
+`Acc(q)` is frame-wise temporal activation accuracy over every frame in `F_q`:
 
-## Executable compatibility metrics
+```text
+Acc(q) = (1 / |F_q|) sum_t 1[1[t in T_q] = 1[t in T*_q]]
+```
 
-Historical outputs use the following compatibility aliases:
+## vIoU
 
-- R4D `Acc`: temporal binary accuracy at rendered sample timestamps.
-- Public `Acc`: temporal binary accuracy over the public timeline.
-- `vIoU`: arithmetic mean of 2D mask IoU over the evaluator's annotated mask
-  frames. Missing required masks score zero.
-- `tIoU`: intersection over union of predicted and ground-truth active time.
-  R4D first applies nearest-sample hold from its sparse upstream 4DGS test
-  grid; Public uses its dense timeline directly.
+`vIoU(q)` combines temporal localization and spatial overlap:
 
-New JSON output keeps `Acc`, `vIoU`, and `tIoU`/`temporal_tIoU` for backward
-compatibility and adds explicit aliases:
+```text
+vIoU(q) = (1 / |T_q union T*_q|)
+           sum_(t in T_q intersection T*_q) IoU(M_t, M*_t)
+```
 
-- `temporal_frame_accuracy`;
-- `mean_annotated_frame_iou`;
-- `annotated_volume_iou`, computed as the sum of annotated-frame pixel
-  intersections divided by the sum of annotated-frame pixel unions.
+Frames outside the temporal intersection contribute zero through the temporal
+union denominator. A valid zero-target query obtains `Acc = vIoU = 1` only
+when the prediction is empty throughout the evaluated timeline. An unresolved
+selection, missing required output, or incomplete manifest fails strict
+evaluation; it is not converted into an empty prediction.
 
-`annotated_volume_iou` is a useful area-weighted diagnostic. It is not labeled
-as paper full-volume vIoU unless annotation coverage is proven exhaustive.
+Reported `Acc` and `vIoU` are arithmetic means of the query-level values.
+`tIoU`, temporal precision/recall, overlap-frame mean IoU, and annotated-volume
+IoU are emitted only as diagnostics.
 
-## Empty targets
-
-- Every new selection is labeled `resolved`, `semantic_empty`, or
-  `unresolved`. Phrase misses, missing tracks, timeouts, and other pipeline
-  failures are `unresolved`; they receive no metric and make a complete report
-  fail.
-- Empty ground truth and empty prediction receive `1.0` spatial and temporal
-  IoU only when the prediction is labeled `semantic_empty` by the inference
-  contract.
-- Empty ground truth with any predicted activity receives `0.0` spatial and
-  temporal IoU.
-- A benchmark cannot obtain 100% from an empty list of queries: complete
-  coverage checks require every expected query ID.
-
-Every report must include overall, non-empty-only, and zero-target correctness
-results together. Aggregation refuses to mix evaluator protocol IDs.
-
-Evaluator JSON also embeds SHA-256 identities for the benchmark/protocol,
-annotation, manifest, and mapping files used to produce that report. Batch
-provenance records the pinned Qwen manifest, model metadata, weight filenames
-and sizes, source commit, frozen 4DGS checkpoints, and data metadata.
-
-## Protocol registry
-
-Scene/query scopes, source hashes, and protocol status are frozen in
-[`configs/benchmarks/release_protocols.json`](../configs/benchmarks/release_protocols.json).
-Paper-reported, dense-release, extension, and archival subset results must use
-their own identifiers and output directories.
+Every report records the protocol id, query manifest, source hashes, and
+coverage status. Formal runs require complete query and spatial coverage.

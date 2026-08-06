@@ -12,7 +12,7 @@ The supported path contains:
 2. Grounded-SAM2 multi-frame mask evidence;
 3. training-free mask-supported Gaussian entity lifting;
 4. EntityBank selection and Gaussian-only mask rendering;
-5. strict Public and R4D-Bench-QA evaluators.
+5. strict time-sensitive Public and R4D-Bench-QA evaluators.
 
 The repository intentionally excludes custom reconstruction code, scene-quality
 metrics, scene checkpoints, model weights, rendered benchmark outputs,
@@ -41,23 +41,17 @@ checkpoint is never optimized by ReferGaussian.
 
 ## Protocol Identities
 
-The executable R4D dense tier contains 89 English queries over 12 scenes:
+The camera-ready R4D-Bench-QA protocol contains 89 English queries over 12 scenes:
 
 - 36 temporal/dynamic queries;
 - 29 multi-target or reasoning queries;
 - 24 zero-target or distractor queries.
 
-The accepted paper reports a separate 12-scene, 266-sentence annotation
-identity. It is kept separate because the complete 266-sentence executable
-artifact is not part of this repository.
+The camera-ready Public protocol is `release_public4_extension`: 4 HyperNeRF
+scenes and 9 English time-sensitive queries.
 
-Public identities are:
-
-- `paper_public3`: 3 scenes, 7 dynamic queries;
-- `release_public4_extension`: 4 scenes, 9 dynamic queries.
-
-All counts, source hashes, category counts, and scene lists are frozen in
-`configs/benchmarks/release_protocols.json`.
+These are the only formal release protocols. Counts, source hashes, category
+counts, and scene lists are frozen in `configs/benchmarks/release_protocols.json`.
 
 ## Strict Execution
 

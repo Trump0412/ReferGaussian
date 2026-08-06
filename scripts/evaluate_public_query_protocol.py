@@ -9,19 +9,18 @@ from PIL import Image, ImageDraw
 
 
 METRIC_PROTOCOL = {
-    "id": "legacy_public_evaluator_v1_with_audit_fields",
-    "legacy_aliases": {
-        "Acc": "temporal_frame_accuracy",
-        "vIoU": "mean_annotated_frame_iou",
-        "temporal_tIoU": "temporal_iou",
-    },
-    "audit_fields": {
-        "annotated_volume_iou": (
-            "pixel intersection sum divided by pixel union sum over available "
-            "annotation-mask frames in the temporal union"
+    "id": "time_sensitive_v1",
+    "definitions": {
+        "Acc": "frame-wise temporal activation accuracy over all evaluated frames",
+        "vIoU": (
+            "mean mask IoU over the predicted/ground-truth active-frame union; "
+            "only active-frame intersections contribute a mask IoU"
         ),
-        "paper_exact_set_accuracy": "unavailable_without_auditable_predicted_and_gt_instance_sets",
-        "paper_full_volume_iou": "not_asserted_unless_annotation-frame_coverage_is_exhaustive",
+        "temporal_tIoU": "temporal active-frame IoU retained as a diagnostic",
+    },
+    "diagnostics": {
+        "intersection_frame_mean_iou": "mean mask IoU on temporally overlapping frames",
+        "annotated_volume_iou": "pixel intersection sum divided by pixel union sum",
     },
     "empty_set_rule": {
         "empty_gt_empty_prediction": 1.0,
@@ -374,7 +373,13 @@ def evaluate_query(
         pred_full_mask,
         gt_full_mask,
     )
-    viou = 1.0 if union_count == 0 and temporal_union == 0 else _safe_div(iou_sum, union_count)
+    # vIoU follows the paper's time-sensitive protocol. Every frame in the
+    # temporal union is counted; frames outside the temporal intersection
+    # contribute zero mask IoU.
+    viou = 1.0 if temporal_union == 0 else _safe_div(iou_sum, temporal_union)
+    intersection_frame_mean_iou = (
+        1.0 if temporal_union == 0 else _safe_div(iou_sum, overlap_count)
+    )
     if spatial_union_pixels == 0:
         annotated_volume_iou = 1.0 if temporal_union == 0 else 0.0
     else:
@@ -409,10 +414,8 @@ def evaluate_query(
         "vIoU": viou,
         "temporal_tIoU": temporal_iou,
         "temporal_frame_accuracy": acc,
-        "mean_annotated_frame_iou": viou,
+        "intersection_frame_mean_iou": intersection_frame_mean_iou,
         "annotated_volume_iou": annotated_volume_iou,
-        "paper_exact_set_accuracy": None,
-        "paper_full_volume_iou": None,
         "temporal_precision": temporal_precision,
         "temporal_recall": temporal_recall,
         "temporal_f1": temporal_f1,
@@ -439,7 +442,7 @@ _METRIC_KEYS = (
     "vIoU",
     "temporal_tIoU",
     "temporal_frame_accuracy",
-    "mean_annotated_frame_iou",
+    "intersection_frame_mean_iou",
     "annotated_volume_iou",
     "temporal_precision",
     "temporal_recall",
@@ -649,8 +652,8 @@ def main() -> None:
             "# Public Query Benchmark",
             "",
             f"- Metric protocol: `{METRIC_PROTOCOL['id']}`",
-            "- Legacy `Acc` is temporal-frame accuracy; legacy `vIoU` is mean annotated-frame mask IoU.",
-            "- Paper exact-set Acc and exhaustive full-volume vIoU are not inferred from unavailable identities/masks.",
+            "- Acc is frame-wise temporal activation accuracy over all evaluated frames.",
+            "- vIoU is overlap-frame mask IoU averaged over the temporal union.",
             f"- Category: `{args.category or 'all'}`",
             f"- Scene: `{args.scene or 'all'}`",
             f"- Queries: `{summary['query_count']}`",
@@ -674,15 +677,15 @@ def main() -> None:
             f"`{summary['spatial_missing_binary_mask_frames']}` / `{summary['spatial_unmapped_gt_mask_frames']}`)",
             f"- warnings: `{summary['warning_count']}`",
             "",
-            "| Query | Acc(%) | mean-frame IoU(%) | annotated-volume IoU(%) | tIoU(%) | tPrec(%) | tRec(%) | Target | Warnings | Pred Segments | GT Segments |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+            "| Query | Acc(%) | vIoU(%) | overlap-frame IoU(%) | annotated-volume IoU(%) | tIoU(%) | tPrec(%) | tRec(%) | Target | Warnings | Pred Segments | GT Segments |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
         for row in per_query:
             def fmt(value):
                 return f"{value * 100.0:.2f}" if value is not None else "n/a"
 
             lines.append(
-                f"| {row['query_slug']} | {fmt(row.get('Acc'))} | {fmt(row.get('vIoU'))} | {fmt(row.get('annotated_volume_iou'))} | {fmt(row.get('temporal_tIoU'))} | {fmt(row.get('temporal_precision'))} | {fmt(row.get('temporal_recall'))} | {row.get('target_object', '')} | {','.join(row.get('score_warnings', []))} | {row.get('predicted_time_segments', [])} | {row.get('gt_time_segments', [])} |"
+                f"| {row['query_slug']} | {fmt(row.get('Acc'))} | {fmt(row.get('vIoU'))} | {fmt(row.get('intersection_frame_mean_iou'))} | {fmt(row.get('annotated_volume_iou'))} | {fmt(row.get('temporal_tIoU'))} | {fmt(row.get('temporal_precision'))} | {fmt(row.get('temporal_recall'))} | {row.get('target_object', '')} | {','.join(row.get('score_warnings', []))} | {row.get('predicted_time_segments', [])} | {row.get('gt_time_segments', [])} |"
             )
         Path(args.output_md).write_text("\n".join(lines) + "\n", encoding="utf-8")
 

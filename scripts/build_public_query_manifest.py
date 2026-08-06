@@ -23,24 +23,8 @@ SCENE_PATHS: dict[str, tuple[str, str]] = {
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL_REGISTRY_PATH = REPO_ROOT / "configs" / "benchmarks" / "release_protocols.json"
-FORMAL_PUBLIC_PROTOCOLS = frozenset(
-    {
-        "paper_public3",
-        "release_public4_extension",
-    }
-)
+FORMAL_PUBLIC_PROTOCOLS = frozenset({"release_public4_extension"})
 PUBLIC_PROTOCOL_QUERY_IDS = {
-    "paper_public3": frozenset(
-        {
-            "americano__the_glass_cup_that_is_glasses_contain_light_colored_liquid",
-            "americano__the_glass_cup_that_is_liquid_become_darker_in_glasses",
-            "espresso__the_empty_glass_cup",
-            "espresso__the_full_glass_cup",
-            "espresso__the_glass_cup_with_liquid_above_the_midpoint_of_the_cup",
-            "split-cookie__the_cookie_broken_into_smaller_pieces",
-            "split-cookie__the_complete_cookie",
-        }
-    ),
     "release_public4_extension": frozenset(
         {
             "americano__the_glass_cup_that_is_glasses_contain_light_colored_liquid",
@@ -327,8 +311,8 @@ def main() -> int:
         choices=sorted(SCENE_PATHS),
         default=None,
         help=(
-            "Optional exact scene subset. Use americano split-cookie espresso "
-            "for the three-scene paper protocol; omit for the four-scene extension."
+            "Optional exact scene subset for an explicitly incomplete canary. "
+            "Formal release runs always use all four public scenes."
         ),
     )
     args = parser.parse_args()

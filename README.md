@@ -118,7 +118,7 @@ gs_python scripts/run_benchmark.py 4dlangsplat --gpus 0 1 2 3
 gs_python scripts/run_benchmark.py r4d-bench --gpus 0 1 2 3
 ```
 
-Each command builds a versioned manifest, checks all scene/model/data inputs, runs one worker per GPU, evaluates the complete protocol, and prints `Acc`, `vIoU`, `tIoU`, and the report path. Use `--output /new/empty/directory` for an explicit result location or `--dry-run` to inspect every expanded command.
+Each command builds a versioned manifest, checks all scene/model/data inputs, runs one worker per GPU, evaluates the complete protocol, and prints frame-wise `Acc`, time-sensitive `vIoU`, an auxiliary temporal IoU, and the report path. Use `--output /new/empty/directory` for an explicit result location or `--dry-run` to inspect every expanded command.
 
 ## Evaluation Protocols
 
@@ -127,7 +127,7 @@ Each command builds a versioned manifest, checks all scene/model/data inputs, ru
 | `4dlangsplat` | 4 HyperNeRF scenes, 9 dynamic queries | `release_public4_extension` |
 | `r4d-bench` | 12 scenes, 89 queries: 36 temporal, 29 multi-target/reasoning, 24 zero-target | `release_r4d_dense89_renderer_consistent` |
 
-The accepted-paper Public table is the fixed three-scene, seven-query subset. R4D-Bench zero-target queries score 100 only when both the ground truth and the explicitly resolved semantic-empty prediction are empty. Missing evidence, unresolved selections, and incomplete manifests fail strict evaluation instead of becoming empty predictions.
+The camera-ready Public protocol is the fixed four-scene, nine-query set. R4D-Bench zero-target queries score 100 only when both the ground truth and the explicitly resolved semantic-empty prediction are empty. Missing evidence, unresolved selections, and incomplete manifests fail strict evaluation instead of becoming empty predictions.
 
 Formal output directories retain the protocol id, source hashes, query manifest, batch provenance, per-query validation, and evaluator JSON. No dataset, model checkpoint, scene checkpoint, or generated result bundle is tracked in this repository.
 
